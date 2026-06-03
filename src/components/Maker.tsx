@@ -9,7 +9,9 @@ import {
   canvasToImage,
   fileToImage,
   DEFAULT_TRACE,
-  ROW_CHARS,
+  DEFAULT_CHAR_LINES,
+  SAMPLE_CHAR_LINES,
+  parseCharset,
   waitForColorEngine,
   buildColorFontFromImage,
   makeColorSampleSheet,
@@ -68,6 +70,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [previewText, setPreviewText] = useState('Handmade');
   const [kind, setKind] = useState<Kind>('mono');
   const [colrStatus, setColrStatus] = useState('');
+  const [charsetText, setCharsetText] = useState(DEFAULT_CHAR_LINES.join('\n'));
+  const [warning, setWarning] = useState('');
+  const [detectedRows, setDetectedRows] = useState<number | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
   const isColor = kind !== 'mono';
@@ -78,44 +83,56 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setLog(msg);
   };
 
-  async function run(getImage: () => Promise<HTMLImageElement | ImageBitmap>) {
+  async function run(
+    getImage: () => Promise<HTMLImageElement | ImageBitmap>,
+    charLinesOverride?: string[],
+  ) {
     setPhase('working');
     setResult(null);
     setStageIdx(-1);
     setError('');
+    setWarning('');
+    setDetectedRows(null);
     setPreviewFam('');
     setPublishedId(null);
     setPublishErr('');
     setColrStatus('');
+    const rows = charLinesOverride ?? parseCharset(charsetText);
     const t0 = performance.now();
     const fam = family.trim() || 'Handmade';
     try {
+      if (!rows.length) throw new Error('add at least one row of characters to the charset');
       let res: FontResult;
       let count = 0;
       let colr = '';
+      let warn = '';
       if (isColor) {
         await waitForColorEngine();
         const img = await getImage();
         setStage(0, 'reading the sheet');
-        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, (step, message) =>
+        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, (step, message) =>
           setStage(COLOR_STEP_STAGE[step] ?? 1, message),
         );
         res = { otf: cres.otf, woff2: cres.woff2 };
         count = cres.charCount;
         colr = cres.colrStatus;
         setColrStatus(colr);
+        warn = cres.rowWarning || (cres.glowWarning ? 'several letters look filled in (counters lost). Check the result, or raise the threshold.' : '');
       } else {
         await waitForEngine();
         const img = await getImage();
-        const glyphs = await traceSheet(img, ROW_CHARS, DEFAULT_TRACE, (step, message) =>
+        const trace = await traceSheet(img, rows, DEFAULT_TRACE, (step, message) =>
           setStage(STEP_STAGE[step] ?? 2, message),
         );
-        if (!glyphs.length) throw new Error('no glyphs traced — try a cleaner sheet (dark letters on white)');
-        count = glyphs.length;
-        res = await buildFont(glyphs, { family: fam, formats: ['otf', 'ttf', 'woff2'] }, (step, message) =>
+        setDetectedRows(trace.detectedRows);
+        if (!trace.glyphs.length) throw new Error('no glyphs traced. Try a cleaner sheet (dark letters on white).');
+        count = trace.glyphs.length;
+        warn = trace.rowWarning;
+        res = await buildFont(trace.glyphs, { family: fam, formats: ['otf', 'ttf', 'woff2'] }, (step, message) =>
           setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
       }
+      if (warn) setWarning(warn);
       setGlyphCount(count);
       setStageIdx(stages.length);
       setResult(res);
@@ -174,7 +191,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     }
   }
 
-  const onSample = () =>
+  const onSample = () => {
+    setCharsetText(SAMPLE_CHAR_LINES.join('\n')); // the sample is exactly these 3 rows
     run(async () => {
       try {
         await (document as any).fonts.load('700 130px "Anton"');
@@ -182,7 +200,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         /* fall back to system font */
       }
       return canvasToImage(isColor ? makeColorSampleSheet() : makeSampleSheet());
-    });
+    }, SAMPLE_CHAR_LINES);
+  };
 
   const onFile = (file: File | undefined) => {
     if (file) run(() => fileToImage(file));
@@ -222,7 +241,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <span className="fh-eyebrow">01 · the sheet</span>
           <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
-            {isColor ? 'colour letters on white · 3 rows' : 'dark letters on white · 3 rows'}
+            {isColor ? 'colour letters on white' : 'dark letters on white'}
           </span>
         </div>
 
@@ -277,6 +296,25 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         </div>
 
         <div style={{ marginTop: 22 }}>
+          <label className="fh-mono" style={{ fontSize: 11, letterSpacing: '.06em', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
+            <span style={{ color: 'var(--ink-faint)' }}>CHARSET · one row per line</span>
+            <span style={{ color: detectedRows != null && detectedRows !== parseCharset(charsetText).length ? 'var(--signal)' : 'var(--ink-faint)' }}>
+              {parseCharset(charsetText).length} rows{detectedRows != null ? ` · ${detectedRows} detected` : ''}
+            </span>
+          </label>
+          <textarea
+            className="fh-input"
+            style={{ width: '100%', resize: 'vertical', minHeight: 92, fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.6, whiteSpace: 'pre', overflowWrap: 'normal' }}
+            value={charsetText}
+            spellCheck={false}
+            onChange={(e) => setCharsetText(e.target.value)}
+          />
+          <div className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 6, lineHeight: 1.5 }}>
+            Match these rows to what is on your sheet, top to bottom. The maker maps row by row.
+          </div>
+        </div>
+
+        <div style={{ marginTop: 22 }}>
           <label className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', letterSpacing: '.06em', display: 'block', marginBottom: 7 }}>
             NAME
           </label>
@@ -328,6 +366,28 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, ((stageIdx + 1) / stages.length) * 100))}%`, background: 'var(--signal)', transition: 'width .4s var(--ease)' }} />
           </div>
         </div>
+
+        {/* warning: the font built, but something looks off (row mismatch, lost counters) */}
+        {warning && phase !== 'working' && (
+          <div
+            className="fh-mono"
+            style={{
+              marginTop: 16,
+              padding: '11px 13px',
+              borderRadius: 2,
+              background: '#fbf0db',
+              border: '1px solid #e6c27e',
+              color: '#7a5b18',
+              fontSize: 11.5,
+              lineHeight: 1.5,
+              display: 'flex',
+              gap: 9,
+            }}
+          >
+            <span aria-hidden="true">▲</span>
+            <span>{warning}</span>
+          </div>
+        )}
 
         {/* result / preview */}
         <div style={{ marginTop: 16, minHeight: 92 }}>

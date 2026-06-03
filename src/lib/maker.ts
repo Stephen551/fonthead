@@ -63,12 +63,33 @@ export interface FontResult {
 
 export type Progress = (step: string, message: string) => void;
 
-// Standard three-row sheet: A-Z, a-z, 0-9, top to bottom.
-export const ROW_CHARS = [
+// What the built-in sample sheet contains (3 clean rows). The sample button
+// sets the charset to match this exactly.
+export const SAMPLE_CHAR_LINES = [
   'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
   'abcdefghijklmnopqrstuvwxyz',
   '0123456789',
 ];
+
+// The editable default for an uploaded sheet — includes a punctuation row.
+// The user corrects this to match whatever their sheet actually has.
+export const DEFAULT_CHAR_LINES = [
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  'abcdefghijklmnopqrstuvwxyz',
+  '0123456789',
+  ".,!?:;'-&@#",
+];
+
+// Back-compat alias (the sample generators render this).
+export const ROW_CHARS = SAMPLE_CHAR_LINES;
+
+/** Parse a charset textarea (one row per line) into non-empty rows. */
+export function parseCharset(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trimEnd())
+    .filter((l) => l.length > 0);
+}
 
 const ENGINE_VERSION = '0.8.59';
 
@@ -179,13 +200,21 @@ async function rowToGlyphs(
   return glyphs;
 }
 
-/** Trace a loaded image (alphabet sheet) into glyph objects. */
+export interface TraceResult {
+  glyphs: Glyph[];
+  rowWarning: string;
+  detectedRows: number;
+}
+
+/** Trace a loaded image (alphabet sheet) into glyph objects, and report a
+ *  row-mismatch warning when the detected row count differs from the charset
+ *  (the loudest "this is misaligned" signal, mirroring the source tool). */
 export async function traceSheet(
   img: HTMLImageElement | ImageBitmap,
   rowChars: string[],
   opts: TraceOpts,
   onProgress?: Progress,
-): Promise<Glyph[]> {
+): Promise<TraceResult> {
   const TC = w().TracerCore;
   const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
   const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
@@ -193,14 +222,19 @@ export async function traceSheet(
   const bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, opts.weight);
   onProgress?.('slice', 'detecting rows + cells');
   const rows = TC.detectRowsInBinary(bin.data, bin.w, bin.h);
+  const lines = rowChars.filter((r) => r.length > 0);
+  const rowWarning =
+    rows.length !== lines.length
+      ? `detected ${rows.length} rows but your charset has ${lines.length} lines. Glyphs are probably misaligned; edit the charset to match your sheet.`
+      : '';
   let glyphs: Glyph[] = [];
-  const n = Math.min(rows.length, rowChars.length);
+  const n = Math.min(rows.length, lines.length);
   for (let i = 0; i < n; i++) {
     onProgress?.('trace', `row ${i + 1}/${n} · contours`);
-    const g = await rowToGlyphs(bin.data, bin.w, bin.h, rows[i][0], rows[i][1], rowChars[i], opts);
+    const g = await rowToGlyphs(bin.data, bin.w, bin.h, rows[i][0], rows[i][1], lines[i], opts);
     glyphs = glyphs.concat(g);
   }
-  return glyphs;
+  return { glyphs, rowWarning, detectedRows: rows.length };
 }
 
 // ---- worker font build -----------------------------------------------------
@@ -359,6 +393,8 @@ export interface ColorResult {
   mode: ColorMode;
   colrStatus: string;
   charCount: number;
+  rowWarning?: string;
+  glowWarning?: boolean;
 }
 
 /** Resolve once the colour engine + main-thread wawoff2 are present. */
@@ -386,13 +422,14 @@ export async function buildColorFontFromImage(
   img: HTMLImageElement | ImageBitmap,
   mode: ColorMode,
   family: string,
+  charLines: string[],
   onProgress?: Progress,
 ): Promise<ColorResult> {
   onProgress?.('separate', mode === 'gradient' ? 'palette + gradient sampling' : 'palette + colour separation');
   const res = await w().ColorMaker.buildColorFromImage(img, {
     mode,
     familyName: family || 'Color Font',
-    charLines: ROW_CHARS,
+    charLines: charLines.filter((l) => l.length > 0),
   });
   onProgress?.('build', `COLR ${res.colrStatus} · packing`);
   // correct table checksums BEFORE wrapping woff2 (so the woff2 wraps valid otf)
@@ -410,6 +447,8 @@ export async function buildColorFontFromImage(
     mode,
     colrStatus: res.colrStatus,
     charCount: res.charCount ?? 0,
+    rowWarning: res.rowWarning || '',
+    glowWarning: !!res.glowWarning,
   };
 }
 
