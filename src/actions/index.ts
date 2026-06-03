@@ -12,23 +12,47 @@ async function requireUser(ctx: { locals: App.Locals; request: Request }) {
   return { env, userId: session.user.id };
 }
 
+// A font is interactable (vote/favorite) only if it exists and is public, or
+// the viewer owns it. Prevents voting/favoriting on others' private fonts.
+async function assertInteractable(env: Env, fontId: string, userId: string) {
+  const font = await env.DB.prepare('SELECT visibility, owner_id FROM fonts WHERE id = ?')
+    .bind(fontId)
+    .first<{ visibility: string; owner_id: string | null }>();
+  if (!font) throw new ActionError({ code: 'NOT_FOUND', message: 'No such font.' });
+  if (font.visibility === 'private' && font.owner_id !== userId) {
+    throw new ActionError({ code: 'NOT_FOUND', message: 'No such font.' });
+  }
+}
+
+const MAX_FONT_BYTES = 5 * 1024 * 1024;
+const tag4 = (u: Uint8Array) => String.fromCharCode(u[0], u[1], u[2], u[3]);
+const u32 = (u: Uint8Array) => ((u[0] << 24) | (u[1] << 16) | (u[2] << 8) | u[3]) >>> 0;
+const isOtf = (u: Uint8Array) => tag4(u) === 'OTTO' || u32(u) === 0x00010000;
+const isTtf = (u: Uint8Array) => u32(u) === 0x00010000 || tag4(u) === 'true' || tag4(u) === 'ttcf';
+const isWoff2 = (u: Uint8Array) => tag4(u) === 'wOF2';
+
 export const server = {
   toggleVote: defineAction({
     input: z.object({ fontId: z.string().min(1) }),
     handler: async ({ fontId }, ctx) => {
       const { env, userId } = await requireUser(ctx);
+      await assertInteractable(env, fontId, userId);
       const existing = await env.DB.prepare('SELECT 1 FROM votes WHERE user_id = ? AND font_id = ?')
         .bind(userId, fontId)
         .first();
+      // recount from the votes table in the same batch so votes_count cannot drift
+      const recount = env.DB
+        .prepare('UPDATE fonts SET votes_count = (SELECT COUNT(*) FROM votes WHERE font_id = ?) WHERE id = ?')
+        .bind(fontId, fontId);
       if (existing) {
         await env.DB.batch([
           env.DB.prepare('DELETE FROM votes WHERE user_id = ? AND font_id = ?').bind(userId, fontId),
-          env.DB.prepare('UPDATE fonts SET votes_count = MAX(0, votes_count - 1) WHERE id = ?').bind(fontId),
+          recount,
         ]);
       } else {
         await env.DB.batch([
           env.DB.prepare('INSERT OR IGNORE INTO votes (user_id, font_id) VALUES (?, ?)').bind(userId, fontId),
-          env.DB.prepare('UPDATE fonts SET votes_count = votes_count + 1 WHERE id = ?').bind(fontId),
+          recount,
         ]);
       }
       const row = await env.DB.prepare('SELECT votes_count FROM fonts WHERE id = ?')
@@ -42,6 +66,7 @@ export const server = {
     input: z.object({ fontId: z.string().min(1) }),
     handler: async ({ fontId }, ctx) => {
       const { env, userId } = await requireUser(ctx);
+      await assertInteractable(env, fontId, userId);
       const existing = await env.DB.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND font_id = ?')
         .bind(userId, fontId)
         .first();
@@ -97,9 +122,16 @@ export const server = {
       const ttf = new Uint8Array(await input.ttf.arrayBuffer());
       const woff2 = new Uint8Array(await input.woff2.arrayBuffer());
 
-      // basic sanity: woff2 signature + non-trivial size
-      if (woff2.length < 256 || otf.length < 256) {
+      // size floor (must have built) + ceiling (no unbounded R2 writes)
+      if (otf.length < 256 || ttf.length < 256 || woff2.length < 256) {
         throw new ActionError({ code: 'BAD_REQUEST', message: 'That font did not build correctly.' });
+      }
+      if (otf.length > MAX_FONT_BYTES || ttf.length > MAX_FONT_BYTES || woff2.length > MAX_FONT_BYTES) {
+        throw new ActionError({ code: 'BAD_REQUEST', message: 'Font file too large.' });
+      }
+      // validate real font signatures (don't trust the client-declared type)
+      if (!isOtf(otf) || !isTtf(ttf) || !isWoff2(woff2)) {
+        throw new ActionError({ code: 'BAD_REQUEST', message: 'Those are not valid font files.' });
       }
 
       await env.FONTS.put(keys.otf, otf, { httpMetadata: { contentType: 'font/otf' } });

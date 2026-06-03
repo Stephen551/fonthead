@@ -125,10 +125,14 @@ export const cdnUrl = (key: string) => `/cdn/${key}`;
 /** The CSS @font-face family name for a font id. */
 export const familyOf = (id: string) => `fh-${id}`;
 
+// Only emit keys that match the safe object-key shape, so nothing can break out
+// of the CSS string context (ids/keys are slugified, this is defence in depth).
+const SAFE_KEY = /^fonts\/[\w.-]+\.woff2$/;
+
 /** One @font-face rule per font, pointing at the R2-served woff2. */
 export function fontFaceCss(fonts: Font[]): string {
   return fonts
-    .filter((f) => f.woff2_key)
+    .filter((f) => f.woff2_key && SAFE_KEY.test(f.woff2_key))
     .map(
       (f) =>
         `@font-face{font-family:'${familyOf(f.id)}';` +

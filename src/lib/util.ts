@@ -39,15 +39,27 @@ export async function ensureHandle(
   if (row?.handle) return row.handle;
 
   const base = slugify(name || (email || '').split('@')[0] || 'maker');
-  let handle = base;
-  let n = 1;
-  // find a free handle
-  while (await db.prepare('SELECT 1 FROM "user" WHERE handle = ? AND id <> ?').bind(handle, userId).first()) {
-    handle = `${base}-${++n}`;
+  const claim = async (handle: string): Promise<boolean> => {
+    const taken = await db.prepare('SELECT 1 FROM "user" WHERE handle = ? AND id <> ?').bind(handle, userId).first();
+    if (taken) return false;
+    try {
+      await db
+        .prepare('UPDATE "user" SET handle = ?, "updatedAt" = ? WHERE id = ?')
+        .bind(handle, new Date().toISOString(), userId)
+        .run();
+      return true;
+    } catch {
+      // UNIQUE(handle) conflict from a concurrent claim — caller retries
+      return false;
+    }
+  };
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
+    if (await claim(candidate)) return candidate;
   }
-  await db
-    .prepare('UPDATE "user" SET handle = ?, "updatedAt" = ? WHERE id = ?')
-    .bind(handle, new Date().toISOString(), userId)
-    .run();
-  return handle;
+  // last resort: random suffix
+  const fallback = `${base}-${Math.random().toString(36).slice(2, 7)}`;
+  await claim(fallback);
+  return fallback;
 }

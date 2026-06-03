@@ -19,7 +19,9 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   const row = await env.DB.prepare('SELECT visibility, owner_id FROM fonts WHERE id = ?')
     .bind(id)
     .first<{ visibility: string; owner_id: string | null }>();
-  const isPrivate = row?.visibility === 'private';
+  // no DB row = untracked key (e.g. a deleted font): do not serve from R2
+  if (!row) return new Response('Not found', { status: 404 });
+  const isPrivate = row.visibility === 'private';
 
   if (isPrivate) {
     const auth = createAuth(env);
