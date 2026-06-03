@@ -1,0 +1,164 @@
+---
+import Base from '../../layouts/Base.astro';
+import FHNav from '../../components/FHNav.astro';
+import Badge from '../../components/Badge.astro';
+import { getFont, fontFaceCss, specClass, specStyle, familyOf, kb } from '../../lib/fonts';
+
+export const prerender = false;
+
+const { id } = Astro.params;
+const env = Astro.locals.runtime.env;
+const f = id ? await getFont(env.DB, id) : null;
+
+if (!f) {
+  return new Response('Font not found', { status: 404 });
+}
+
+const m = f.meta;
+const faceCss = fontFaceCss([f]);
+const family = familyOf(f.id);
+const fmt = m.treat === 'variable' ? 'variable' : 'static';
+const published = (() => {
+  const d = new Date(f.created_at.replace(' ', 'T') + 'Z');
+  if (isNaN(d.getTime())) return f.created_at;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getUTCMonth() + 1)}·${p(d.getUTCDate())}·${d.getUTCFullYear()}`;
+})();
+const defaultSize = f.specimen_word.length > 7 ? 104 : 132;
+const slug = f.name.toLowerCase().replace(/ /g, '-');
+
+const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const lower = 'abcdefghijklmnopqrstuvwxyz';
+const other = '0123456789&?!@#.,()$';
+const specInline = specStyle(f.id, m);
+---
+
+<Base title={`${f.name} · fonthead.dev`}>
+  <style slot="head" is:inline set:html={faceCss}></style>
+
+  <div style="background:var(--paper);min-height:100vh;">
+    <FHNav active="library" />
+
+    <!-- back + title row -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 40px;border-bottom:1px solid var(--line);">
+      <a href="/" class="fh-mono" style="font-size:12.5px;color:var(--ink-soft);text-decoration:none;display:inline-flex;gap:8px;align-items:center;">
+        <span>&larr;</span> library / {slug}
+      </a>
+      <div style="display:flex;gap:9px;align-items:center;">
+        <Badge kind={m.badge} />
+        <Badge vis={f.visibility === 'private' ? 'private' : null} />
+        <span class="fh-mono" style="font-size:11px;color:var(--ink-faint);">published {published}</span>
+      </div>
+    </div>
+
+    <!-- type-into specimen -->
+    <section style="padding:34px 40px 24px;border-bottom:1px solid var(--line);">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px;">
+        <div>
+          <h1 style="font-size:26px;font-weight:600;margin:0;letter-spacing:-.02em;">{f.name}</h1>
+          <div class="fh-mono" style="font-size:12px;color:var(--ink-soft);margin-top:6px;">
+            by {f.maker_handle}
+            {m.standIn && <span style="color:var(--ink-faint);">&nbsp;&nbsp;·&nbsp;&nbsp;open-license face, standing in</span>}
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <span class="fh-fav" aria-hidden="true" style="width:38px;height:38px;">
+            <svg viewBox="0 0 24 24" style="width:17px;height:17px;"><path d="M12 20s-7-4.4-9.2-8.3C1.3 8.9 2.6 5.5 5.8 5.5c2 0 3.3 1.4 3.9 2.4 0 0 .1.2.3.2s.3-.2.3-.2c.6-1 1.9-2.4 3.9-2.4 3.2 0 4.5 3.4 3 6.2C19 15.6 12 20 12 20z"/></svg>
+          </span>
+          <span class="fh-vote"><span class="caret" aria-hidden="true"><svg viewBox="0 0 9 9"><path d="M1.5 5.5L4.5 2.5L7.5 5.5"/></svg></span><span class="fh-count">{f.votes_count.toLocaleString()}</span></span>
+        </div>
+      </div>
+
+      <div style={`position:relative;min-height:${Math.round(defaultSize * 1.15)}px;display:flex;align-items:center;overflow:hidden;padding:6px 0;`}>
+        <div
+          id="specimen"
+          contenteditable="true"
+          spellcheck="false"
+          role="textbox"
+          aria-label={`Type to preview ${f.name}`}
+          class={specClass(m)}
+          style={`${specInline};font-size:${defaultSize}px;line-height:1.06;outline:none;width:100%;white-space:nowrap;caret-color:var(--signal);`}
+        >Type something</div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:20px;margin-top:18px;">
+        <span class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;">SIZE</span>
+        <input id="size" type="range" min="48" max="220" value={defaultSize} class="fh-range" style="flex:1;max-width:420px;" aria-label="Specimen size" />
+        <span id="sizeval" class="fh-mono" style="font-size:12px;color:var(--ink-soft);width:54px;">{defaultSize} px</span>
+        <span style="flex:1;"></span>
+        <span class="fh-mono" style="font-size:11px;color:var(--ink-faint);">click the specimen to type</span>
+      </div>
+    </section>
+
+    <!-- glyph set + metadata -->
+    <div style="display:grid;grid-template-columns:1fr 380px;gap:0;align-items:stretch;">
+      <div style="padding:28px 40px;border-right:1px solid var(--line);">
+        <div class="fh-eyebrow" style="margin-bottom:18px;">Glyph set · {f.glyph_count ?? '—'} total</div>
+        <div style="display:grid;grid-template-columns:repeat(13,1fr);gap:8px;">
+          {(upper + lower + other).split('').map((c) => (
+            <div style="aspect-ratio:1;display:grid;place-items:center;border:1px solid var(--line);border-radius:2px;background:var(--paper);">
+              <span class={specClass(m)} style={`${specInline};font-size:30px;line-height:1;`}>{c}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <aside style="padding:28px 32px;background:var(--paper-2);">
+        <div class="fh-eyebrow" style="margin-bottom:8px;">Files</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px;">
+          <a class="fh-dl" href={`/cdn/${f.woff2_key}`} download={`${slug}.woff2`}>
+            <span class="fh-mono fmt">WOFF2</span><span class="fh-mono sz">{kb(f.woff2_size)}</span>
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M7 1.5v8M3.5 6L7 9.5L10.5 6M2 12.5h10"/></svg>
+          </a>
+          <div class="fh-dl" aria-disabled="true" title="OTF and TTF export ship with the maker (M2)">
+            <span class="fh-mono fmt">OTF</span><span class="fh-mono sz">from the maker</span>
+          </div>
+          <div class="fh-dl" aria-disabled="true" title="OTF and TTF export ship with the maker (M2)">
+            <span class="fh-mono fmt">TTF</span><span class="fh-mono sz">from the maker</span>
+          </div>
+        </div>
+
+        <div class="fh-eyebrow" style="margin-bottom:4px;">Details</div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">glyphs</span>
+          <span class="fh-mono" style="font-size:12.5px;color:var(--ink);">{f.glyph_count ?? '—'}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">format</span>
+          <span class="fh-mono" style="font-size:12.5px;color:var(--ink);">{fmt}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">license</span>
+          <span class="fh-mono" style="font-size:12.5px;color:var(--ink);text-align:right;">OFL</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">visibility</span>
+          <span class="fh-mono" style="font-size:12.5px;color:var(--ink);">{f.visibility}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">designer</span>
+          <span class="fh-mono" style="font-size:12px;color:var(--ink);text-align:right;">{m.designer}</span>
+        </div>
+
+        {m.ofl && (
+          <p class="fh-mono" style="font-size:10px;line-height:1.5;color:var(--ink-faint);margin:14px 0 0;">{m.ofl}</p>
+        )}
+      </aside>
+    </div>
+
+    <footer style="padding:22px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;">
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">a stand-in face · the real makers arrive with the maker</div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
+    </footer>
+  </div>
+</Base>
+
+<script>
+  const slider = document.getElementById('size') as HTMLInputElement | null;
+  const spec = document.getElementById('specimen') as HTMLElement | null;
+  const out = document.getElementById('sizeval');
+  slider?.addEventListener('input', () => {
+    if (spec) spec.style.fontSize = slider.value + 'px';
+    if (out) out.textContent = slider.value + ' px';
+  });
+</script>
