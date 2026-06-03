@@ -1,0 +1,34 @@
+{
+  "name": "fonthead",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "wrangler dev",
+    "check": "astro check",
+    "deploy": "astro build && wrangler deploy",
+    "cf-typegen": "wrangler types",
+    "db:apply:local": "wrangler d1 migrations apply DB --local",
+    "db:apply:remote": "wrangler d1 migrations apply DB --remote",
+    "seed:fonts": "node scripts/seed-fonts.mjs"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^12.6.13",
+    "@astrojs/react": "^4.4.2",
+    "astro": "^5.18.2",
+    "better-auth": "^1.5.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "fontkit": "^2.0.4",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.97.0"
+  }
+}

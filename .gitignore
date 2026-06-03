@@ -1,0 +1,26 @@
+# build output
+dist/
+.astro/
+
+# dependencies
+node_modules/
+
+# cloudflare / wrangler
+.wrangler/
+worker-configuration.d.ts
+
+# local secrets — never commit
+.dev.vars
+.env
+.env.*
+
+# os / editor
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+npm-debug.log*
+
+# design canvas history
+.specstory/

@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fonthead",
+  "main": "dist/_worker.js/index.js",
+  "compatibility_date": "2026-05-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fonthead",
+      "database_id": "f4991cba-1ebf-4d91-8d91-bca4eadb3ad8",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FONTS",
+      "bucket_name": "fonthead-fonts"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "SESSION",
+      "id": "aee8ec3771d54c9187ff2ea2164992c6"
+    }
+  ]
+}
