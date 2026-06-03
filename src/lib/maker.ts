@@ -273,9 +273,11 @@ export function guessCharset(rows: number, cells0: number): string[] {
     case 4:
       return split13 ? [AM, NZ, am, nz] : [AZ, az, digits, punct];
     case 5:
-      return [AM, NZ, am, nz, digits];
+      // non-split has no clean 5-row template — fall back so the row-mismatch
+      // warning fires instead of guessing duplicate/colliding rows.
+      return split13 ? [AM, NZ, am, nz, digits] : DEFAULT_CHAR_LINES;
     case 6:
-      return split13 ? [AM, NZ, am, nz, digits, punct] : [AZ, az, digits, punct, punct, punct];
+      return split13 ? [AM, NZ, am, nz, digits, punct] : DEFAULT_CHAR_LINES;
     default:
       return DEFAULT_CHAR_LINES;
   }
