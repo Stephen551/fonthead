@@ -11,9 +11,12 @@ import {
   detectLayout,
   guessCharset,
   DEFAULT_TRACE,
+  TRACE_PRESETS,
+  DEFAULT_COLOR_OPTS,
   DEFAULT_CHAR_LINES,
   SAMPLE_CHAR_LINES,
   parseCharset,
+  type ColorOpts,
   waitForColorEngine,
   buildColorFontFromImage,
   editColorGlyph,
@@ -57,6 +60,25 @@ const KINDS: { id: Kind; label: string }[] = [
   { id: 'flat', label: 'colour · flat' },
 ];
 
+function RangeRow({ label, min, max, value, onChange }: { label: string; min: number; max: number; value: number; onChange: (v: number) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', width: 96 }}>{label}</span>
+      <input type="range" className="fh-range" min={min} max={max} value={value} onChange={(e) => onChange(+e.target.value)} style={{ flex: 1 }} />
+      <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-soft)', width: 20, textAlign: 'right' }}>{value}</span>
+    </div>
+  );
+}
+
+function ToggleRow({ label, on, onChange }: { label: string; on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button onClick={() => onChange(!on)} className="fh-mono" style={{ fontSize: 11.5, padding: '6px 12px', borderRadius: 2, cursor: 'pointer', border: `1px solid ${on ? 'var(--ink)' : 'var(--line-2)'}`, background: on ? 'var(--ink)' : 'var(--paper)', color: on ? 'var(--paper)' : 'var(--ink-soft)' }}>
+      {label}
+      {on ? ' ✓' : ''}
+    </button>
+  );
+}
+
 export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [family, setFamily] = useState('Handmade');
@@ -84,7 +106,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [editLeft, setEditLeft] = useState(0);
   const [editRight, setEditRight] = useState(0);
   const [editBusy, setEditBusy] = useState(false);
+  const [preset, setPreset] = useState<'glyph' | 'logo' | 'sketch'>('glyph');
+  const [colorOpts, setColorOpts] = useState<ColorOpts>(DEFAULT_COLOR_OPTS);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
+  const lastImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
+  const traceOpts = TRACE_PRESETS[preset];
 
   const isColor = kind !== 'mono';
   const stages = isColor ? COLOR_STAGES : MONO_STAGES;
@@ -124,8 +151,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       if (isColor) {
         await waitForColorEngine();
         const img = await getImage();
+        lastImgRef.current = img;
         setStage(0, 'reading the sheet');
-        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, (step, message) =>
+        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, colorOpts, (step, message) =>
           setStage(COLOR_STEP_STAGE[step] ?? 1, message),
         );
         res = { otf: cres.otf, woff2: cres.woff2 };
@@ -137,7 +165,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       } else {
         await waitForEngine();
         const img = await getImage();
-        const trace = await traceSheet(img, rows, DEFAULT_TRACE, (step, message) =>
+        lastImgRef.current = img;
+        const trace = await traceSheet(img, rows, traceOpts, (step, message) =>
           setStage(STEP_STAGE[step] ?? 2, message),
         );
         setDetectedRows(trace.detectedRows);
@@ -269,6 +298,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       return canvasToImage(isColor ? makeColorSampleSheet() : makeSampleSheet());
     }, SAMPLE_CHAR_LINES);
   };
+
+  function rebuild() {
+    const img = lastImgRef.current;
+    if (img) run(() => Promise.resolve(img));
+  }
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -407,6 +441,50 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             onChange={(e) => setFamily(e.target.value)}
             placeholder="your font's name"
           />
+        </div>
+
+        {/* advanced: trace preset (mono) or colour knobs */}
+        <div style={{ marginTop: 20, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+          <button
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="fh-mono"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--ink-soft)', letterSpacing: '.04em', padding: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            <span style={{ color: 'var(--ink-faint)', display: 'inline-block', transform: showAdvanced ? 'rotate(45deg)' : 'none', transition: 'transform var(--dur) var(--ease)' }}>+</span>
+            advanced
+          </button>
+          {showAdvanced && (
+            <div style={{ marginTop: 12 }}>
+              {!isColor ? (
+                <div>
+                  <label className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', letterSpacing: '.06em', display: 'block', marginBottom: 7 }}>TRACE PRESET</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {(['glyph', 'logo', 'sketch'] as const).map((p) => (
+                      <button key={p} onClick={() => setPreset(p)} className="fh-mono" style={{ fontSize: 11.5, padding: '6px 12px', borderRadius: 2, cursor: 'pointer', border: `1px solid ${preset === p ? 'var(--ink)' : 'var(--line-2)'}`, background: preset === p ? 'var(--ink)' : 'var(--paper)', color: preset === p ? 'var(--paper)' : 'var(--ink-soft)' }}>{p}</button>
+                    ))}
+                  </div>
+                  <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>glyph for clean letters, logo for bolder art, sketch for rough or hand-drawn.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+                  {kind === 'flat' && <RangeRow label="colours (K)" min={2} max={6} value={colorOpts.K ?? 3} onChange={(v) => setColorOpts((o) => ({ ...o, K: v }))} />}
+                  {kind === 'gradient' && <RangeRow label="gradient stops" min={2} max={8} value={colorOpts.stops ?? 5} onChange={(v) => setColorOpts((o) => ({ ...o, stops: v }))} />}
+                  <RangeRow label="background" min={6} max={40} value={colorOpts.bgDist ?? 20} onChange={(v) => setColorOpts((o) => ({ ...o, bgDist: v }))} />
+                  {kind === 'gradient' && (
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <ToggleRow label="outline" on={!!colorOpts.outline} onChange={(v) => setColorOpts((o) => ({ ...o, outline: v }))} />
+                      <ToggleRow label="gloss" on={!!colorOpts.gloss} onChange={(v) => setColorOpts((o) => ({ ...o, gloss: v }))} />
+                    </div>
+                  )}
+                </div>
+              )}
+              {lastImgRef.current && (
+                <button className="fh-btn fh-btn--ghost" disabled={phase === 'working'} onClick={rebuild} style={{ marginTop: 12 }}>
+                  rebuild with these settings
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

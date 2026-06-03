@@ -44,6 +44,23 @@ export const DEFAULT_TRACE: TraceOpts = {
   optcurve: true,
 };
 
+// Mono trace presets (mirrors the source tracer's glyph / logo / sketch).
+export const TRACE_PRESETS: Record<string, TraceOpts> = {
+  glyph: { ...DEFAULT_TRACE, opttolerance: 0.15, turdsize: 2, alphamax: 1.0 },
+  logo: { ...DEFAULT_TRACE, opttolerance: 0.2, turdsize: 4, alphamax: 1.0 },
+  sketch: { ...DEFAULT_TRACE, opttolerance: 0.4, turdsize: 8, alphamax: 1.2 },
+};
+
+// Sheet-level colour knobs passed to the colour build (re-run analysis).
+export interface ColorOpts {
+  K?: number;
+  stops?: number;
+  bgDist?: number;
+  outline?: boolean;
+  gloss?: boolean;
+}
+export const DEFAULT_COLOR_OPTS: ColorOpts = { K: 3, stops: 5, bgDist: 20, outline: false, gloss: false };
+
 export interface Glyph {
   char: string;
   italic: boolean;
@@ -493,6 +510,7 @@ export async function buildColorFontFromImage(
   mode: ColorMode,
   family: string,
   charLines: string[],
+  colorOpts: ColorOpts,
   onProgress?: Progress,
 ): Promise<ColorResult> {
   onProgress?.('separate', mode === 'gradient' ? 'palette + gradient sampling' : 'palette + colour separation');
@@ -500,6 +518,11 @@ export async function buildColorFontFromImage(
     mode,
     familyName: family || 'Color Font',
     charLines: charLines.filter((l) => l.length > 0),
+    K: colorOpts.K,
+    stops: colorOpts.stops,
+    bgDist: colorOpts.bgDist,
+    outline: colorOpts.outline,
+    gloss: colorOpts.gloss,
   });
   onProgress?.('build', `COLR ${res.colrStatus} · packing`);
   // correct table checksums BEFORE wrapping woff2 (so the woff2 wraps valid otf)
