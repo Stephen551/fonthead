@@ -1,7 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Badge from '../../components/Badge.astro';
-import SocialScript from '../../components/SocialScript.astro';
 import { getFont, fontFaceCss, specClass, specStyle, familyOf, kb } from '../../lib/fonts';
 import { createAuth } from '../../lib/auth';
 
@@ -91,6 +90,7 @@ const specInline = specStyle(f.id, m);
           spellcheck="false"
           role="textbox"
           aria-label={`Type to preview ${f.name}`}
+          transition:name={`spec-${f.id}`}
           class={specClass(m)}
           style={`${specInline};font-size:${defaultSize}px;line-height:1.06;outline:none;width:100%;white-space:nowrap;caret-color:var(--signal);`}
         >Type something</div>
@@ -176,16 +176,4 @@ const specInline = specStyle(f.id, m);
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
     </footer>
   </div>
-
-  <SocialScript />
 </Base>
-
-<script>
-  const slider = document.getElementById('size') as HTMLInputElement | null;
-  const spec = document.getElementById('specimen') as HTMLElement | null;
-  const out = document.getElementById('sizeval');
-  slider?.addEventListener('input', () => {
-    if (spec) spec.style.fontSize = slider.value + 'px';
-    if (out) out.textContent = slider.value + ' px';
-  });
-</script>

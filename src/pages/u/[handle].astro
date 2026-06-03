@@ -1,7 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
 import FontCard from '../../components/FontCard.astro';
-import SocialScript from '../../components/SocialScript.astro';
 import { createAuth } from '../../lib/auth';
 import { listFontsByOwner, getUserInteractions, fontFaceCss } from '../../lib/fonts';
 
@@ -59,30 +58,4 @@ const privateCount = fonts.length - publicCount;
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
     </footer>
   </div>
-
-  <SocialScript />
 </Base>
-
-<script>
-  const swap = (el: HTMLElement) => {
-    const fam = el.dataset.font;
-    if (fam) el.style.fontFamily = `'${fam}', var(--sans)`;
-  };
-  const els = document.querySelectorAll<HTMLElement>('.fh-card [data-font]');
-  if ('IntersectionObserver' in window) {
-    const io = new IntersectionObserver(
-      (entries, obs) => {
-        for (const e of entries) {
-          if (e.isIntersecting) {
-            swap(e.target as HTMLElement);
-            obs.unobserve(e.target);
-          }
-        }
-      },
-      { rootMargin: '600px 0px' },
-    );
-    els.forEach((el) => io.observe(el));
-  } else {
-    els.forEach(swap);
-  }
-</script>

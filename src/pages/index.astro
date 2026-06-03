@@ -1,7 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
 import FontCard from '../components/FontCard.astro';
-import SocialScript from '../components/SocialScript.astro';
 import CyclingWordmark, { type HeroFace } from '../components/CyclingWordmark.tsx';
 import { listPublicFonts, getUserInteractions, fontFaceCss, familyOf, type Sort } from '../lib/fonts';
 import { getFeaturedFontIds } from '../lib/featured';
@@ -47,6 +46,7 @@ const heroFaces: HeroFace[] = heroFonts.map((f) => ({
   <style slot="head" is:inline set:html={faceCss}></style>
 
   <div style="min-height:100vh;background:var(--paper);">
+    <h1 class="sr-only">fonthead.dev — a community font library and maker</h1>
     <!-- hero / daily feature -->
     <header style="padding:56px 40px 30px;border-bottom:1px solid var(--line);position:relative;">
       <div class="fh-eyebrow" style="position:absolute;top:24px;left:40px;">fonthead.dev</div>
@@ -89,31 +89,4 @@ const heroFaces: HeroFace[] = heroFonts.map((f) => ({
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
     </footer>
   </div>
-
-  <SocialScript />
 </Base>
-
-<script>
-  // Lazy-load specimen faces as cards near the viewport so the wall stays fast.
-  const swap = (el: HTMLElement) => {
-    const fam = el.dataset.font;
-    if (fam) el.style.fontFamily = `'${fam}', var(--sans)`;
-  };
-  const els = document.querySelectorAll<HTMLElement>('.fh-card [data-font]');
-  if ('IntersectionObserver' in window) {
-    const io = new IntersectionObserver(
-      (entries, obs) => {
-        for (const e of entries) {
-          if (e.isIntersecting) {
-            swap(e.target as HTMLElement);
-            obs.unobserve(e.target);
-          }
-        }
-      },
-      { rootMargin: '600px 0px' },
-    );
-    els.forEach((el) => io.observe(el));
-  } else {
-    els.forEach(swap);
-  }
-</script>

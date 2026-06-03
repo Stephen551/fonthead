@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import { ClientRouter } from 'astro:transitions';
 import FHNav from '../components/FHNav.astro';
 import { createAuth } from '../lib/auth';
 
@@ -35,10 +36,14 @@ try {
     <meta name="description" content={description} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>{title}</title>
+    <ClientRouter />
     <slot name="head" />
   </head>
   <body data-signed-in={navUser ? 'true' : 'false'}>
     <FHNav active={active} user={navUser} />
     <slot />
+    <script>
+      import '../scripts/app';
+    </script>
   </body>
 </html>

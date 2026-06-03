@@ -27,8 +27,8 @@
   --paper-2:  #faf9f6;   /* sunken / hover */
   --paper-3:  #f2f1ec;   /* inlay panels, sheet bg */
   --ink:      #15140f;   /* near-black, warm trace */
-  --ink-soft: #6b6960;   /* secondary text */
-  --ink-faint:#9b988d;   /* tertiary / mono meta */
+  --ink-soft: #6b6960;   /* secondary text (AA on paper) */
+  --ink-faint:#75726a;   /* tertiary / mono meta (darkened from #9b988d to meet WCAG AA) */
   --line:     #eae7df;   /* hairlines */
   --line-2:   #ddd9cf;   /* stronger hairline */
   --line-3:   #c9c4b8;
@@ -65,6 +65,12 @@ body {
   text-transform: uppercase; color: var(--ink-faint); font-weight: 500; }
 .fh-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .fh-rule { border: 0; border-top: 1px solid var(--line); }
+
+/* screen-reader-only (accessible headings without visual chrome) */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
 
 /* nav */
 .fh-nav { display: flex; align-items: center; gap: 22px;
@@ -180,7 +186,23 @@ body {
 .fh-card:hover { border-color: var(--line-3); transform: translateY(-2px);
   box-shadow: 0 8px 28px -16px rgba(20,18,12,.4); }
 
-/* reduced motion: no movement, static specimens */
+/* ---- accessibility: visible focus on the one signal colour ---- */
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: 1px;
+}
+
+/* ---- the card becomes the page: one mechanical easing on every morph ---- */
+::view-transition-group(*) {
+  animation-duration: var(--dur-2);
+  animation-timing-function: var(--ease);
+}
+
+/* reduced motion: no movement, static specimens, no page morph */
 @media (prefers-reduced-motion: reduce) {
   * , *::before, *::after { transition: none !important; animation: none !important; }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation: none !important; }
 }
