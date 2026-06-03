@@ -13,6 +13,7 @@ export interface FontMeta {
   designer: string;
   ofl: string;
   standIn?: boolean;
+  builtWith?: string;
 }
 
 export interface FontRow {
@@ -68,6 +69,20 @@ export async function listPublicFonts(db: D1Database, sort: Sort): Promise<Font[
       : 'created_at DESC, rowid DESC';
   const { results } = await db
     .prepare(`SELECT rowid, * FROM fonts WHERE visibility = 'public' ORDER BY ${order}`)
+    .all<FontRow>();
+  return (results ?? []).map(parse);
+}
+
+/** A maker's fonts. Public only, unless the owner is viewing their own page. */
+export async function listFontsByOwner(
+  db: D1Database,
+  ownerId: string,
+  includePrivate: boolean,
+): Promise<Font[]> {
+  const visClause = includePrivate ? '' : "AND visibility = 'public'";
+  const { results } = await db
+    .prepare(`SELECT rowid, * FROM fonts WHERE owner_id = ? ${visClause} ORDER BY created_at DESC, rowid DESC`)
+    .bind(ownerId)
     .all<FontRow>();
   return (results ?? []).map(parse);
 }
