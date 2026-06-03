@@ -539,8 +539,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           </div>
         </div>
 
-        {/* warning: the font built, but something looks off (row mismatch, lost counters) */}
-        {warning && phase !== 'working' && (
+        {/* warning: the font built, but something looks off (row mismatch, lost counters).
+            Only while showing a built result — never alongside an error from a later attempt. */}
+        {warning && phase === 'done' && (
           <div
             className="fh-mono"
             style={{
