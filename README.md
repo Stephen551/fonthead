@@ -60,6 +60,10 @@ in `wrangler secret put` for production. Never committed.
   Better Auth spike with a protected SSR route.
 - **M2.** The maker: the vendored tracer engine runs client-side, traces an
   alphabet sheet, builds OTF/TTF/WOFF2 in a Web Worker, previews and downloads.
+  The maker also builds **colour fonts** (gradient → COLRv1, flat → COLRv0/CPAL)
+  on the main thread; colour fonts publish as OTF + WOFF2 and render natively in
+  colour on the wall and font page. (Single-line mode is not wired — upstream it
+  emits an SVG centerline, not yet an installable font.)
 - **M3.** Accounts + publish (public/private), maker profiles at `/u/[handle]`,
   auth-aware nav, private-font gating across the wall, font page, and `/cdn`.
 - **M4.** Social: votes and favorites with optimistic updates, working
