@@ -523,6 +523,37 @@ export async function buildColorFontFromImage(
   };
 }
 
+export type EditAction = 'retrace' | 'reslice' | 'exclude';
+export interface EditParams {
+  turd?: number;
+  left?: number;
+  right?: number;
+  excluded?: boolean;
+}
+
+/** Edit one glyph in the live colour session (re-trace / re-slice / exclude) and
+ *  re-assemble. Re-runs only that record + the records->font step, never the
+ *  image pipeline. Returns the rebuilt font + the refreshed per-glyph report. */
+export async function editColorGlyph(action: EditAction, idx: number, params: EditParams): Promise<ColorResult> {
+  const res = await w().ColorMaker.editGlyph(action, idx, params);
+  const otf = fixSfntChecksums(res.otf as Uint8Array);
+  let woff2: Uint8Array | undefined;
+  try {
+    woff2 = await w().wrapAsWoff2(otf);
+  } catch {
+    /* woff2 optional */
+  }
+  await assertValid(otf);
+  return {
+    otf,
+    woff2,
+    mode: (res.mode as ColorMode) ?? 'gradient',
+    colrStatus: res.colrStatus,
+    charCount: res.charCount ?? 0,
+    report: res.report || [],
+  };
+}
+
 /** A colour sample sheet: the alphabet filled with a vertical flame gradient
  *  per row, so both gradient (smooth COLRv1) and flat (posterised COLRv0) modes
  *  have real colour to separate. */

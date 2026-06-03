@@ -467,6 +467,77 @@
     return { data, w, h };
   }
 
+  // The live edit session: kept after a build so per-glyph edits (re-trace /
+  // re-slice / exclude) re-assemble the font WITHOUT re-running the image
+  // pipeline. Holds the records + everything assemble() needs.
+  var _session = null;
+
+  function reportOf(records) {
+    return records.map(function (r) {
+      return { char: r.char, status: r.status, flags: r.flags || [] };
+    });
+  }
+
+  // records -> font bytes. The seam: every edit ends here, never re-touching the
+  // image pipeline. Ported from color-builder.html assembleAndPreview (records half).
+  function assemble(session) {
+    const recs = session.records.filter(function (r) { return r.status === 'ok' && r.baseD; });
+    if (!recs.length) throw new Error('No usable glyphs — re-trace or include some.');
+    const chars = recs.map(function (r) {
+      return {
+        char: r.char, baseD: r.baseD, insetD: r.insetD, layers: r.layers,
+        cellW: r.cellW, cellH: r.cellH, baselineYInCell: r.baselineYInCell,
+        bodyMinX: r.bodyMinX, bodyMaxX: r.bodyMaxX,
+      };
+    });
+    let res;
+    if (session.mode === 'gradient') {
+      if (typeof global.buildGradientFont !== 'function') throw new Error('window.buildGradientFont not loaded');
+      res = global.buildGradientFont(chars, session.gradient, session.buildOpts);
+    } else {
+      if (typeof global.buildColorFont !== 'function') throw new Error('window.buildColorFont not loaded');
+      res = global.buildColorFont(chars, session.palette, session.buildOpts);
+    }
+    return { bytes: res.bytes, colrStatus: res.stats ? res.stats.colrStatus : undefined, charCount: chars.length };
+  }
+
+  /* editGlyph(action, idx, params) -> Promise<{otf, colrStatus, charCount, report}>
+   * Mutates one record in the live session and re-assembles. Actions:
+   *   'exclude' {excluded}      — drop/restore the glyph
+   *   'retrace' {turd}          — re-trace the stored cell (speckle)
+   *   'reslice' {left,right,turd}— re-cut the cell from the sheet (edge nudge), re-trace
+   */
+  async function editGlyph(action, idx, params) {
+    if (!_session) throw new Error('no build session — build a font first');
+    const rec = _session.records[idx];
+    if (!rec) throw new Error('bad glyph index ' + idx);
+    params = params || {};
+    if (action === 'exclude') {
+      rec.status = params.excluded ? 'excluded' : (rec.baseD ? 'ok' : 'empty');
+    } else if (action === 'retrace') {
+      if (params.turd != null) rec.turd = params.turd;
+      if (rec.status === 'excluded') rec.status = 'ok';
+      await traceRecord(rec, _session.ctx);
+    } else if (action === 'reslice') {
+      if (!rec.cellRect) throw new Error('glyph has no cell to re-slice');
+      if (!rec.baseRect) rec.baseRect = rec.cellRect.slice();
+      const bx0 = rec.baseRect[0], by0 = rec.baseRect[1], bx1 = rec.baseRect[2], by1 = rec.baseRect[3];
+      const ln = params.left || 0, rn = params.right || 0, W = _session.w;
+      const nx0 = Math.min(Math.max(0, bx0 + ln), bx1 - 4);
+      const nx1 = Math.max(Math.min(W, bx1 + rn), nx0 + 4);
+      rec.cellRect = [nx0, by0, nx1, by1]; rec.cellH = by1 - by0;
+      rec.cell = extractColorCell(_session.workData, W, nx0, nx1, by0, by1, null, 0, _session.palette.bg);
+      if (params.turd != null) rec.turd = params.turd;
+      if (rec.status === 'excluded') rec.status = 'ok';
+      await traceRecord(rec, _session.ctx);
+    } else {
+      throw new Error('unknown action ' + action);
+    }
+    computeConfidence(_session.records, _session.mode);
+    const res = assemble(_session);
+    return { otf: res.bytes, mode: _session.mode, colrStatus: res.colrStatus, charCount: res.charCount, report: reportOf(_session.records) };
+  }
+
   /* buildColorFromImage(img, opts) -> Promise<{
    *   otf: Uint8Array, mode, colrStatus, palette: [{r,g,b}],
    *   stops?: [{offset,r,g,b}], charCount, stats
@@ -536,16 +607,6 @@
     // ---- confidence flags (also produces the glow warning) ----
     const glowWarning = computeConfidence(records, mode);
 
-    // ---- assemble: map usable records to engine `chars`, call the build engine ----
-    // (Ported from assembleAndPreview, minus validate/preview/telemetry/DOM.)
-    const recs = records.filter(r => r.status === 'ok' && r.baseD);
-    if (!recs.length) throw new Error('No usable glyphs — fix or re-trace flagged ones.');
-    const chars = recs.map(r => ({
-      char: r.char, baseD: r.baseD, insetD: r.insetD, layers: r.layers,
-      cellW: r.cellW, cellH: r.cellH, baselineYInCell: r.baselineYInCell,
-      bodyMinX: r.bodyMinX, bodyMaxX: r.bodyMaxX,
-    }));
-
     // Build-opts passed through to the engine. Mirrors the source's `opts` object
     // in assembleAndPreview (color-builder.html:901-904) with the resolved values.
     const buildOpts = {
@@ -565,28 +626,26 @@
       license: opts.license || '',
     };
 
-    let res;
-    if (mode === 'gradient') {
-      if (typeof global.buildGradientFont !== 'function') throw new Error('window.buildGradientFont not loaded');
-      res = global.buildGradientFont(chars, gradientStops, buildOpts);
-    } else {
-      if (typeof global.buildColorFont !== 'function') throw new Error('window.buildColorFont not loaded');
-      res = global.buildColorFont(chars, ana.palette, buildOpts);
-    }
+    // Persist the session so per-glyph edits re-assemble without re-running the sheet.
+    _session = {
+      records: records,
+      palette: ana.palette,
+      gradient: gradientStops,
+      workData: ana.workData,
+      w: w, h: h,
+      mode: mode,
+      ctx: { palette: ana.palette, mode: mode, outline: outline, outlineWidth: outlineWidth },
+      buildOpts: buildOpts,
+    };
 
-    // The color writers fail SAFE to mono outlines and report the outcome on
-    // stats.colrStatus (e.g. 'ok' / 'skipped'). Surface it so the caller can
-    // confirm COLR actually got injected rather than assuming colour from a font
-    // that silently fell back to monochrome.
-    const colrStatus = res.stats ? res.stats.colrStatus : undefined;
+    const res = assemble(_session); // throws if no usable glyphs (same as before)
 
     const out = {
       otf: res.bytes,                // Uint8Array sfnt (OTF/CFF) bytes
       mode: mode,
-      colrStatus: colrStatus,
+      colrStatus: res.colrStatus,
       palette: ana.palette.colors.map(c => ({ r: c.r, g: c.g, b: c.b })),
-      charCount: chars.length,
-      stats: res.stats,
+      charCount: res.charCount,
     };
     if (mode === 'gradient') {
       out.stops = gradientStops.map(s => ({ offset: s.offset, r: s.r, g: s.g, b: s.b }));
@@ -603,5 +662,5 @@
     return out;
   }
 
-  global.ColorMaker = { buildColorFromImage };
+  global.ColorMaker = { buildColorFromImage, editGlyph };
 })(typeof self !== 'undefined' ? self : this);

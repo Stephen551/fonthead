@@ -16,10 +16,12 @@ import {
   parseCharset,
   waitForColorEngine,
   buildColorFontFromImage,
+  editColorGlyph,
   makeColorSampleSheet,
   type ColorMode,
   type FontResult,
   type GlyphReport,
+  type EditAction,
 } from '../lib/maker';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
@@ -77,6 +79,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [warning, setWarning] = useState('');
   const [detectedRows, setDetectedRows] = useState<number | null>(null);
   const [report, setReport] = useState<GlyphReport[]>([]);
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [editTurd, setEditTurd] = useState(2);
+  const [editLeft, setEditLeft] = useState(0);
+  const [editRight, setEditRight] = useState(0);
+  const [editBusy, setEditBusy] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
 
   const isColor = kind !== 'mono';
@@ -103,6 +110,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setPublishErr('');
     setColrStatus('');
     setReport([]);
+    setEditIdx(null);
     const rows = charLinesOverride ?? parseCharset(charsetText);
     const t0 = performance.now();
     const fam = family.trim() || 'Handmade';
@@ -201,7 +209,56 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     }
   }
 
+  async function loadPreviewFont(bytes: Uint8Array): Promise<string> {
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
+    const pf = `built-${Date.now()}`;
+    const face = new FontFace(pf, `url(${url})`);
+    await face.load();
+    (document as any).fonts.add(face);
+    return pf;
+  }
+
+  function openEditor(i: number) {
+    setEditIdx(i);
+    setEditLeft(0);
+    setEditRight(0);
+    setEditTurd(2);
+  }
+
+  async function applyEdit(action: EditAction) {
+    if (editIdx == null) return;
+    setEditBusy(true);
+    try {
+      const params =
+        action === 'exclude'
+          ? { excluded: report[editIdx]?.status !== 'excluded' }
+          : action === 'reslice'
+            ? { left: editLeft, right: editRight, turd: editTurd }
+            : { turd: editTurd };
+      const cres = await editColorGlyph(action, editIdx, params);
+      setResult({ otf: cres.otf, woff2: cres.woff2 });
+      setReport(cres.report || []);
+      setColrStatus(cres.colrStatus);
+      setGlyphCount(cres.charCount);
+      const bytes = cres.woff2 || cres.otf;
+      if (bytes) setPreviewFam(await loadPreviewFont(bytes));
+      (window as any).__lastBuild = {
+        kind,
+        glyphCount: cres.charCount,
+        colrStatus: cres.colrStatus,
+        otf: cres.otf?.length ?? 0,
+        ttf: 0,
+        woff2: cres.woff2?.length ?? 0,
+      };
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'edit failed');
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   const onSample = () => {
+    setEditIdx(null);
     setCharsetText(SAMPLE_CHAR_LINES.join('\n')); // the sample is exactly these 3 rows
     run(async () => {
       try {
@@ -453,8 +510,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                       return (
                         <div
                           key={i}
-                          title={tip}
-                          style={{ border: `1px solid ${border}`, borderRadius: 2, background: 'var(--paper)', aspectRatio: '1', display: 'grid', placeItems: 'center', position: 'relative', opacity: dropped ? 0.45 : 1 }}
+                          title={isColor ? `${tip} · click to fix` : tip}
+                          onClick={isColor ? () => openEditor(i) : undefined}
+                          style={{ border: `1px solid ${editIdx === i ? 'var(--ink)' : border}`, borderRadius: 2, background: 'var(--paper)', aspectRatio: '1', display: 'grid', placeItems: 'center', position: 'relative', opacity: dropped ? 0.45 : 1, cursor: isColor ? 'pointer' : 'default' }}
                         >
                           <span style={{ fontFamily: previewFam ? `'${previewFam}', var(--sans)` : 'var(--sans)', fontSize: 24, lineHeight: 1 }}>{g.char}</span>
                           {(flagged || dropped) && (
@@ -464,6 +522,50 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                       );
                     })}
                   </div>
+
+                  {/* per-glyph editor: re-trace / re-slice / exclude, re-assembles instantly */}
+                  {isColor && editIdx != null && report[editIdx] && (
+                    <div style={{ marginTop: 12, padding: '14px', border: '1px solid var(--line-2)', borderRadius: 3, background: 'var(--paper)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+                        <div style={{ width: 60, height: 60, border: '1px solid var(--line)', borderRadius: 2, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                          <span style={{ fontFamily: previewFam ? `'${previewFam}', var(--sans)` : 'var(--sans)', fontSize: 38, lineHeight: 1 }}>{report[editIdx].char}</span>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div className="fh-mono" style={{ fontSize: 12, color: 'var(--ink)' }}>
+                            editing {report[editIdx].char}
+                            {report[editIdx].flags.length ? ` · ${report[editIdx].flags.join(', ')}` : report[editIdx].status !== 'ok' ? ` · ${report[editIdx].status}` : ' · ok'}
+                          </div>
+                          <div className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 3 }}>
+                            re-trace to clear specks, re-slice to fix the cut, or exclude it
+                          </div>
+                        </div>
+                        <button className="fh-mono" onClick={() => setEditIdx(null)} style={{ background: 'none', border: '1px solid var(--line-2)', borderRadius: 2, padding: '4px 9px', fontSize: 14, cursor: 'pointer', color: 'var(--ink-soft)' }}>×</button>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 9 }}>
+                        <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', width: 48 }}>speckle</span>
+                        <input type="range" className="fh-range" min={0} max={15} value={editTurd} onChange={(e) => setEditTurd(+e.target.value)} style={{ flex: 1 }} />
+                        <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-soft)', width: 18 }}>{editTurd}</span>
+                        <button className="fh-btn fh-btn--ghost" disabled={editBusy} onClick={() => applyEdit('retrace')}>re-trace</button>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 11 }}>
+                        <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', width: 48 }}>edges</span>
+                        <span className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>L</span>
+                        <input type="range" className="fh-range" min={-40} max={40} value={editLeft} onChange={(e) => setEditLeft(+e.target.value)} style={{ flex: 1 }} />
+                        <span className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>R</span>
+                        <input type="range" className="fh-range" min={-40} max={40} value={editRight} onChange={(e) => setEditRight(+e.target.value)} style={{ flex: 1 }} />
+                        <button className="fh-btn fh-btn--ghost" disabled={editBusy} onClick={() => applyEdit('reslice')}>re-slice</button>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button className="fh-btn fh-btn--ghost" disabled={editBusy} onClick={() => applyEdit('exclude')}>
+                          {report[editIdx].status === 'excluded' ? 'include' : 'exclude'}
+                        </button>
+                        {editBusy && <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>working…</span>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
