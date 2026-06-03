@@ -106,6 +106,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [editLeft, setEditLeft] = useState(0);
   const [editRight, setEditRight] = useState(0);
   const [editBusy, setEditBusy] = useState(false);
+  const [editErr, setEditErr] = useState('');
   const [preset, setPreset] = useState<'glyph' | 'logo' | 'sketch'>('glyph');
   const [colorOpts, setColorOpts] = useState<ColorOpts>(DEFAULT_COLOR_OPTS);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -260,11 +261,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setEditLeft(0);
     setEditRight(0);
     setEditTurd(2);
+    setEditErr('');
   }
 
   async function applyEdit(action: EditAction) {
     if (editIdx == null) return;
     setEditBusy(true);
+    setEditErr('');
     try {
       const params =
         action === 'exclude'
@@ -288,7 +291,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         woff2: cres.woff2?.length ?? 0,
       };
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'edit failed');
+      // the session rolled back; keep the prior result and tell the user why
+      setEditErr(e instanceof Error ? e.message : 'edit failed');
     } finally {
       setEditBusy(false);
     }
@@ -625,7 +629,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                             re-trace to clear specks, re-slice to fix the cut, or exclude it
                           </div>
                         </div>
-                        <button className="fh-mono" onClick={() => setEditIdx(null)} style={{ background: 'none', border: '1px solid var(--line-2)', borderRadius: 2, padding: '4px 9px', fontSize: 14, cursor: 'pointer', color: 'var(--ink-soft)' }}>×</button>
+                        <button className="fh-mono" onClick={() => { setEditIdx(null); setEditErr(''); }} style={{ background: 'none', border: '1px solid var(--line-2)', borderRadius: 2, padding: '4px 9px', fontSize: 14, cursor: 'pointer', color: 'var(--ink-soft)' }}>×</button>
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 9 }}>
@@ -650,6 +654,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                         </button>
                         {editBusy && <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>working…</span>}
                       </div>
+
+                      {editErr && (
+                        <p className="fh-mono" style={{ fontSize: 11, color: 'var(--signal)', margin: '10px 0 0', lineHeight: 1.5 }}>{editErr}</p>
+                      )}
                     </div>
                   )}
                 </div>
