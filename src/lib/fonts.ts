@@ -92,6 +92,21 @@ export async function getFont(db: D1Database, id: string): Promise<Font | null> 
   return row ? parse(row) : null;
 }
 
+export interface UserInteractions {
+  voted: Set<string>;
+  favorited: Set<string>;
+}
+
+/** The set of font ids the user has voted on / favorited, for rendering state. */
+export async function getUserInteractions(db: D1Database, userId: string): Promise<UserInteractions> {
+  const votes = await db.prepare('SELECT font_id FROM votes WHERE user_id = ?').bind(userId).all<{ font_id: string }>();
+  const favs = await db.prepare('SELECT font_id FROM favorites WHERE user_id = ?').bind(userId).all<{ font_id: string }>();
+  return {
+    voted: new Set((votes.results ?? []).map((r) => r.font_id)),
+    favorited: new Set((favs.results ?? []).map((r) => r.font_id)),
+  };
+}
+
 /** Public R2 URL for a font binary, served by the /cdn route. */
 export const cdnUrl = (key: string) => `/cdn/${key}`;
 

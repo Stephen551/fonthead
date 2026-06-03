@@ -3,9 +3,72 @@ import { z } from 'astro:schema';
 import { createAuth } from '../lib/auth';
 import { ensureHandle, uniqueFontId } from '../lib/util';
 
-// Mutations live here as Astro Actions (per the build brief). Publish is the
-// M3 action; vote/favorite/setVisibility arrive in M4.
+// Mutations live here as Astro Actions (per the build brief).
+async function requireUser(ctx: { locals: App.Locals; request: Request }) {
+  const env = ctx.locals.runtime.env;
+  const auth = createAuth(env);
+  const session = await auth.api.getSession({ headers: ctx.request.headers });
+  if (!session) throw new ActionError({ code: 'UNAUTHORIZED', message: 'Sign in first.' });
+  return { env, userId: session.user.id };
+}
+
 export const server = {
+  toggleVote: defineAction({
+    input: z.object({ fontId: z.string().min(1) }),
+    handler: async ({ fontId }, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      const existing = await env.DB.prepare('SELECT 1 FROM votes WHERE user_id = ? AND font_id = ?')
+        .bind(userId, fontId)
+        .first();
+      if (existing) {
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM votes WHERE user_id = ? AND font_id = ?').bind(userId, fontId),
+          env.DB.prepare('UPDATE fonts SET votes_count = MAX(0, votes_count - 1) WHERE id = ?').bind(fontId),
+        ]);
+      } else {
+        await env.DB.batch([
+          env.DB.prepare('INSERT OR IGNORE INTO votes (user_id, font_id) VALUES (?, ?)').bind(userId, fontId),
+          env.DB.prepare('UPDATE fonts SET votes_count = votes_count + 1 WHERE id = ?').bind(fontId),
+        ]);
+      }
+      const row = await env.DB.prepare('SELECT votes_count FROM fonts WHERE id = ?')
+        .bind(fontId)
+        .first<{ votes_count: number }>();
+      return { voted: !existing, count: row?.votes_count ?? 0 };
+    },
+  }),
+
+  toggleFavorite: defineAction({
+    input: z.object({ fontId: z.string().min(1) }),
+    handler: async ({ fontId }, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      const existing = await env.DB.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND font_id = ?')
+        .bind(userId, fontId)
+        .first();
+      if (existing) {
+        await env.DB.prepare('DELETE FROM favorites WHERE user_id = ? AND font_id = ?').bind(userId, fontId).run();
+      } else {
+        await env.DB.prepare('INSERT OR IGNORE INTO favorites (user_id, font_id) VALUES (?, ?)')
+          .bind(userId, fontId)
+          .run();
+      }
+      return { favorited: !existing };
+    },
+  }),
+
+  setVisibility: defineAction({
+    input: z.object({ fontId: z.string().min(1), visibility: z.enum(['public', 'private']) }),
+    handler: async ({ fontId, visibility }, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      const owned = await env.DB.prepare('SELECT 1 FROM fonts WHERE id = ? AND owner_id = ?')
+        .bind(fontId, userId)
+        .first();
+      if (!owned) throw new ActionError({ code: 'FORBIDDEN', message: 'Not your font.' });
+      await env.DB.prepare('UPDATE fonts SET visibility = ? WHERE id = ?').bind(visibility, fontId).run();
+      return { visibility };
+    },
+  }),
+
   publishFont: defineAction({
     accept: 'form',
     input: z.object({
