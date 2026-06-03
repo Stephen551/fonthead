@@ -1,10 +1,18 @@
 ---
-// Quiet mono chrome. Wordmark, library + make links, the make-a-font entry.
-// M1 shows a static "sign in" link; M3 wires real session state in here.
+// Quiet mono chrome. Auth state comes from the layout: an avatar linking to
+// the account when signed in, a sign-in link otherwise.
 interface Props {
   active?: 'library' | 'make';
+  user?: { name: string } | null;
 }
-const { active = 'library' } = Astro.props;
+const { active = 'library', user = null } = Astro.props;
+const initials = user
+  ? user.name
+      .split(/[\s@.]+/)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase() ?? '')
+      .join('')
+  : '';
 ---
 
 <nav class="fh-nav">
@@ -14,5 +22,11 @@ const { active = 'library' } = Astro.props;
   <a href="/make" class="fh-navlink" style={active === 'make' ? 'color:var(--ink);font-weight:600;' : undefined}>make</a>
   <div style="flex:1"></div>
   <a href="/make" class="fh-btn">make a font&nbsp;&nbsp;&rarr;</a>
-  <a href="/sign-in" class="fh-navlink">sign in</a>
+  {
+    user ? (
+      <a href="/account" class="fh-avatar" title={user.name}>{initials}</a>
+    ) : (
+      <a href="/sign-in" class="fh-navlink">sign in</a>
+    )
+  }
 </nav>

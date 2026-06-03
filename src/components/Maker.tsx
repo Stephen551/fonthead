@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { actions } from 'astro:actions';
 import {
   waitForEngine,
   traceSheet,
@@ -30,9 +31,14 @@ const STEP_STAGE: Record<string, number> = {
   otf: 3, sidebearings: 3, hint: 3, 'hint-embed': 3, ttf: 3, woff: 3, woff2: 3,
 };
 
-export default function Maker() {
+export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [family, setFamily] = useState('Handmade');
+  const [specimenWord, setSpecimenWord] = useState('');
+  const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  const [publishing, setPublishing] = useState(false);
+  const [publishedId, setPublishedId] = useState<string | null>(null);
+  const [publishErr, setPublishErr] = useState('');
   const [stageIdx, setStageIdx] = useState(-1);
   const [log, setLog] = useState<string>('');
   const [result, setResult] = useState<FontResult | null>(null);
@@ -54,6 +60,8 @@ export default function Maker() {
     setStageIdx(-1);
     setError('');
     setPreviewFam('');
+    setPublishedId(null);
+    setPublishErr('');
     const t0 = performance.now();
     try {
       await waitForEngine();
@@ -92,6 +100,32 @@ export default function Maker() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setPhase('error');
+    }
+  }
+
+  async function publish() {
+    if (!result?.otf || !result?.ttf || !result?.woff2) return;
+    setPublishing(true);
+    setPublishErr('');
+    try {
+      const fd = new FormData();
+      fd.set('name', family.trim() || 'Handmade');
+      fd.set('specimenWord', specimenWord.trim());
+      fd.set('visibility', visibility);
+      fd.set('glyphCount', String(glyphCount));
+      fd.set('otf', new File([result.otf as BlobPart], 'font.otf', { type: 'font/otf' }));
+      fd.set('ttf', new File([result.ttf as BlobPart], 'font.ttf', { type: 'font/ttf' }));
+      fd.set('woff2', new File([result.woff2 as BlobPart], 'font.woff2', { type: 'font/woff2' }));
+      const { data, error } = await actions.publishFont(fd);
+      if (error) {
+        setPublishErr(error.message || 'publish failed');
+      } else if (data) {
+        setPublishedId(data.id);
+      }
+    } catch (e) {
+      setPublishErr(e instanceof Error ? e.message : 'publish failed');
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -259,6 +293,58 @@ export default function Maker() {
                       download {fmt}
                     </button>
                   ) : null,
+                )}
+              </div>
+
+              {/* publish to the library */}
+              <div style={{ marginTop: 22, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
+                <span className="fh-eyebrow" style={{ display: 'block', marginBottom: 12 }}>03 · publish to the library</span>
+                {publishedId ? (
+                  <div>
+                    <p className="fh-mono" style={{ fontSize: 12.5, color: '#2f6f5e', margin: '0 0 12px' }}>
+                      published as {visibility}. live on your maker page{visibility === 'public' ? ' and the wall' : ''}.
+                    </p>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <a className="fh-btn" href={`/f/${publishedId}`}>view the font page&nbsp;&nbsp;&rarr;</a>
+                      {visibility === 'public' && (
+                        <a className="fh-btn fh-btn--ghost" href="/">see it on the wall</a>
+                      )}
+                    </div>
+                  </div>
+                ) : !signedIn ? (
+                  <p className="fh-mono" style={{ fontSize: 12, color: 'var(--ink-faint)', lineHeight: 1.6 }}>
+                    <a href="/sign-in" style={{ color: 'var(--ink)' }}>Sign in</a> to publish this font to the library.
+                  </p>
+                ) : (
+                  <div>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input
+                        className="fh-input"
+                        style={{ flex: 1, minWidth: 160 }}
+                        value={specimenWord}
+                        onChange={(e) => setSpecimenWord(e.target.value)}
+                        placeholder="card word (optional)"
+                      />
+                      <div style={{ display: 'flex', border: '1px solid var(--line-2)', borderRadius: 2, overflow: 'hidden' }}>
+                        {(['public', 'private'] as const).map((v) => (
+                          <button
+                            key={v}
+                            onClick={() => setVisibility(v)}
+                            className="fh-mono"
+                            style={{ fontSize: 12, padding: '9px 16px', border: 'none', cursor: 'pointer', background: visibility === v ? 'var(--ink)' : 'var(--paper)', color: visibility === v ? 'var(--paper)' : 'var(--ink-soft)', transition: 'all var(--dur) var(--ease)' }}
+                          >
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                      <button className="fh-btn" onClick={publish} disabled={publishing}>
+                        {publishing ? 'publishing…' : 'publish  →'}
+                      </button>
+                    </div>
+                    {publishErr && (
+                      <p className="fh-mono" style={{ fontSize: 11.5, color: 'var(--signal)', marginTop: 10 }}>{publishErr}</p>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

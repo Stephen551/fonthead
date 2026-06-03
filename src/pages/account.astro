@@ -1,18 +1,26 @@
 ---
 import Base from '../layouts/Base.astro';
-import FHNav from '../components/FHNav.astro';
 import { createAuth } from '../lib/auth';
+import { ensureHandle } from '../lib/util';
 
 export const prerender = false;
 
-// Protected route: the M1 auth gate. SSR reads the session from the request
-// cookie; no session redirects to sign-in. Proves the session holds under
-// Astro SSR on the Cloudflare Worker.
-const auth = createAuth(Astro.locals.runtime.env);
+// Protected route: SSR reads the session from the request cookie; no session
+// redirects to sign-in.
+const env = Astro.locals.runtime.env;
+const auth = createAuth(env);
 const session = await auth.api.getSession({ headers: Astro.request.headers });
 if (!session) return Astro.redirect('/sign-in');
 
 const { user } = session;
+const handle = await ensureHandle(env.DB, user.id, user.name, user.email);
+
+const { results: myFonts } = await env.DB.prepare(
+  'SELECT id, name, visibility, votes_count FROM fonts WHERE owner_id = ? ORDER BY created_at DESC',
+)
+  .bind(user.id)
+  .all<{ id: string; name: string; visibility: string; votes_count: number }>();
+
 const initials = (user.name || user.email)
   .split(/[\s@.]+/)
   .slice(0, 2)
@@ -22,9 +30,7 @@ const initials = (user.name || user.email)
 
 <Base title="Your account · fonthead.dev">
   <div style="background:var(--paper);min-height:100vh;">
-    <FHNav active="library" />
-
-    <div style="max-width:560px;margin:64px auto;padding:0 24px;">
+    <div style="max-width:640px;margin:56px auto;padding:0 24px;">
       <p class="fh-eyebrow">fonthead.dev · account</p>
 
       <div style="display:flex;align-items:center;gap:16px;margin:18px 0 28px;">
@@ -33,24 +39,44 @@ const initials = (user.name || user.email)
           <div style="font-size:20px;font-weight:600;letter-spacing:-.01em;">{user.name}</div>
           <div class="fh-mono" style="font-size:12.5px;color:var(--ink-soft);margin-top:3px;">{user.email}</div>
         </div>
+        <div style="flex:1;"></div>
+        <a href={`/u/${handle}`} class="fh-btn fh-btn--ghost">your maker page&nbsp;&nbsp;&rarr;</a>
       </div>
 
-      <div style="border:1px solid var(--line);border-radius:2px;">
+      <div style="border:1px solid var(--line);border-radius:2px;margin-bottom:28px;">
         <div style="display:flex;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);">
           <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">session</span>
           <span class="fh-mono" style="font-size:12px;color:#2f6f5e;">active · held under SSR</span>
         </div>
-        <div style="display:flex;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);">
-          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">handle</span>
-          <span class="fh-mono" style="font-size:12px;color:var(--ink-soft);">assigned in M3</span>
-        </div>
         <div style="display:flex;justify-content:space-between;padding:13px 16px;">
-          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">your fonts</span>
-          <span class="fh-mono" style="font-size:12px;color:var(--ink-soft);">publish arrives in M3</span>
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">handle</span>
+          <span class="fh-mono" style="font-size:12px;color:var(--ink-soft);">@{handle}</span>
         </div>
       </div>
 
-      <button id="signout" class="fh-btn fh-btn--ghost" style="margin-top:24px;">sign out</button>
+      <div class="fh-eyebrow" style="margin-bottom:14px;">Your fonts · {myFonts?.length ?? 0}</div>
+      {myFonts && myFonts.length > 0 ? (
+        <div style="border:1px solid var(--line);border-radius:2px;">
+          {myFonts.map((f, i) => (
+            <a
+              href={`/f/${f.id}`}
+              style={`display:flex;align-items:center;justify-content:space-between;padding:13px 16px;text-decoration:none;color:inherit;${i < myFonts.length - 1 ? 'border-bottom:1px solid var(--line);' : ''}`}
+            >
+              <span style="font-size:14px;font-weight:600;">{f.name}</span>
+              <span class="fh-mono" style="font-size:11px;color:var(--ink-faint);display:flex;gap:12px;">
+                <span>{f.visibility}</span>
+                <span>{f.votes_count} votes</span>
+              </span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p class="fh-mono" style="font-size:12.5px;color:var(--ink-faint);line-height:1.6;">
+          No fonts yet. <a href="/make" style="color:var(--ink);">Make one</a> and publish it to fill your maker page.
+        </p>
+      )}
+
+      <button id="signout" class="fh-btn fh-btn--ghost" style="margin-top:28px;">sign out</button>
     </div>
   </div>
 </Base>

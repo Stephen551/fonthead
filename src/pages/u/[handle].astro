@@ -1,0 +1,82 @@
+---
+import Base from '../../layouts/Base.astro';
+import FontCard from '../../components/FontCard.astro';
+import { createAuth } from '../../lib/auth';
+import { listFontsByOwner, fontFaceCss } from '../../lib/fonts';
+
+export const prerender = false;
+
+const { handle } = Astro.params;
+const env = Astro.locals.runtime.env;
+
+const maker = handle
+  ? await env.DB.prepare('SELECT id, name FROM "user" WHERE handle = ?').bind(handle).first<{ id: string; name: string }>()
+  : null;
+
+if (!maker) {
+  return new Response('Maker not found', { status: 404 });
+}
+
+// owner viewing their own page sees private fonts too
+const auth = createAuth(env);
+const session = await auth.api.getSession({ headers: Astro.request.headers });
+const isOwner = session?.user.id === maker.id;
+
+const fonts = await listFontsByOwner(env.DB, maker.id, isOwner);
+const faceCss = fontFaceCss(fonts);
+const publicCount = fonts.filter((f) => f.visibility === 'public').length;
+const privateCount = fonts.length - publicCount;
+---
+
+<Base title={`@${handle} · fonthead.dev`} active="library">
+  <style slot="head" is:inline set:html={faceCss}></style>
+
+  <div style="background:var(--paper);min-height:100vh;">
+    <header style="padding:48px 40px 28px;border-bottom:1px solid var(--line);">
+      <p class="fh-eyebrow">maker</p>
+      <h1 class="fh-mono" style="font-size:34px;font-weight:700;letter-spacing:-.01em;margin:10px 0 6px;">@{handle}</h1>
+      <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);">
+        {maker.name} · {publicCount} public{isOwner && privateCount > 0 ? ` · ${privateCount} private` : ''}
+      </p>
+    </header>
+
+    {fonts.length > 0 ? (
+      <div style="padding:28px 40px 40px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+        {fonts.map((f) => <FontCard font={f} />)}
+      </div>
+    ) : (
+      <p class="fh-mono" style="padding:40px;font-size:13px;color:var(--ink-faint);">
+        Nothing published yet.
+      </p>
+    )}
+
+    <footer style="padding:26px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;">
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);"><a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a></div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
+    </footer>
+  </div>
+</Base>
+
+<script>
+  const swap = (el: HTMLElement) => {
+    const fam = el.dataset.font;
+    if (fam) el.style.fontFamily = `'${fam}', var(--sans)`;
+  };
+  const els = document.querySelectorAll<HTMLElement>('.fh-card [data-font]');
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(
+      (entries, obs) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            swap(e.target as HTMLElement);
+            obs.unobserve(e.target);
+          }
+        }
+      },
+      { rootMargin: '600px 0px' },
+    );
+    els.forEach((el) => io.observe(el));
+  } else {
+    els.forEach(swap);
+  }
+</script>

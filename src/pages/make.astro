@@ -1,16 +1,20 @@
 ---
 import Base from '../layouts/Base.astro';
-import FHNav from '../components/FHNav.astro';
 import Maker from '../components/Maker.tsx';
+import { createAuth } from '../lib/auth';
 
 export const prerender = false;
+
+const auth = createAuth(Astro.locals.runtime.env);
+const session = await auth.api.getSession({ headers: Astro.request.headers });
+const signedIn = !!session;
 
 const V = '0.8.59';
 // Anton (an R2 face) backs the one-click sample sheet so it traces crisply.
 const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2') format('woff2');font-display:swap;}";
 ---
 
-<Base title="Make a font · fonthead.dev">
+<Base title="Make a font · fonthead.dev" active="make">
   <style slot="head" is:inline set:html={faceCss}></style>
   <!-- vendored font engine (client-side). Classic globals; the worker self-loads the rest. -->
   <script is:inline src={`/assets/vendor/opentype.min.js?v=${V}`}></script>
@@ -20,8 +24,6 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
   <script is:inline src={`/assets/singleline-core.js?v=${V}`}></script>
 
   <div style="background:var(--paper);min-height:100vh;">
-    <FHNav active="make" />
-
     <!-- title + steps -->
     <div style="display:flex;align-items:flex-end;justify-content:space-between;padding:30px 40px 24px;border-bottom:1px solid var(--line);">
       <div>
@@ -35,7 +37,7 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
       </div>
     </div>
 
-    <Maker client:only="react" />
+    <Maker client:only="react" signedIn={signedIn} />
 
     <footer style="padding:20px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;">
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">builds otf · ttf · woff2 · nothing leaves your browser</div>

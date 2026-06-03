@@ -1,11 +1,10 @@
 ---
 import Base from '../layouts/Base.astro';
-import FHNav from '../components/FHNav.astro';
+import { createAuth } from '../lib/auth';
 
 export const prerender = false;
 
 // If already signed in, go straight to the account page.
-import { createAuth } from '../lib/auth';
 const auth = createAuth(Astro.locals.runtime.env);
 const session = await auth.api.getSession({ headers: Astro.request.headers });
 if (session) return Astro.redirect('/account');
@@ -13,8 +12,6 @@ if (session) return Astro.redirect('/account');
 
 <Base title="Sign in · fonthead.dev">
   <div style="background:var(--paper);min-height:100vh;">
-    <FHNav active="library" />
-
     <div style="max-width:420px;margin:64px auto;padding:0 24px;">
       <p class="fh-eyebrow">fonthead.dev · accounts</p>
       <h1 style="font-size:24px;font-weight:600;letter-spacing:-.02em;margin:12px 0 6px;">Sign in or make an account</h1>

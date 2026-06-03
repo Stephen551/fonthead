@@ -1,6 +1,5 @@
 ---
 import Base from '../layouts/Base.astro';
-import FHNav from '../components/FHNav.astro';
 import FontCard from '../components/FontCard.astro';
 import CyclingWordmark, { type HeroFace } from '../components/CyclingWordmark.tsx';
 import { listPublicFonts, fontFaceCss, familyOf, type Sort } from '../lib/fonts';
@@ -27,12 +26,10 @@ const heroFaces: HeroFace[] = fonts.map((f) => ({
 }));
 ---
 
-<Base>
+<Base active="library">
   <style slot="head" is:inline set:html={faceCss}></style>
 
   <div style="min-height:100vh;background:var(--paper);">
-    <FHNav active="library" />
-
     <!-- hero / daily feature -->
     <header style="padding:56px 40px 30px;border-bottom:1px solid var(--line);position:relative;">
       <div class="fh-eyebrow" style="position:absolute;top:24px;left:40px;">fonthead.dev</div>

@@ -1,15 +1,30 @@
 ---
 import '../styles/global.css';
+import FHNav from '../components/FHNav.astro';
+import { createAuth } from '../lib/auth';
 
 interface Props {
   title?: string;
   description?: string;
+  active?: 'library' | 'make';
 }
 
 const {
   title = 'fonthead.dev',
   description = 'A community font library and maker. Turn an alphabet sheet into a real font, publish it, browse what everyone makes.',
+  active = 'library',
 } = Astro.props;
+
+// Auth state for the nav. getSession returns null cheaply when there is no
+// session cookie, so anonymous page loads do not hit the database.
+let navUser: { name: string } | null = null;
+try {
+  const auth = createAuth(Astro.locals.runtime.env);
+  const session = await auth.api.getSession({ headers: Astro.request.headers });
+  if (session) navUser = { name: session.user.name };
+} catch {
+  /* nav stays anonymous on any auth error */
+}
 ---
 
 <!doctype html>
@@ -23,6 +38,7 @@ const {
     <slot name="head" />
   </head>
   <body>
+    <FHNav active={active} user={navUser} />
     <slot />
   </body>
 </html>
