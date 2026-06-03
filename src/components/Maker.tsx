@@ -21,12 +21,15 @@ import {
   waitForColorEngine,
   buildColorFontFromImage,
   editColorGlyph,
+  editMonoRow,
   makeColorSampleSheet,
   type ColorMode,
   type FontResult,
   type GlyphReport,
   type EditAction,
   type SheetGeometry,
+  type MonoRowInfo,
+  type SlicerKind,
 } from '../lib/maker';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
@@ -119,6 +122,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // the source sheet + detected geometry, drawn back so the user can confirm the cut
   const [sheet, setSheet] = useState<{ url: string; w: number; h: number; geom: SheetGeometry } | null>(null);
   const sheetImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
+  // mono per-row slicing: diagnostics + which row (if any) is being re-sliced
+  const [monoRows, setMonoRows] = useState<MonoRowInfo[]>([]);
+  const [rowBusy, setRowBusy] = useState<number | null>(null);
+  const [rowErr, setRowErr] = useState('');
+  const [rowSlicerSel, setRowSlicerSel] = useState<Record<number, SlicerKind>>({});
   const traceOpts = TRACE_PRESETS[preset];
 
   const isColor = kind !== 'mono';
@@ -172,6 +180,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setColrStatus('');
     setReport([]);
     setEditIdx(null);
+    setMonoRows([]);
+    setRowErr('');
     const rows = charLinesOverride ?? parseCharset(charsetText);
     const t0 = performance.now();
     const fam = family.trim() || 'Handmade';
@@ -210,6 +220,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         count = trace.glyphs.length;
         warn = trace.rowWarning;
         rep = trace.report;
+        setMonoRows(trace.rows);
         res = await buildFont(trace.glyphs, { family: fam, formats: ['otf', 'ttf', 'woff2'] }, (step, message) =>
           setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
@@ -328,6 +339,34 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       setEditErr(e instanceof Error ? e.message : 'edit failed');
     } finally {
       setEditBusy(false);
+    }
+  }
+
+  // mono: re-slice one row with a chosen slicer and rebuild the font
+  async function applyRowEdit(rowIndex: number, slicer: SlicerKind) {
+    setRowBusy(rowIndex);
+    setRowErr('');
+    try {
+      const r = await editMonoRow(rowIndex, slicer, family, traceOpts);
+      setResult(r.result);
+      setReport(r.report);
+      setGlyphCount(r.glyphCount);
+      setMonoRows(r.rows);
+      const bytes = r.result.woff2 || r.result.otf;
+      if (bytes) setPreviewFam(await loadPreviewFont(bytes as Uint8Array));
+      (window as any).__lastBuild = {
+        kind,
+        glyphCount: r.glyphCount,
+        colrStatus: 'n/a',
+        otf: r.result.otf?.length ?? 0,
+        ttf: r.result.ttf?.length ?? 0,
+        woff2: r.result.woff2?.length ?? 0,
+      };
+    } catch (e) {
+      // the row rolled back; keep the prior font and say why
+      setRowErr(e instanceof Error ? e.message : 're-slice failed');
+    } finally {
+      setRowBusy(null);
     }
   }
 
@@ -720,6 +759,53 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                       {editErr && (
                         <p className="fh-mono" style={{ fontSize: 11, color: 'var(--signal)', margin: '10px 0 0', lineHeight: 1.5 }}>{editErr}</p>
                       )}
+                    </div>
+                  )}
+
+                  {/* mono per-row slicing: rescue a row whose cut came out wrong */}
+                  {!isColor && monoRows.length > 0 && (
+                    <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+                      <div className="fh-mono" style={{ fontSize: 10.5, letterSpacing: '.06em', marginBottom: 8, color: 'var(--ink-faint)' }}>
+                        ROWS · re-slice any that came out wrong
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                        {monoRows.map((r) => {
+                          const off = r.cellCount !== r.expected || r.forced;
+                          const sel = rowSlicerSel[r.index] ?? 'auto';
+                          const busy = rowBusy === r.index;
+                          return (
+                            <div key={r.index} style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '7px 9px', border: `1px solid ${off ? '#e6c27e' : 'var(--line)'}`, borderRadius: 2, background: 'var(--paper)' }}>
+                              <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink)', minWidth: 38 }}>row {r.index + 1}</span>
+                              <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', flex: 1, minWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.chars}</span>
+                              <span className="fh-mono" style={{ fontSize: 10.5, color: off ? '#9a6a12' : '#2f6f5e' }}>
+                                {r.cellCount}/{r.expected} · {r.slicer}{r.forced ? ' (forced)' : ''}
+                              </span>
+                              <select
+                                value={sel}
+                                disabled={busy}
+                                onChange={(e) => setRowSlicerSel((m) => ({ ...m, [r.index]: e.target.value as SlicerKind }))}
+                                className="fh-mono"
+                                style={{ fontSize: 10.5, padding: '4px 6px', border: '1px solid var(--line-2)', borderRadius: 2, background: 'var(--paper)', color: 'var(--ink-soft)', cursor: 'pointer' }}
+                              >
+                                <option value="auto">auto</option>
+                                <option value="whitespace">whitespace</option>
+                                <option value="anchored">anchored</option>
+                                <option value="components">components</option>
+                                <option value="ownership">ownership</option>
+                              </select>
+                              <button className="fh-btn fh-btn--ghost" disabled={busy} onClick={() => applyRowEdit(r.index, sel)}>
+                                {busy ? 'slicing…' : 're-slice'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {rowErr && (
+                        <p className="fh-mono" style={{ fontSize: 11, color: 'var(--signal)', margin: '9px 0 0', lineHeight: 1.5 }}>{rowErr}</p>
+                      )}
+                      <div className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 8, lineHeight: 1.5 }}>
+                        whitespace cuts on the gaps, anchored forces the exact count, components splits touching letters. A forced row means the gap cut missed the count.
+                      </div>
                     </div>
                   )}
                 </div>

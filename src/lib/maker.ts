@@ -131,6 +131,11 @@ export function waitForEngine(timeoutMs = 15000): Promise<void> {
 
 // ---- main-thread tracing ---------------------------------------------------
 
+// The cell slicers the mono path can use on a row. 'auto' is the default
+// cascade; the others force one slicer so a user can rescue a mis-cut row.
+export type SlicerKind = 'auto' | 'whitespace' | 'anchored' | 'components' | 'ownership';
+type PickedSlicer = Exclude<SlicerKind, 'auto'>;
+
 function pickRanges(
   data: Uint8ClampedArray,
   W: number,
@@ -138,19 +143,34 @@ function pickRanges(
   y1: number,
   expected: number,
   chars: string,
-): { ranges: number[][]; ownerFn: any } {
+  override: SlicerKind = 'auto',
+): { ranges: number[][]; ownerFn: any; slicer: PickedSlicer; forced: boolean } {
   const TC = w().TracerCore;
+  // explicit override: run exactly that slicer, no cascade
+  if (override === 'whitespace')
+    return { ranges: TC.sliceRowByWhitespace(data, W, y0, y1), ownerFn: null, slicer: 'whitespace', forced: false };
+  if (override === 'anchored')
+    return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: false };
+  if (override === 'components') {
+    const comp = TC.sliceRowByComponents(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
+    return { ranges: comp.ranges, ownerFn: comp.ownerFn, slicer: 'components', forced: false };
+  }
+  if (override === 'ownership') {
+    const owned = TC.sliceRowByAnchoredWithOwnership(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
+    return { ranges: owned.ranges, ownerFn: owned.ownerFn, slicer: 'ownership', forced: false };
+  }
+  // auto cascade: prefer the natural cut, fall back to a count-forced one
   const symbols = /[^A-Za-z0-9 ]/.test(chars);
   if (symbols) {
     const comp = TC.sliceRowByComponents(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
-    if (comp.ranges.length === expected) return comp;
+    if (comp.ranges.length === expected) return { ranges: comp.ranges, ownerFn: comp.ownerFn, slicer: 'components', forced: false };
     const owned = TC.sliceRowByAnchoredWithOwnership(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
-    if (owned.ranges.length === expected) return owned;
-    return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null };
+    if (owned.ranges.length === expected) return { ranges: owned.ranges, ownerFn: owned.ownerFn, slicer: 'ownership', forced: false };
+    return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: true };
   }
   const ws = TC.sliceRowByWhitespace(data, W, y0, y1);
-  if (ws.length === expected) return { ranges: ws, ownerFn: null };
-  return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null };
+  if (ws.length === expected) return { ranges: ws, ownerFn: null, slicer: 'whitespace', forced: false };
+  return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: true };
 }
 
 function filterFilledGlyphPaths(paths: string[], rowH: number, cellBaselineLocal: number) {
@@ -179,10 +199,12 @@ async function rowToGlyphs(
   y1: number,
   chars: string,
   opts: TraceOpts,
-): Promise<Glyph[]> {
+  override: SlicerKind = 'auto',
+): Promise<{ glyphs: Glyph[]; slicer: PickedSlicer; forced: boolean; cellCount: number }> {
   const TC = w().TracerCore;
   const expected = chars.length;
-  const { ranges, ownerFn } = pickRanges(data, W, y0, y1, expected, chars);
+  const { ranges, ownerFn, slicer, forced } = pickRanges(data, W, y0, y1, expected, chars, override);
+  const cellCount = ranges.length;
   const baselineAbs = TC.detectBaselineInRow(data, W, y0, y1);
   const rowH = y1 - y0;
   const pad = 2;
@@ -214,7 +236,7 @@ async function rowToGlyphs(
       baselineYInCell: map.baselineYInCell,
     });
   }
-  return glyphs;
+  return { glyphs, slicer, forced, cellCount };
 }
 
 export interface GlyphReport {
@@ -223,11 +245,39 @@ export interface GlyphReport {
   flags: string[]; // 'wide' | 'narrow' | 'filled' | 'empty'
 }
 
+// Per-row trace diagnostics for the mono path, so a mis-cut row can be rescued
+// with a different slicer without rebuilding the whole sheet from scratch.
+export interface MonoRowInfo {
+  index: number;
+  chars: string;
+  slicer: PickedSlicer; // which slicer produced the cells
+  forced: boolean; // true when the natural cut missed the count and a forced cut was used
+  cellCount: number; // cells the slicer found
+  expected: number; // characters the charset row expects
+  glyphCount: number; // glyphs that survived tracing
+}
+
 export interface TraceResult {
   glyphs: Glyph[];
   rowWarning: string;
   detectedRows: number;
   report: GlyphReport[];
+  rows: MonoRowInfo[];
+}
+
+/** Width-outlier health flags for a flat glyph list, vs the median cell width.
+ *  Shared by the full trace and a single-row re-slice so both report the same. */
+function reportForGlyphs(glyphs: Glyph[]): GlyphReport[] {
+  const widths = glyphs.map((g) => g.cellW).filter((x) => x > 0).sort((a, b) => a - b);
+  const med = widths.length ? widths[widths.length >> 1] : 0;
+  return glyphs.map((g) => {
+    const flags: string[] = [];
+    if (med) {
+      if (g.cellW > med * 1.9) flags.push('wide');
+      else if (g.cellW < med * 0.34) flags.push('narrow');
+    }
+    return { char: g.char, status: 'ok', flags };
+  });
 }
 
 /** Quick layout probe on drop: how many rows, and roughly how many cells in the
@@ -311,9 +361,24 @@ export function guessCharset(rows: number, cells0: number): string[] {
   }
 }
 
+// Live mono build session: the binarized sheet plus per-row glyphs, kept so a
+// single row can be re-sliced and the font rebuilt without re-reading the image.
+interface MonoSession {
+  data: Uint8ClampedArray;
+  W: number;
+  H: number;
+  bands: number[][]; // detected row y-bands [y0, y1]
+  lines: string[]; // charset chars per row
+  opts: TraceOpts;
+  rowGlyphs: Glyph[][]; // traced glyphs, per row
+  rowInfo: MonoRowInfo[];
+}
+let _monoSession: MonoSession | null = null;
+
 /** Trace a loaded image (alphabet sheet) into glyph objects, and report a
  *  row-mismatch warning when the detected row count differs from the charset
- *  (the loudest "this is misaligned" signal, mirroring the source tool). */
+ *  (the loudest "this is misaligned" signal, mirroring the source tool).
+ *  Keeps a per-row session so a mis-cut row can be re-sliced afterward. */
 export async function traceSheet(
   img: HTMLImageElement | ImageBitmap,
   rowChars: string[],
@@ -326,31 +391,60 @@ export async function traceSheet(
   onProgress?.('binarize', 'threshold · otsu adaptive');
   const bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, opts.weight);
   onProgress?.('slice', 'detecting rows + cells');
-  const rows = TC.detectRowsInBinary(bin.data, bin.w, bin.h);
+  const bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
   const lines = rowChars.filter((r) => r.length > 0);
   const rowWarning =
-    rows.length !== lines.length
-      ? `detected ${rows.length} rows but your charset has ${lines.length} lines. Glyphs are probably misaligned; edit the charset to match your sheet.`
+    bands.length !== lines.length
+      ? `detected ${bands.length} rows but your charset has ${lines.length} lines. Glyphs are probably misaligned; edit the charset to match your sheet.`
       : '';
-  let glyphs: Glyph[] = [];
-  const n = Math.min(rows.length, lines.length);
+  const n = Math.min(bands.length, lines.length);
+  const rowGlyphs: Glyph[][] = [];
+  const rowInfo: MonoRowInfo[] = [];
   for (let i = 0; i < n; i++) {
     onProgress?.('trace', `row ${i + 1}/${n} · contours`);
-    const g = await rowToGlyphs(bin.data, bin.w, bin.h, rows[i][0], rows[i][1], lines[i], opts);
-    glyphs = glyphs.concat(g);
+    const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], opts, 'auto');
+    rowGlyphs.push(r.glyphs);
+    rowInfo.push({ index: i, chars: lines[i], slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: lines[i].length, glyphCount: r.glyphs.length });
   }
-  // per-glyph health: width-outlier flags vs the median cell width (merged/sliver)
-  const widths = glyphs.map((g) => g.cellW).filter((x) => x > 0).sort((a, b) => a - b);
-  const med = widths.length ? widths[widths.length >> 1] : 0;
-  const report: GlyphReport[] = glyphs.map((g) => {
-    const flags: string[] = [];
-    if (med) {
-      if (g.cellW > med * 1.9) flags.push('wide');
-      else if (g.cellW < med * 0.34) flags.push('narrow');
-    }
-    return { char: g.char, status: 'ok', flags };
-  });
-  return { glyphs, rowWarning, detectedRows: rows.length, report };
+  const glyphs = rowGlyphs.flat();
+  const report = reportForGlyphs(glyphs);
+  _monoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo };
+  return { glyphs, rowWarning, detectedRows: bands.length, report, rows: rowInfo };
+}
+
+/** Re-slice one mono row with a chosen slicer (and the current trace opts, so a
+ *  threshold change takes effect), then rebuild the font. Rolls the row back if
+ *  the rebuild fails, so the session stays usable. */
+export async function editMonoRow(
+  rowIndex: number,
+  slicer: SlicerKind,
+  family: string,
+  opts: TraceOpts,
+  onProgress?: Progress,
+): Promise<{ result: FontResult; glyphCount: number; report: GlyphReport[]; rows: MonoRowInfo[] }> {
+  const s = _monoSession;
+  if (!s) throw new Error('no mono build session — build a font first');
+  if (rowIndex < 0 || rowIndex >= s.rowGlyphs.length) throw new Error('bad row index ' + rowIndex);
+  const prevGlyphs = s.rowGlyphs[rowIndex];
+  const prevInfo = s.rowInfo[rowIndex];
+  const prevOpts = s.opts;
+  try {
+    const band = s.bands[rowIndex];
+    const chars = s.lines[rowIndex];
+    const r = await rowToGlyphs(s.data, s.W, s.H, band[0], band[1], chars, opts, slicer);
+    s.rowGlyphs[rowIndex] = r.glyphs;
+    s.opts = opts;
+    s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: chars.length, glyphCount: r.glyphs.length };
+    const glyphs = s.rowGlyphs.flat();
+    if (!glyphs.length) throw new Error('no glyphs left after re-slicing this row');
+    const result = await buildFont(glyphs, { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'] }, onProgress);
+    return { result, glyphCount: glyphs.length, report: reportForGlyphs(glyphs), rows: s.rowInfo.slice() };
+  } catch (e) {
+    s.rowGlyphs[rowIndex] = prevGlyphs;
+    s.rowInfo[rowIndex] = prevInfo;
+    s.opts = prevOpts;
+    throw e;
+  }
 }
 
 // ---- worker font build -----------------------------------------------------
