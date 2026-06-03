@@ -1,0 +1,64 @@
+---
+import Base from '../layouts/Base.astro';
+import FHNav from '../components/FHNav.astro';
+import { createAuth } from '../lib/auth';
+
+export const prerender = false;
+
+// Protected route: the M1 auth gate. SSR reads the session from the request
+// cookie; no session redirects to sign-in. Proves the session holds under
+// Astro SSR on the Cloudflare Worker.
+const auth = createAuth(Astro.locals.runtime.env);
+const session = await auth.api.getSession({ headers: Astro.request.headers });
+if (!session) return Astro.redirect('/sign-in');
+
+const { user } = session;
+const initials = (user.name || user.email)
+  .split(/[\s@.]+/)
+  .slice(0, 2)
+  .map((s) => s[0]?.toUpperCase() ?? '')
+  .join('');
+---
+
+<Base title="Your account · fonthead.dev">
+  <div style="background:var(--paper);min-height:100vh;">
+    <FHNav active="library" />
+
+    <div style="max-width:560px;margin:64px auto;padding:0 24px;">
+      <p class="fh-eyebrow">fonthead.dev · account</p>
+
+      <div style="display:flex;align-items:center;gap:16px;margin:18px 0 28px;">
+        <div class="fh-avatar" style="width:48px;height:48px;font-size:16px;">{initials}</div>
+        <div>
+          <div style="font-size:20px;font-weight:600;letter-spacing:-.01em;">{user.name}</div>
+          <div class="fh-mono" style="font-size:12.5px;color:var(--ink-soft);margin-top:3px;">{user.email}</div>
+        </div>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:2px;">
+        <div style="display:flex;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);">
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">session</span>
+          <span class="fh-mono" style="font-size:12px;color:#2f6f5e;">active · held under SSR</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);">
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">handle</span>
+          <span class="fh-mono" style="font-size:12px;color:var(--ink-soft);">assigned in M3</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:13px 16px;">
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">your fonts</span>
+          <span class="fh-mono" style="font-size:12px;color:var(--ink-soft);">publish arrives in M3</span>
+        </div>
+      </div>
+
+      <button id="signout" class="fh-btn fh-btn--ghost" style="margin-top:24px;">sign out</button>
+    </div>
+  </div>
+</Base>
+
+<script>
+  import { authClient } from '../lib/auth-client';
+  document.getElementById('signout')?.addEventListener('click', async () => {
+    await authClient.signOut();
+    window.location.href = '/';
+  });
+</script>

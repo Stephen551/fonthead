@@ -1,0 +1,74 @@
+---
+import Base from '../layouts/Base.astro';
+import FHNav from '../components/FHNav.astro';
+
+export const prerender = false;
+
+// If already signed in, go straight to the account page.
+import { createAuth } from '../lib/auth';
+const auth = createAuth(Astro.locals.runtime.env);
+const session = await auth.api.getSession({ headers: Astro.request.headers });
+if (session) return Astro.redirect('/account');
+---
+
+<Base title="Sign in · fonthead.dev">
+  <div style="background:var(--paper);min-height:100vh;">
+    <FHNav active="library" />
+
+    <div style="max-width:420px;margin:64px auto;padding:0 24px;">
+      <p class="fh-eyebrow">fonthead.dev · accounts</p>
+      <h1 style="font-size:24px;font-weight:600;letter-spacing:-.02em;margin:12px 0 6px;">Sign in or make an account</h1>
+      <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 26px;line-height:1.5;">
+        Accounts hold your fonts, favorites, and what you publish. Light and out of the way.
+      </p>
+
+      <form id="authform" style="display:flex;flex-direction:column;gap:12px;">
+        <label class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;">NAME (for a new account)</label>
+        <input id="name" name="name" type="text" class="fh-input" autocomplete="name" placeholder="your name" />
+
+        <label class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">EMAIL</label>
+        <input id="email" name="email" type="email" class="fh-input" autocomplete="email" required placeholder="you@example.com" />
+
+        <label class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">PASSWORD</label>
+        <input id="password" name="password" type="password" class="fh-input" autocomplete="current-password" required minlength="8" placeholder="at least 8 characters" />
+
+        <div style="display:flex;gap:10px;margin-top:18px;">
+          <button type="button" id="signin" class="fh-btn" style="flex:1;justify-content:center;">sign in</button>
+          <button type="button" id="signup" class="fh-btn fh-btn--ghost" style="flex:1;justify-content:center;">create account</button>
+        </div>
+        <p id="msg" class="fh-mono" style="font-size:11.5px;color:var(--signal);min-height:16px;margin:8px 0 0;"></p>
+      </form>
+    </div>
+  </div>
+</Base>
+
+<script>
+  import { authClient } from '../lib/auth-client';
+
+  const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
+  const msg = document.getElementById('msg') as HTMLElement;
+  const setMsg = (t: string) => (msg.textContent = t);
+
+  async function go(kind: 'in' | 'up') {
+    const email = $('email').value.trim();
+    const password = $('password').value;
+    const name = $('name').value.trim();
+    if (!email || !password) return setMsg('email and password are required');
+    if (kind === 'up' && !name) return setMsg('a name is needed for a new account');
+    setMsg(kind === 'up' ? 'creating account…' : 'signing in…');
+
+    const res =
+      kind === 'up'
+        ? await authClient.signUp.email({ email, password, name })
+        : await authClient.signIn.email({ email, password });
+
+    if (res.error) {
+      setMsg(res.error.message || 'that did not work');
+      return;
+    }
+    window.location.href = '/account';
+  }
+
+  document.getElementById('signin')?.addEventListener('click', () => go('in'));
+  document.getElementById('signup')?.addEventListener('click', () => go('up'));
+</script>
