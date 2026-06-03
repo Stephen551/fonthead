@@ -37,7 +37,7 @@ try {
     <title>{title}</title>
     <slot name="head" />
   </head>
-  <body>
+  <body data-signed-in={navUser ? 'true' : 'false'}>
     <FHNav active={active} user={navUser} />
     <slot />
   </body>

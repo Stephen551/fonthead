@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Badge from '../../components/Badge.astro';
+import SocialScript from '../../components/SocialScript.astro';
 import { getFont, fontFaceCss, specClass, specStyle, familyOf, kb } from '../../lib/fonts';
 import { createAuth } from '../../lib/auth';
 
@@ -14,13 +15,20 @@ if (!f) {
   return new Response('Font not found', { status: 404 });
 }
 
+const auth = createAuth(env);
+const session = await auth.api.getSession({ headers: Astro.request.headers });
+const userId = session?.user.id ?? null;
+
 // private fonts are visible only to their owner
-if (f.visibility === 'private') {
-  const auth = createAuth(env);
-  const session = await auth.api.getSession({ headers: Astro.request.headers });
-  if (!session || session.user.id !== f.owner_id) {
-    return new Response('Font not found', { status: 404 });
-  }
+if (f.visibility === 'private' && userId !== f.owner_id) {
+  return new Response('Font not found', { status: 404 });
+}
+
+let voted = false;
+let favorited = false;
+if (userId) {
+  voted = !!(await env.DB.prepare('SELECT 1 FROM votes WHERE user_id = ? AND font_id = ?').bind(userId, f.id).first());
+  favorited = !!(await env.DB.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND font_id = ?').bind(userId, f.id).first());
 }
 
 const m = f.meta;
@@ -69,10 +77,10 @@ const specInline = specStyle(f.id, m);
           </div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;">
-          <span class="fh-fav" aria-hidden="true" style="width:38px;height:38px;">
+          <button class={`fh-fav${favorited ? ' on' : ''}`} data-fav data-font-id={f.id} aria-pressed={favorited} aria-label="favorite" style="width:38px;height:38px;">
             <svg viewBox="0 0 24 24" style="width:17px;height:17px;"><path d="M12 20s-7-4.4-9.2-8.3C1.3 8.9 2.6 5.5 5.8 5.5c2 0 3.3 1.4 3.9 2.4 0 0 .1.2.3.2s.3-.2.3-.2c.6-1 1.9-2.4 3.9-2.4 3.2 0 4.5 3.4 3 6.2C19 15.6 12 20 12 20z"/></svg>
-          </span>
-          <span class="fh-vote"><span class="caret" aria-hidden="true"><svg viewBox="0 0 9 9"><path d="M1.5 5.5L4.5 2.5L7.5 5.5"/></svg></span><span class="fh-count">{f.votes_count.toLocaleString()}</span></span>
+          </button>
+          <button class={`fh-vote${voted ? ' on' : ''}`} data-vote data-font-id={f.id} aria-pressed={voted}><span class="caret" aria-hidden="true"><svg viewBox="0 0 9 9"><path d="M1.5 5.5L4.5 2.5L7.5 5.5"/></svg></span><span class="fh-count" data-count>{f.votes_count.toLocaleString()}</span></button>
         </div>
       </div>
 
@@ -160,10 +168,16 @@ const specInline = specStyle(f.id, m);
     </div>
 
     <footer style="padding:22px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;">
-      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">a stand-in face · the real makers arrive with the maker</div>
+      {m.standIn ? (
+        <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">a stand-in face · the real makers arrive with the maker</div>
+      ) : (
+        <a href={`/u/${f.maker_handle}`} class="fh-mono" style="font-size:11px;color:var(--ink-faint);text-decoration:none;">more from @{f.maker_handle}&nbsp;&rarr;</a>
+      )}
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
     </footer>
   </div>
+
+  <SocialScript />
 </Base>
 
 <script>

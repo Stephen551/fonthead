@@ -4,50 +4,52 @@ import { type Font, specClass, specTreat, familyOf, kb } from '../lib/fonts';
 
 interface Props {
   font: Font;
+  voted?: boolean;
+  favorited?: boolean;
 }
-const { font: f } = Astro.props;
+const { font: f, voted = false, favorited = false } = Astro.props;
 const m = f.meta;
 const size = Math.min(m.size, 92);
-// fav + vote render inert on the wall in M1 (no persistence until M4).
+// The card is a div so the fav/vote buttons are valid siblings (not nested in
+// a link). The specimen and name link to the font page.
 ---
 
-<a class="fh-card" href={`/f/${f.id}`} style="display:flex;flex-direction:column;">
-  <!-- specimen panel: real face, lazy-loaded via data-font when near viewport -->
-  <div style="position:relative;height:200px;padding:0 26px;display:flex;align-items:center;justify-content:center;overflow:hidden;border-bottom:1px solid var(--line);background:var(--paper);">
-    {(m.badge || f.visibility === 'private') && (
-      <div style="position:absolute;top:14px;right:14px;display:flex;gap:6px;">
-        <Badge vis={f.visibility === 'private' ? 'private' : null} />
-        <Badge kind={m.badge} />
+<div class="fh-card" style="display:flex;flex-direction:column;">
+  <a href={`/f/${f.id}`} aria-label={`Open ${f.name}`} style="text-decoration:none;color:inherit;display:block;">
+    <div style="position:relative;height:200px;padding:0 26px;display:flex;align-items:center;justify-content:center;overflow:hidden;border-bottom:1px solid var(--line);background:var(--paper);">
+      {(m.badge || f.visibility === 'private') && (
+        <div style="position:absolute;top:14px;right:14px;display:flex;gap:6px;">
+          <Badge vis={f.visibility === 'private' ? 'private' : null} />
+          <Badge kind={m.badge} />
+        </div>
+      )}
+      <div
+        class={specClass(m)}
+        data-font={familyOf(f.id)}
+        style={`font-family:var(--sans);${specTreat(m)};font-size:${size}px;max-width:100%;white-space:nowrap;`}
+      >
+        {f.specimen_word}
       </div>
-    )}
-    <div
-      class={specClass(m)}
-      data-font={familyOf(f.id)}
-      style={`font-family:var(--sans);${specTreat(m)};font-size:${size}px;max-width:100%;white-space:nowrap;`}
-    >
-      {f.specimen_word}
     </div>
-  </div>
+  </a>
 
-  <!-- name + maker + favorite -->
   <div style="padding:15px 18px 0;display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
-    <div>
-      <div style="font-size:15.5px;font-weight:600;letter-spacing:-.01em;">{f.name}</div>
-      <div class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);margin-top:3px;">by {f.maker_handle}</div>
+    <div style="min-width:0;">
+      <a href={`/f/${f.id}`} style="text-decoration:none;color:inherit;font-size:15.5px;font-weight:600;letter-spacing:-.01em;display:block;">{f.name}</a>
+      <a href={`/u/${f.maker_handle}`} class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);margin-top:3px;text-decoration:none;display:block;">by {f.maker_handle}</a>
     </div>
-    <span class="fh-fav" aria-hidden="true">
+    <button class={`fh-fav${favorited ? ' on' : ''}`} data-fav data-font-id={f.id} aria-pressed={favorited} aria-label={`Favorite ${f.name}`}>
       <svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-9.2-8.3C1.3 8.9 2.6 5.5 5.8 5.5c2 0 3.3 1.4 3.9 2.4 0 0 .1.2.3.2s.3-.2.3-.2c.6-1 1.9-2.4 3.9-2.4 3.2 0 4.5 3.4 3 6.2C19 15.6 12 20 12 20z"/></svg>
-    </span>
+    </button>
   </div>
 
-  <!-- ambient technical readout + upvote -->
   <div style="padding:13px 18px 14px;margin-top:13px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;">
     <div class="fh-mono" style="font-size:10.5px;color:var(--ink-faint);letter-spacing:.02em;">
       {f.glyph_count ?? '—'} glyphs · woff2 {kb(f.woff2_size)}
     </div>
-    <span class="fh-vote">
+    <button class={`fh-vote${voted ? ' on' : ''}`} data-vote data-font-id={f.id} aria-pressed={voted} aria-label={`Upvote ${f.name}`}>
       <span class="caret" aria-hidden="true"><svg viewBox="0 0 9 9"><path d="M1.5 5.5L4.5 2.5L7.5 5.5"/></svg></span>
-      <span class="fh-count">{f.votes_count.toLocaleString()}</span>
-    </span>
+      <span class="fh-count" data-count>{f.votes_count.toLocaleString()}</span>
+    </button>
   </div>
-</a>
+</div>

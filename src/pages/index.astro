@@ -1,8 +1,10 @@
 ---
 import Base from '../layouts/Base.astro';
 import FontCard from '../components/FontCard.astro';
+import SocialScript from '../components/SocialScript.astro';
 import CyclingWordmark, { type HeroFace } from '../components/CyclingWordmark.tsx';
-import { listPublicFonts, fontFaceCss, familyOf, type Sort } from '../lib/fonts';
+import { listPublicFonts, getUserInteractions, fontFaceCss, familyOf, type Sort } from '../lib/fonts';
+import { createAuth } from '../lib/auth';
 
 export const prerender = false;
 
@@ -11,6 +13,12 @@ const sort: Sort = url.searchParams.get('sort') === 'new' ? 'new' : 'popular';
 
 const env = Astro.locals.runtime.env;
 const fonts = await listPublicFonts(env.DB, sort);
+
+const auth = createAuth(env);
+const session = await auth.api.getSession({ headers: Astro.request.headers });
+const inter = session
+  ? await getUserInteractions(env.DB, session.user.id)
+  : { voted: new Set<string>(), favorited: new Set<string>() };
 
 const faceCss = fontFaceCss(fonts);
 const heroFaces: HeroFace[] = fonts.map((f) => ({
@@ -61,7 +69,7 @@ const heroFaces: HeroFace[] = fonts.map((f) => ({
 
     <!-- the wall -->
     <div style="padding:28px 40px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
-      {fonts.map((f) => <FontCard font={f} />)}
+      {fonts.map((f) => <FontCard font={f} voted={inter.voted.has(f.id)} favorited={inter.favorited.has(f.id)} />)}
     </div>
 
     <!-- footer -->
@@ -72,6 +80,8 @@ const heroFaces: HeroFace[] = fonts.map((f) => ({
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
     </footer>
   </div>
+
+  <SocialScript />
 </Base>
 
 <script>

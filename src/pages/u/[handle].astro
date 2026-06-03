@@ -1,8 +1,9 @@
 ---
 import Base from '../../layouts/Base.astro';
 import FontCard from '../../components/FontCard.astro';
+import SocialScript from '../../components/SocialScript.astro';
 import { createAuth } from '../../lib/auth';
-import { listFontsByOwner, fontFaceCss } from '../../lib/fonts';
+import { listFontsByOwner, getUserInteractions, fontFaceCss } from '../../lib/fonts';
 
 export const prerender = false;
 
@@ -24,6 +25,9 @@ const isOwner = session?.user.id === maker.id;
 
 const fonts = await listFontsByOwner(env.DB, maker.id, isOwner);
 const faceCss = fontFaceCss(fonts);
+const inter = session
+  ? await getUserInteractions(env.DB, session.user.id)
+  : { voted: new Set<string>(), favorited: new Set<string>() };
 const publicCount = fonts.filter((f) => f.visibility === 'public').length;
 const privateCount = fonts.length - publicCount;
 ---
@@ -42,7 +46,7 @@ const privateCount = fonts.length - publicCount;
 
     {fonts.length > 0 ? (
       <div style="padding:28px 40px 40px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
-        {fonts.map((f) => <FontCard font={f} />)}
+        {fonts.map((f) => <FontCard font={f} voted={inter.voted.has(f.id)} favorited={inter.favorited.has(f.id)} />)}
       </div>
     ) : (
       <p class="fh-mono" style="padding:40px;font-size:13px;color:var(--ink-faint);">
@@ -55,6 +59,8 @@ const privateCount = fonts.length - publicCount;
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
     </footer>
   </div>
+
+  <SocialScript />
 </Base>
 
 <script>
