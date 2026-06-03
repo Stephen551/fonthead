@@ -1,0 +1,62 @@
+[
+  {
+    "id": "monoton",
+    "key": "fonts/monoton.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\monoton\\monoton-400.woff2"
+  },
+  {
+    "id": "anton",
+    "key": "fonts/anton.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\anton\\anton-400.woff2"
+  },
+  {
+    "id": "abril-fatface",
+    "key": "fonts/abril-fatface.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\abril-fatface\\abril-fatface-400.woff2"
+  },
+  {
+    "id": "vt323",
+    "key": "fonts/vt323.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\vt323\\vt323-400.woff2"
+  },
+  {
+    "id": "pacifico",
+    "key": "fonts/pacifico.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\pacifico\\pacifico-400.woff2"
+  },
+  {
+    "id": "fraunces",
+    "key": "fonts/fraunces.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\fraunces\\fraunces-italic.woff2"
+  },
+  {
+    "id": "silkscreen",
+    "key": "fonts/silkscreen.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\silkscreen\\silkscreen-400.woff2"
+  },
+  {
+    "id": "dm-serif-display",
+    "key": "fonts/dm-serif-display.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\dm-serif-display\\dm-serif-display-400.woff2"
+  },
+  {
+    "id": "outfit",
+    "key": "fonts/outfit.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\outfit\\outfit.woff2"
+  },
+  {
+    "id": "spectral",
+    "key": "fonts/spectral.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\spectral\\spectral-italic.woff2"
+  },
+  {
+    "id": "bungee",
+    "key": "fonts/bungee.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\bungee\\bungee-400.woff2"
+  },
+  {
+    "id": "gloria-hallelujah",
+    "key": "fonts/gloria-hallelujah.woff2",
+    "file": "C:\\Users\\steph\\Desktop\\SaaS\\Fonthead\\Fontdev\\fonts-staging\\gloria-hallelujah\\gloria-hallelujah-400.woff2"
+  }
+]

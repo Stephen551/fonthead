@@ -1,0 +1,15 @@
+---
+interface Props {
+  kind?: 'color' | 'line' | 'variable' | null;
+  vis?: 'private' | null;
+}
+const { kind = null, vis = null } = Astro.props;
+const label = kind === 'color' ? 'color' : kind === 'line' ? 'single-line' : kind === 'variable' ? 'variable' : '';
+---
+
+{vis === 'private' && (
+  <span class="fh-badge fh-badge--private"><span class="tick"></span>private</span>
+)}
+{kind && (
+  <span class={`fh-badge fh-badge--${kind}`}><span class="tick"></span>{label}</span>
+)}

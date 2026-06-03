@@ -1,0 +1,18 @@
+---
+// Quiet mono chrome. Wordmark, library + make links, the make-a-font entry.
+// M1 shows a static "sign in" link; M3 wires real session state in here.
+interface Props {
+  active?: 'library' | 'make';
+}
+const { active = 'library' } = Astro.props;
+---
+
+<nav class="fh-nav">
+  <a href="/" class="fh-wordmark">fonthead<span class="dot">.dev</span></a>
+  <div style="width:1px;height:22px;background:var(--line);margin:0 4px;"></div>
+  <a href="/" class="fh-navlink" style={active === 'library' ? 'color:var(--ink);font-weight:600;' : undefined}>library</a>
+  <a href="/make" class="fh-navlink" style={active === 'make' ? 'color:var(--ink);font-weight:600;' : undefined}>make</a>
+  <div style="flex:1"></div>
+  <a href="/make" class="fh-btn">make a font&nbsp;&nbsp;&rarr;</a>
+  <a href="/account" class="fh-navlink">sign in</a>
+</nav>
