@@ -1,111 +1,45 @@
 ---
 import Base from '../layouts/Base.astro';
 import FHNav from '../components/FHNav.astro';
-import BuildReadout from '../components/BuildReadout.tsx';
+import Maker from '../components/Maker.tsx';
 
 export const prerender = false;
 
-// M1 stub: the maker shell is here so the design is in place, but the tracer
-// engine, sheet upload, build, and publish all arrive in M2. Everything that
-// would mutate state is disabled and labelled.
-const sheet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef'.split('');
-const faceCss =
-  "@font-face{font-family:'fh-sheet';src:url('/cdn/fonts/gloria-hallelujah.woff2') format('woff2');font-display:swap;}";
+const V = '0.8.59';
+// Anton (an R2 face) backs the one-click sample sheet so it traces crisply.
+const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2') format('woff2');font-display:swap;}";
 ---
 
 <Base title="Make a font · fonthead.dev">
   <style slot="head" is:inline set:html={faceCss}></style>
+  <!-- vendored font engine (client-side). Classic globals; the worker self-loads the rest. -->
+  <script is:inline src={`/assets/vendor/opentype.min.js?v=${V}`}></script>
+  <script is:inline src={`/assets/vendor/potrace.js?v=${V}`}></script>
+  <script is:inline src={`/assets/vendor/font-engine-builder.js?v=${V}`}></script>
+  <script is:inline src={`/assets/tracer-core.js?v=${V}`}></script>
+  <script is:inline src={`/assets/singleline-core.js?v=${V}`}></script>
 
   <div style="background:var(--paper);min-height:100vh;">
     <FHNav active="make" />
-
-    <!-- preview notice -->
-    <div style="margin:0;padding:12px 40px;background:var(--paper-3);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;">
-      <span class="fh-badge fh-badge--private"><span class="tick"></span>preview</span>
-      <span class="fh-mono" style="font-size:11.5px;color:var(--ink-soft);">
-        The maker shell. The tracer engine, sheet upload, build, and publish arrive in M2. Controls below are disabled.
-      </span>
-    </div>
 
     <!-- title + steps -->
     <div style="display:flex;align-items:flex-end;justify-content:space-between;padding:30px 40px 24px;border-bottom:1px solid var(--line);">
       <div>
         <h1 style="font-size:30px;font-weight:600;margin:0;letter-spacing:-.02em;">Make a font</h1>
-        <p style="margin:8px 0 0;font-size:14.5px;color:var(--ink-soft);">Drop an alphabet sheet. We build a real, installable font.</p>
+        <p style="margin:8px 0 0;font-size:14.5px;color:var(--ink-soft);">Drop an alphabet sheet. We build a real, installable font in your browser.</p>
       </div>
       <div class="fh-mono" style="display:flex;gap:18px;font-size:12px;">
         <span style="color:var(--ink);"><b style="font-weight:700;">01</b> drop</span>
         <span style="color:var(--signal);"><b style="font-weight:700;">02</b> build</span>
-        <span style="color:var(--ink-faint);"><b style="font-weight:700;">03</b> publish</span>
+        <span style="color:var(--ink-faint);"><b style="font-weight:700;">03</b> download</span>
       </div>
     </div>
 
-    <!-- workspace -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;align-items:stretch;">
-      <!-- left: the sheet -->
-      <div style="padding:26px 32px 30px;border-right:1px solid var(--line);">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-          <span class="fh-eyebrow">01 · the sheet</span>
-          <span class="fh-mono" style="font-size:11px;color:var(--ink-faint);">sample sheet · 26 glyphs</span>
-        </div>
-        <div style="border:1px solid var(--line-2);border-radius:3px;background:var(--paper-3);padding:16px;display:grid;grid-template-columns:repeat(8,1fr);gap:6px;">
-          {sheet.map((c, i) => (
-            <div style="aspect-ratio:1;background:var(--paper);border:1px solid var(--line);border-radius:2px;display:grid;place-items:center;position:relative;">
-              <span style="font-family:'fh-sheet',cursive;font-size:30px;color:var(--ink);">{c}</span>
-              <span class="fh-mono" style="position:absolute;top:3px;left:4px;font-size:7px;color:var(--ink-faint);">{(i + 1 < 10 ? '0' : '') + (i + 1)}</span>
-            </div>
-          ))}
-        </div>
-        <div style="display:flex;gap:10px;margin-top:14px;">
-          <button class="fh-btn fh-btn--ghost" style="flex:1;justify-content:center;" disabled>replace sheet</button>
-          <button class="fh-btn fh-btn--ghost" style="flex:1;justify-content:center;" disabled>or generate with ai</button>
-        </div>
-
-        <details style="margin-top:16px;border-top:1px solid var(--line);">
-          <summary class="fh-mono" style="display:flex;align-items:center;gap:9px;padding:14px 0;font-size:12px;color:var(--ink-soft);cursor:pointer;list-style:none;">
-            <span style="color:var(--ink-faint);">+</span> advanced controls
-            <span style="flex:1;"></span>
-            <span style="color:var(--ink-faint);font-size:11px;">for the pro</span>
-          </summary>
-          <div style="padding-bottom:8px;">
-            {[['spacing', 48], ['contrast', 62], ['slant', 0], ['weight', 70]].map(([label, val]) => (
-              <div style="display:flex;align-items:center;gap:14px;padding:9px 0;">
-                <span class="fh-mono" style="font-size:11px;width:84px;color:var(--ink-soft);letter-spacing:.04em;">{label}</span>
-                <input type="range" class="fh-range" value={val} disabled style="flex:1;" />
-                <span class="fh-mono" style="font-size:11px;width:34px;color:var(--ink-faint);text-align:right;">{val}</span>
-              </div>
-            ))}
-          </div>
-        </details>
-      </div>
-
-      <!-- right: build + publish -->
-      <div style="padding:26px 32px 30px;background:var(--paper-2);">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-          <span class="fh-eyebrow">02 · the build</span>
-          <span class="fh-mono" style="font-size:11px;color:var(--ink-faint);">honest readout · no spinner</span>
-        </div>
-        <BuildReadout resultFamily="fh-sheet" client:visible />
-
-        <div style="margin-top:24px;padding-top:22px;border-top:1px solid var(--line);">
-          <span class="fh-eyebrow" style="display:block;margin-bottom:14px;">03 · publish</span>
-          <label class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;display:block;margin-bottom:7px;">NAME</label>
-          <input value="Handmade" class="fh-input" style="width:100%;" disabled />
-          <div style="display:flex;gap:18px;margin-top:18px;align-items:center;">
-            <div style="display:flex;border:1px solid var(--line-2);border-radius:2px;overflow:hidden;">
-              <span class="fh-mono" style="font-size:12px;padding:9px 16px;background:var(--ink);color:var(--paper);">public</span>
-              <span class="fh-mono" style="font-size:12px;padding:9px 16px;background:var(--paper);color:var(--ink-soft);">private</span>
-            </div>
-            <span class="fh-mono" style="font-size:11px;color:var(--ink-faint);flex:1;">wired in M2</span>
-            <button class="fh-btn" style="padding:11px 22px;" disabled>publish&nbsp;&nbsp;&rarr;</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <Maker client:only="react" />
 
     <footer style="padding:20px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;">
-      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">exports woff2 today · otf + ttf with the engine</div>
-      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">your font · your license</div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">builds otf · ttf · woff2 · nothing leaves your browser</div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">publishing to the library arrives in M3</div>
     </footer>
   </div>
 </Base>
