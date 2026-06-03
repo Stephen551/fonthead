@@ -200,10 +200,17 @@ async function rowToGlyphs(
   return glyphs;
 }
 
+export interface GlyphReport {
+  char: string;
+  status: string; // 'ok' | 'empty' | 'excluded'
+  flags: string[]; // 'wide' | 'narrow' | 'filled' | 'empty'
+}
+
 export interface TraceResult {
   glyphs: Glyph[];
   rowWarning: string;
   detectedRows: number;
+  report: GlyphReport[];
 }
 
 /** Quick layout probe on drop: how many rows, and roughly how many cells in the
@@ -285,7 +292,18 @@ export async function traceSheet(
     const g = await rowToGlyphs(bin.data, bin.w, bin.h, rows[i][0], rows[i][1], lines[i], opts);
     glyphs = glyphs.concat(g);
   }
-  return { glyphs, rowWarning, detectedRows: rows.length };
+  // per-glyph health: width-outlier flags vs the median cell width (merged/sliver)
+  const widths = glyphs.map((g) => g.cellW).filter((x) => x > 0).sort((a, b) => a - b);
+  const med = widths.length ? widths[widths.length >> 1] : 0;
+  const report: GlyphReport[] = glyphs.map((g) => {
+    const flags: string[] = [];
+    if (med) {
+      if (g.cellW > med * 1.9) flags.push('wide');
+      else if (g.cellW < med * 0.34) flags.push('narrow');
+    }
+    return { char: g.char, status: 'ok', flags };
+  });
+  return { glyphs, rowWarning, detectedRows: rows.length, report };
 }
 
 // ---- worker font build -----------------------------------------------------
@@ -446,6 +464,7 @@ export interface ColorResult {
   charCount: number;
   rowWarning?: string;
   glowWarning?: boolean;
+  report?: GlyphReport[];
 }
 
 /** Resolve once the colour engine + main-thread wawoff2 are present. */
@@ -500,6 +519,7 @@ export async function buildColorFontFromImage(
     charCount: res.charCount ?? 0,
     rowWarning: res.rowWarning || '',
     glowWarning: !!res.glowWarning,
+    report: res.report || [],
   };
 }
 

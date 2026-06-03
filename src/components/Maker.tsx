@@ -19,6 +19,7 @@ import {
   makeColorSampleSheet,
   type ColorMode,
   type FontResult,
+  type GlyphReport,
 } from '../lib/maker';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
@@ -75,10 +76,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [charsetText, setCharsetText] = useState(DEFAULT_CHAR_LINES.join('\n'));
   const [warning, setWarning] = useState('');
   const [detectedRows, setDetectedRows] = useState<number | null>(null);
+  const [report, setReport] = useState<GlyphReport[]>([]);
   const dropRef = useRef<HTMLDivElement>(null);
 
   const isColor = kind !== 'mono';
   const stages = isColor ? COLOR_STAGES : MONO_STAGES;
+  const flaggedCount = report.filter((g) => g.status !== 'ok' || g.flags.length > 0).length;
 
   const setStage = (i: number, msg: string) => {
     setStageIdx((cur) => (i > cur ? i : cur));
@@ -99,6 +102,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setPublishedId(null);
     setPublishErr('');
     setColrStatus('');
+    setReport([]);
     const rows = charLinesOverride ?? parseCharset(charsetText);
     const t0 = performance.now();
     const fam = family.trim() || 'Handmade';
@@ -108,6 +112,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       let count = 0;
       let colr = '';
       let warn = '';
+      let rep: GlyphReport[] = [];
       if (isColor) {
         await waitForColorEngine();
         const img = await getImage();
@@ -120,6 +125,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         colr = cres.colrStatus;
         setColrStatus(colr);
         warn = cres.rowWarning || (cres.glowWarning ? 'several letters look filled in (counters lost). Check the result, or raise the threshold.' : '');
+        rep = cres.report || [];
       } else {
         await waitForEngine();
         const img = await getImage();
@@ -130,11 +136,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         if (!trace.glyphs.length) throw new Error('no glyphs traced. Try a cleaner sheet (dark letters on white).');
         count = trace.glyphs.length;
         warn = trace.rowWarning;
+        rep = trace.report;
         res = await buildFont(trace.glyphs, { family: fam, formats: ['otf', 'ttf', 'woff2'] }, (step, message) =>
           setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
       }
       if (warn) setWarning(warn);
+      setReport(rep);
       setGlyphCount(count);
       setStageIdx(stages.length);
       setResult(res);
@@ -425,9 +433,40 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
               >
                 {previewText || family}
               </div>
-              <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '8px 0 16px' }}>
+              <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '8px 0 14px' }}>
                 {glyphCount} glyphs · {isColor ? `colour ${colrStatus === 'ok' ? 'COLR/CPAL ✓' : colrStatus || 'mono fallback'}` : 'traced'} · built in your browser
               </div>
+
+              {/* glyph inspection grid: every glyph rendered in the built font + health badge */}
+              {report.length > 0 && (
+                <div style={{ margin: '0 0 16px' }}>
+                  <div className="fh-mono" style={{ fontSize: 10.5, letterSpacing: '.06em', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--ink-faint)' }}>GLYPHS</span>
+                    <span style={{ color: flaggedCount ? '#9a6a12' : '#2f6f5e' }}>{flaggedCount ? `${flaggedCount} flagged` : 'all clean'}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(42px, 1fr))', gap: 5 }}>
+                    {report.map((g, i) => {
+                      const flagged = g.flags.length > 0;
+                      const dropped = g.status !== 'ok';
+                      const border = dropped ? 'var(--line-2)' : flagged ? '#e6c27e' : 'var(--line)';
+                      const tip = `${g.char}${g.flags.length ? ' · ' + g.flags.join(', ') : dropped ? ' · ' + g.status : ''}`;
+                      return (
+                        <div
+                          key={i}
+                          title={tip}
+                          style={{ border: `1px solid ${border}`, borderRadius: 2, background: 'var(--paper)', aspectRatio: '1', display: 'grid', placeItems: 'center', position: 'relative', opacity: dropped ? 0.45 : 1 }}
+                        >
+                          <span style={{ fontFamily: previewFam ? `'${previewFam}', var(--sans)` : 'var(--sans)', fontSize: 24, lineHeight: 1 }}>{g.char}</span>
+                          {(flagged || dropped) && (
+                            <span style={{ position: 'absolute', top: 2, right: 3, width: 5, height: 5, borderRadius: '50%', background: dropped ? 'var(--ink-faint)' : '#d8a45a' }} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {(['otf', 'ttf', 'woff2'] as const).map((fmt) =>
                   result[fmt] ? (

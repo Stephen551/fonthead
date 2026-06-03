@@ -595,6 +595,11 @@
     // so a headless caller still sees them (row mismatch, glow bloat).
     out.rowWarning = built.rowWarning || '';
     out.glowWarning = glowWarning;
+    // Per-glyph health report for the inspection grid (char, status, flags).
+    // Includes dropped/excluded records so the grid shows what didn't make it.
+    out.report = records.map(function (r) {
+      return { char: r.char, status: r.status, flags: r.flags || [] };
+    });
     return out;
   }
 
