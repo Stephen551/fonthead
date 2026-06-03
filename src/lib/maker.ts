@@ -250,6 +250,34 @@ export function detectLayout(img: HTMLImageElement | ImageBitmap): { rows: numbe
   return { rows: rows.length, cells0 };
 }
 
+export interface SheetGeometry {
+  w: number;
+  h: number;
+  rows: { y0: number; y1: number; cells: [number, number][] }[];
+}
+
+/** Full layout geometry for the source overlay: every detected row band and the
+ *  cell cuts within it, in the image's own pixel coordinates. Lets the UI draw
+ *  the rows and cells the maker found, so the user can confirm the cut before
+ *  trusting the build. Same probe the trace uses, run once over the whole sheet. */
+export function detectGeometry(img: HTMLImageElement | ImageBitmap): SheetGeometry {
+  const TC = w().TracerCore;
+  const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
+  const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
+  const bin = TC.binarizeFull(img, iw, ih, DEFAULT_TRACE.threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
+  const bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+  const rows = bands.map(([y0, y1]) => {
+    let cells: [number, number][] = [];
+    try {
+      cells = TC.sliceRowByWhitespace(bin.data, bin.w, y0, y1) as [number, number][];
+    } catch {
+      cells = [];
+    }
+    return { y0, y1, cells };
+  });
+  return { w: iw, h: ih, rows };
+}
+
 /** Pick a charset template from the detected layout. Common alphabet-sheet
  *  shapes: 13-per-row A-M/N-Z splits (most AI/hand sheets, like the fire sheet),
  *  or full 26-per-row rows. The user can always correct the charset box. */

@@ -9,6 +9,7 @@ import {
   canvasToImage,
   fileToImage,
   detectLayout,
+  detectGeometry,
   guessCharset,
   DEFAULT_TRACE,
   TRACE_PRESETS,
@@ -25,6 +26,7 @@ import {
   type FontResult,
   type GlyphReport,
   type EditAction,
+  type SheetGeometry,
 } from '../lib/maker';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
@@ -114,6 +116,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const lastImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
   // the live preview face + its blob URL, so each new build/edit tears down the last
   const previewRef = useRef<{ face: FontFace; url: string } | null>(null);
+  // the source sheet + detected geometry, drawn back so the user can confirm the cut
+  const [sheet, setSheet] = useState<{ url: string; w: number; h: number; geom: SheetGeometry } | null>(null);
+  const sheetImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
   const traceOpts = TRACE_PRESETS[preset];
 
   const isColor = kind !== 'mono';
@@ -124,6 +129,32 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setStageIdx((cur) => (i > cur ? i : cur));
     setLog(msg);
   };
+
+  // Draw the source sheet back at a small size and detect its row/cell geometry,
+  // so the user can see the layout the maker found. Best-effort: a failure here
+  // never blocks the build. Skipped when the image hasn't changed (e.g. rebuild).
+  function captureSheet(img: HTMLImageElement | ImageBitmap) {
+    if (sheetImgRef.current === img) return;
+    sheetImgRef.current = img;
+    try {
+      const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
+      const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
+      const scale = Math.min(1, 520 / iw);
+      const cw = Math.max(1, Math.round(iw * scale));
+      const ch = Math.max(1, Math.round(ih * scale));
+      const c = document.createElement('canvas');
+      c.width = cw;
+      c.height = ch;
+      const cx = c.getContext('2d');
+      if (!cx) return;
+      cx.drawImage(img as CanvasImageSource, 0, 0, cw, ch);
+      const url = c.toDataURL('image/jpeg', 0.82);
+      const geom = detectGeometry(img);
+      setSheet({ url, w: iw, h: ih, geom });
+    } catch {
+      /* overlay is a nicety, not a gate */
+    }
+  }
 
   async function run(
     getImage: () => Promise<HTMLImageElement | ImageBitmap>,
@@ -155,6 +186,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         await waitForColorEngine();
         const img = await getImage();
         lastImgRef.current = img;
+        captureSheet(img);
         setStage(0, 'reading the sheet');
         const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, colorOpts, (step, message) =>
           setStage(COLOR_STEP_STAGE[step] ?? 1, message),
@@ -169,6 +201,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         await waitForEngine();
         const img = await getImage();
         lastImgRef.current = img;
+        captureSheet(img);
         const trace = await traceSheet(img, rows, traceOpts, (step, message) =>
           setStage(STEP_STAGE[step] ?? 2, message),
         );
@@ -422,6 +455,34 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             renders + traces a demo alphabet
           </span>
         </div>
+
+        {/* source overlay: the sheet drawn back with the rows + cells the maker found */}
+        {sheet && (
+          <div style={{ marginTop: 18 }}>
+            <div className="fh-mono" style={{ fontSize: 11, letterSpacing: '.06em', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
+              <span style={{ color: 'var(--ink-faint)' }}>DETECTED LAYOUT</span>
+              <span style={{ color: 'var(--ink-faint)' }}>
+                {sheet.geom.rows.length} rows · {sheet.geom.rows[0]?.cells.length ?? 0} cells in row 1
+              </span>
+            </div>
+            <div style={{ position: 'relative', border: '1px solid var(--line)', borderRadius: 3, overflow: 'hidden', background: 'var(--paper-3)', lineHeight: 0 }}>
+              <img src={sheet.url} alt="your sheet with the detected rows and cells" style={{ display: 'block', width: '100%', height: 'auto' }} />
+              <svg viewBox={`0 0 ${sheet.w} ${sheet.h}`} preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                {sheet.geom.rows.map((r, ri) =>
+                  r.cells.map((cell, ci) => (
+                    <g key={`${ri}-${ci}`}>
+                      <rect x={cell[0]} y={r.y0} width={cell[1] - cell[0]} height={r.y1 - r.y0} fill="none" stroke="#ffffff" strokeOpacity={0.85} strokeWidth={2.6} vectorEffect="non-scaling-stroke" />
+                      <rect x={cell[0]} y={r.y0} width={cell[1] - cell[0]} height={r.y1 - r.y0} fill="none" stroke="var(--ink)" strokeOpacity={0.9} strokeWidth={1.1} vectorEffect="non-scaling-stroke" />
+                    </g>
+                  )),
+                )}
+              </svg>
+            </div>
+            <div className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 6, lineHeight: 1.5 }}>
+              The boxes are the cells the maker found, row by row. If one misses a letter or splits it, fix the charset rows below or nudge the threshold.
+            </div>
+          </div>
+        )}
 
         <div style={{ marginTop: 22 }}>
           <label className="fh-mono" style={{ fontSize: 11, letterSpacing: '.06em', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
