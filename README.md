@@ -34,7 +34,12 @@ npm run cf-typegen       # regenerate worker-configuration.d.ts after wrangler.j
 npm run db:apply:local   # apply D1 migrations locally
 npm run db:apply:remote  # apply D1 migrations to production
 npm run seed:fonts       # regenerate the seed SQL + manifest (see SEED.md)
+
+wrangler deploy --config wrangler.cron.jsonc   # deploy the nightly cron worker
 ```
+
+Two Workers share the one D1 database: **`fonthead`** (the app) and
+**`fonthead-cron`** (the nightly daily-feature job, `cron/worker.ts`).
 
 Secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`) live in `.dev.vars` locally and
 in `wrangler secret put` for production. Never committed.
@@ -48,18 +53,28 @@ in `wrangler secret put` for production. Never committed.
 - `/api/auth/[...all]` — Better Auth handler.
 - `/cdn/[...key]` — serves font binaries from R2.
 
-## Milestones
+## Milestones — all shipped
 
-- **M1 — done, deployed.** Scaffold, D1 + R2 wired, the wall renders real faces
-  from D1 with specimens served from R2 (lazy-loaded on scroll), font page,
-  maker stub, and a Better Auth spike with a protected SSR route.
-- **M2** — the maker engine (vendor the tracer, run it in a Web Worker, build
-  and download a real font).
-- **M3** — accounts + publish (public/private), maker profiles.
-- **M4** — social: votes and favorites with optimistic updates, working sorts.
-- **M5** — the daily feature cron (previous day's most-liked; house cold-start).
-- **M6** — charter and polish: easing, the card-to-page FLIP morph, readouts,
-  performance, accessibility.
+- **M1.** Scaffold, D1 + R2 wired, the wall renders real faces from D1 with
+  specimens served from R2 (lazy-loaded on scroll), font page, maker stub, and a
+  Better Auth spike with a protected SSR route.
+- **M2.** The maker: the vendored tracer engine runs client-side, traces an
+  alphabet sheet, builds OTF/TTF/WOFF2 in a Web Worker, previews and downloads.
+- **M3.** Accounts + publish (public/private), maker profiles at `/u/[handle]`,
+  auth-aware nav, private-font gating across the wall, font page, and `/cdn`.
+- **M4.** Social: votes and favorites with optimistic updates, working
+  popular/new sorts. votes_count recomputed in-batch (drift-proof).
+- **M5.** The daily feature: a standalone cron worker (`wrangler.cron.jsonc`,
+  06:00 UTC) tallies the previous day's most-liked public fonts; the hero cycles
+  the featured set, or the house fonts on cold start.
+- **M6.** Charter + polish: one mechanical easing, the card-to-page FLIP morph
+  via View Transitions, the honest build readout, accessibility (focus, reduced
+  motion, AA contrast, sr-only headings), and a perf pass (no React on content
+  pages — the hero is vanilla; React loads only on `/make`).
+
+A post-build security review hardened uploads (size cap + font-signature
+validation), vote/favorite authorization, the `/cdn` gate, the cron secret, and
+production trusted origins.
 
 See `SEED.md` for the launch-wall honesty trail (real vs stand-in).
 The design mock and build brief are at the repo root (`fh-*.jsx`,
