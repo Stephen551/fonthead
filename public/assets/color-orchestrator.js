@@ -512,30 +512,40 @@
     const rec = _session.records[idx];
     if (!rec) throw new Error('bad glyph index ' + idx);
     params = params || {};
-    if (action === 'exclude') {
-      rec.status = params.excluded ? 'excluded' : (rec.baseD ? 'ok' : 'empty');
-    } else if (action === 'retrace') {
-      if (params.turd != null) rec.turd = params.turd;
-      if (rec.status === 'excluded') rec.status = 'ok';
-      await traceRecord(rec, _session.ctx);
-    } else if (action === 'reslice') {
-      if (!rec.cellRect) throw new Error('glyph has no cell to re-slice');
-      if (!rec.baseRect) rec.baseRect = rec.cellRect.slice();
-      const bx0 = rec.baseRect[0], by0 = rec.baseRect[1], bx1 = rec.baseRect[2], by1 = rec.baseRect[3];
-      const ln = params.left || 0, rn = params.right || 0, W = _session.w;
-      const nx0 = Math.min(Math.max(0, bx0 + ln), bx1 - 4);
-      const nx1 = Math.max(Math.min(W, bx1 + rn), nx0 + 4);
-      rec.cellRect = [nx0, by0, nx1, by1]; rec.cellH = by1 - by0;
-      rec.cell = extractColorCell(_session.workData, W, nx0, nx1, by0, by1, null, 0, _session.palette.bg);
-      if (params.turd != null) rec.turd = params.turd;
-      if (rec.status === 'excluded') rec.status = 'ok';
-      await traceRecord(rec, _session.ctx);
-    } else {
-      throw new Error('unknown action ' + action);
+    // Snapshot the record so a failed assemble (e.g. excluding the last glyph)
+    // rolls back instead of leaving the live session stuck.
+    const snapshot = Object.assign({}, rec);
+    try {
+      if (action === 'exclude') {
+        rec.status = params.excluded ? 'excluded' : (rec.baseD ? 'ok' : 'empty');
+      } else if (action === 'retrace') {
+        if (params.turd != null) rec.turd = params.turd;
+        if (rec.status === 'excluded') rec.status = 'ok';
+        await traceRecord(rec, _session.ctx);
+      } else if (action === 'reslice') {
+        if (!rec.cellRect) throw new Error('glyph has no cell to re-slice');
+        if (!rec.baseRect) rec.baseRect = rec.cellRect.slice();
+        const bx0 = rec.baseRect[0], by0 = rec.baseRect[1], bx1 = rec.baseRect[2], by1 = rec.baseRect[3];
+        const ln = params.left || 0, rn = params.right || 0, W = _session.w;
+        const nx0 = Math.min(Math.max(0, bx0 + ln), bx1 - 4);
+        const nx1 = Math.max(Math.min(W, bx1 + rn), nx0 + 4);
+        rec.cellRect = [nx0, by0, nx1, by1]; rec.cellH = by1 - by0;
+        rec.cell = extractColorCell(_session.workData, W, nx0, nx1, by0, by1, null, 0, _session.palette.bg);
+        if (params.turd != null) rec.turd = params.turd;
+        if (rec.status === 'excluded') rec.status = 'ok';
+        await traceRecord(rec, _session.ctx);
+      } else {
+        throw new Error('unknown action ' + action);
+      }
+      computeConfidence(_session.records, _session.mode);
+      const res = assemble(_session);
+      return { otf: res.bytes, mode: _session.mode, colrStatus: res.colrStatus, charCount: res.charCount, report: reportOf(_session.records) };
+    } catch (e) {
+      // restore the record and flags so the session stays usable
+      _session.records[idx] = Object.assign(rec, snapshot);
+      computeConfidence(_session.records, _session.mode);
+      throw e;
     }
-    computeConfidence(_session.records, _session.mode);
-    const res = assemble(_session);
-    return { otf: res.bytes, mode: _session.mode, colrStatus: res.colrStatus, charCount: res.charCount, report: reportOf(_session.records) };
   }
 
   /* buildColorFromImage(img, opts) -> Promise<{
