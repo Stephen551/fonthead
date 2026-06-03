@@ -206,6 +206,57 @@ export interface TraceResult {
   detectedRows: number;
 }
 
+/** Quick layout probe on drop: how many rows, and roughly how many cells in the
+ *  top row. Used to auto-guess the charset template (mirrors the source tool,
+ *  which guesses the template from the detected layout). */
+export function detectLayout(img: HTMLImageElement | ImageBitmap): { rows: number; cells0: number } {
+  const TC = w().TracerCore;
+  const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
+  const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
+  const bin = TC.binarizeFull(img, iw, ih, DEFAULT_TRACE.threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
+  const rows = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+  let cells0 = 0;
+  if (rows.length) {
+    try {
+      cells0 = TC.sliceRowByWhitespace(bin.data, bin.w, rows[0][0], rows[0][1]).length;
+    } catch {
+      cells0 = 0;
+    }
+  }
+  return { rows: rows.length, cells0 };
+}
+
+/** Pick a charset template from the detected layout. Common alphabet-sheet
+ *  shapes: 13-per-row A-M/N-Z splits (most AI/hand sheets, like the fire sheet),
+ *  or full 26-per-row rows. The user can always correct the charset box. */
+export function guessCharset(rows: number, cells0: number): string[] {
+  const AM = 'ABCDEFGHIJKLM',
+    NZ = 'NOPQRSTUVWXYZ',
+    am = 'abcdefghijklm',
+    nz = 'nopqrstuvwxyz',
+    AZ = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    az = 'abcdefghijklmnopqrstuvwxyz',
+    digits = '0123456789',
+    punct = ".,!?:;'-&@#";
+  const split13 = cells0 > 0 && cells0 <= 16; // ~13 cells per row -> the split layout
+  switch (rows) {
+    case 1:
+      return [AZ];
+    case 2:
+      return [AZ, az];
+    case 3:
+      return [AZ, az, digits];
+    case 4:
+      return split13 ? [AM, NZ, am, nz] : [AZ, az, digits, punct];
+    case 5:
+      return [AM, NZ, am, nz, digits];
+    case 6:
+      return split13 ? [AM, NZ, am, nz, digits, punct] : [AZ, az, digits, punct, punct, punct];
+    default:
+      return DEFAULT_CHAR_LINES;
+  }
+}
+
 /** Trace a loaded image (alphabet sheet) into glyph objects, and report a
  *  row-mismatch warning when the detected row count differs from the charset
  *  (the loudest "this is misaligned" signal, mirroring the source tool). */

@@ -8,6 +8,8 @@ import {
   makeSampleSheet,
   canvasToImage,
   fileToImage,
+  detectLayout,
+  guessCharset,
   DEFAULT_TRACE,
   DEFAULT_CHAR_LINES,
   SAMPLE_CHAR_LINES,
@@ -203,8 +205,23 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     }, SAMPLE_CHAR_LINES);
   };
 
-  const onFile = (file: File | undefined) => {
-    if (file) run(() => fileToImage(file));
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      // probe the layout and auto-guess the charset template (like the source
+      // tool), so a 4-row A-M/N-Z sheet maps correctly without manual editing.
+      if (isColor) await waitForColorEngine();
+      else await waitForEngine();
+      const img = await fileToImage(file);
+      const layout = detectLayout(img);
+      const guessed = guessCharset(layout.rows, layout.cells0);
+      setCharsetText(guessed.join('\n'));
+      await run(() => Promise.resolve(img), guessed);
+      setDetectedRows(layout.rows);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'could not read that image');
+      setPhase('error');
+    }
   };
 
   const stageStateOf = (i: number): StageState =>
