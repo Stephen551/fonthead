@@ -315,6 +315,100 @@ export function canvasToImage(c: HTMLCanvasElement): Promise<HTMLImageElement> {
   });
 }
 
+// ---- colour fonts (COLR/CPAL, built on the main thread) -------------------
+
+export type ColorMode = 'flat' | 'gradient';
+
+export interface ColorResult {
+  otf: Uint8Array;
+  woff2?: Uint8Array;
+  mode: ColorMode;
+  colrStatus: string;
+  charCount: number;
+}
+
+/** Resolve once the colour engine + main-thread wawoff2 are present. */
+export function waitForColorEngine(timeoutMs = 20000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ready = () =>
+      w().ColorMaker && w().buildColorFont && w().buildGradientFont && w().ColorCore && w().wrapAsWoff2;
+    if (ready()) return resolve();
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (ready()) {
+        clearInterval(iv);
+        resolve();
+      } else if (Date.now() - t0 > timeoutMs) {
+        clearInterval(iv);
+        reject(new Error('colour engine did not load'));
+      }
+    }, 50);
+  });
+}
+
+/** Build a COLR/CPAL colour font from a sheet. Runs on the main thread; woff2
+ *  is compressed via the main-thread wawoff2. Returns OTF + WOFF2 (no TTF). */
+export async function buildColorFontFromImage(
+  img: HTMLImageElement | ImageBitmap,
+  mode: ColorMode,
+  family: string,
+  onProgress?: Progress,
+): Promise<ColorResult> {
+  onProgress?.('separate', mode === 'gradient' ? 'palette + gradient sampling' : 'palette + colour separation');
+  const res = await w().ColorMaker.buildColorFromImage(img, {
+    mode,
+    familyName: family || 'Color Font',
+    charLines: ROW_CHARS,
+  });
+  onProgress?.('build', `COLR ${res.colrStatus} · packing`);
+  let woff2: Uint8Array | undefined;
+  try {
+    woff2 = await w().wrapAsWoff2(res.otf);
+  } catch {
+    /* woff2 is optional; the otf is the source of truth */
+  }
+  return {
+    otf: res.otf as Uint8Array,
+    woff2,
+    mode,
+    colrStatus: res.colrStatus,
+    charCount: res.charCount ?? 0,
+  };
+}
+
+/** A colour sample sheet: the alphabet filled with a vertical flame gradient
+ *  per row, so both gradient (smooth COLRv1) and flat (posterised COLRv0) modes
+ *  have real colour to separate. */
+export function makeColorSampleSheet(font = '700 130px Anton, system-ui, sans-serif'): HTMLCanvasElement {
+  const W = 1600;
+  const rowH = 240;
+  const H = rowH * ROW_CHARS.length + 80;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.font = font;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'center';
+  ROW_CHARS.forEach((row, r) => {
+    const top = 60 + r * rowH;
+    const baseY = top + rowH * 0.62;
+    // flame: deep red at the foot, gold at the top of the row band
+    const grad = ctx.createLinearGradient(0, baseY, 0, top + rowH * 0.05);
+    grad.addColorStop(0, '#c41608');
+    grad.addColorStop(0.45, '#e64a0c');
+    grad.addColorStop(0.8, '#f7a01e');
+    grad.addColorStop(1, '#ffde5a');
+    ctx.fillStyle = grad;
+    const n = row.length;
+    const cellW = W / n;
+    for (let i = 0; i < n; i++) ctx.fillText(row[i], i * cellW + cellW / 2, baseY);
+  });
+  return c;
+}
+
 export function fileToImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();

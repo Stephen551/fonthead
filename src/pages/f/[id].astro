@@ -121,16 +121,23 @@ const specInline = specStyle(f.id, m);
       <aside style="padding:28px 32px;background:var(--paper-2);">
         <div class="fh-eyebrow" style="margin-bottom:8px;">Files</div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px;">
-          <a class="fh-dl" href={`/cdn/${f.woff2_key}`} download={`${slug}.woff2`}>
-            <span class="fh-mono fmt">WOFF2</span><span class="fh-mono sz">{kb(f.woff2_size)}</span>
-            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M7 1.5v8M3.5 6L7 9.5L10.5 6M2 12.5h10"/></svg>
-          </a>
-          <div class="fh-dl" aria-disabled="true" title="OTF and TTF export ship with the maker (M2)">
-            <span class="fh-mono fmt">OTF</span><span class="fh-mono sz">from the maker</span>
-          </div>
-          <div class="fh-dl" aria-disabled="true" title="OTF and TTF export ship with the maker (M2)">
-            <span class="fh-mono fmt">TTF</span><span class="fh-mono sz">from the maker</span>
-          </div>
+          {[
+            { label: 'OTF', key: f.otf_key, size: f.otf_size, ext: 'otf' },
+            { label: 'TTF', key: f.ttf_key, size: f.ttf_size, ext: 'ttf' },
+            { label: 'WOFF2', key: f.woff2_key, size: f.woff2_size, ext: 'woff2' },
+          ].map((file) =>
+            file.key ? (
+              <a class="fh-dl" href={`/cdn/${file.key}`} download={`${slug}.${file.ext}`}>
+                <span class="fh-mono fmt">{file.label}</span><span class="fh-mono sz">{kb(file.size)}</span>
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M7 1.5v8M3.5 6L7 9.5L10.5 6M2 12.5h10"/></svg>
+              </a>
+            ) : (
+              <div class="fh-dl" aria-disabled="true" title={m.standIn ? 'stand-in face: install the woff2, or make your own' : `${file.label} not available for this font`}>
+                <span class="fh-mono fmt">{file.label}</span>
+                <span class="fh-mono sz">{m.standIn ? 'from the maker' : m.badge === 'color' ? 'n/a for colour' : '—'}</span>
+              </div>
+            ),
+          )}
         </div>
 
         <div class="fh-eyebrow" style="margin-bottom:4px;">Details</div>

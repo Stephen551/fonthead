@@ -101,9 +101,11 @@ export const server = {
       specimenWord: z.string().max(40).optional(),
       visibility: z.enum(['public', 'private']),
       glyphCount: z.coerce.number().int().min(0),
+      // 'normal' = monochrome (otf+ttf+woff2); 'gradient'/'flat' = COLR/CPAL colour (otf+woff2, no ttf)
+      treat: z.enum(['normal', 'gradient', 'flat']).default('normal'),
       otf: z.instanceof(File),
-      ttf: z.instanceof(File),
       woff2: z.instanceof(File),
+      ttf: z.instanceof(File).optional(),
     }),
     handler: async (input, ctx) => {
       const env = ctx.locals.runtime.env;
@@ -119,35 +121,39 @@ export const server = {
       const keys = { otf: `fonts/${id}.otf`, ttf: `fonts/${id}.ttf`, woff2: `fonts/${id}.woff2` };
 
       const otf = new Uint8Array(await input.otf.arrayBuffer());
-      const ttf = new Uint8Array(await input.ttf.arrayBuffer());
       const woff2 = new Uint8Array(await input.woff2.arrayBuffer());
+      const ttf = input.ttf ? new Uint8Array(await input.ttf.arrayBuffer()) : null;
 
       // size floor (must have built) + ceiling (no unbounded R2 writes)
-      if (otf.length < 256 || ttf.length < 256 || woff2.length < 256) {
+      if (otf.length < 256 || woff2.length < 256 || (ttf && ttf.length < 256)) {
         throw new ActionError({ code: 'BAD_REQUEST', message: 'That font did not build correctly.' });
       }
-      if (otf.length > MAX_FONT_BYTES || ttf.length > MAX_FONT_BYTES || woff2.length > MAX_FONT_BYTES) {
+      if (otf.length > MAX_FONT_BYTES || woff2.length > MAX_FONT_BYTES || (ttf && ttf.length > MAX_FONT_BYTES)) {
         throw new ActionError({ code: 'BAD_REQUEST', message: 'Font file too large.' });
       }
       // validate real font signatures (don't trust the client-declared type)
-      if (!isOtf(otf) || !isTtf(ttf) || !isWoff2(woff2)) {
+      if (!isOtf(otf) || !isWoff2(woff2) || (ttf && !isTtf(ttf))) {
         throw new ActionError({ code: 'BAD_REQUEST', message: 'Those are not valid font files.' });
       }
 
       await env.FONTS.put(keys.otf, otf, { httpMetadata: { contentType: 'font/otf' } });
-      await env.FONTS.put(keys.ttf, ttf, { httpMetadata: { contentType: 'font/ttf' } });
       await env.FONTS.put(keys.woff2, woff2, { httpMetadata: { contentType: 'font/woff2' } });
+      if (ttf) await env.FONTS.put(keys.ttf, ttf, { httpMetadata: { contentType: 'font/ttf' } });
 
+      // A real colour font carries its own COLR/CPAL colour, so no CSS treatment
+      // is applied (treat stays 'normal'); it just earns the colour badge.
+      const isColor = input.treat !== 'normal';
       const meta = {
         treat: 'normal',
         size: 96,
         italic: false,
-        badge: null,
+        badge: isColor ? 'color' : null,
         family: input.name,
         designer: handle,
         ofl: '',
         standIn: false,
         builtWith: 'fonthead maker',
+        ...(isColor ? { colorMode: input.treat } : {}),
       };
       const word = (input.specimenWord || '').trim() || input.name;
 
@@ -167,10 +173,10 @@ export const server = {
           input.visibility,
           input.glyphCount,
           keys.otf,
-          keys.ttf,
+          ttf ? keys.ttf : null,
           keys.woff2,
           otf.length,
-          ttf.length,
+          ttf ? ttf.length : null,
           woff2.length,
         )
         .run();
