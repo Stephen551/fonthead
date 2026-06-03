@@ -106,9 +106,59 @@ function wireSlider() {
   }
 }
 
+interface Face {
+  family: string;
+  name: string;
+  designer: string;
+  treat: string;
+  grad?: string;
+  flat?: string;
+  varset?: string;
+  italic?: boolean;
+}
+let heroTimer: ReturnType<typeof setInterval> | null = null;
+
+function wireHero() {
+  if (heroTimer) {
+    clearInterval(heroTimer);
+    heroTimer = null;
+  }
+  const spec = document.getElementById('hero-spec');
+  const cap = document.getElementById('hero-cap');
+  const dataEl = document.getElementById('hero-faces');
+  if (!spec || !dataEl) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  let faces: Face[] = [];
+  try {
+    faces = JSON.parse(dataEl.textContent || '[]');
+  } catch {
+    return;
+  }
+  if (faces.length < 2) return;
+  let i = 0;
+  heroTimer = setInterval(() => {
+    spec.style.opacity = '0';
+    if (cap) cap.style.opacity = '0';
+    setTimeout(() => {
+      i = (i + 1) % faces.length;
+      const f = faces[i];
+      spec.className = 'spec' + (f.treat === 'gradient' ? ' spec--gradient' : f.treat === 'flat' ? ' spec--flat' : '');
+      spec.style.fontFamily = `'${f.family}', var(--sans)`;
+      spec.style.fontStyle = f.italic ? 'italic' : 'normal';
+      spec.style.backgroundImage = f.treat === 'gradient' && f.grad ? f.grad : '';
+      spec.style.setProperty('--specflat', f.treat === 'flat' && f.flat ? f.flat : '');
+      spec.style.fontVariationSettings = f.treat === 'variable' && f.varset ? f.varset : '';
+      if (cap) cap.textContent = `${f.name} · ${f.designer}`;
+      spec.style.opacity = '1';
+      if (cap) cap.style.opacity = '1';
+    }, 170);
+  }, 2600);
+}
+
 function init() {
   lazyFonts();
   wireSlider();
+  wireHero();
 }
 
 // fires on initial load and after every View Transitions navigation

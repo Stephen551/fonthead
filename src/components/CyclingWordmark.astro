@@ -1,0 +1,45 @@
+---
+import type { HeroFace } from '../lib/fonts';
+
+interface Props {
+  faces: HeroFace[];
+}
+const { faces } = Astro.props;
+const first = faces[0];
+
+function faceStyle(f: HeroFace): string {
+  const parts = [`font-family:'${f.family}',var(--sans)`];
+  if (f.italic) parts.push('font-style:italic');
+  if (f.treat === 'gradient' && f.grad) parts.push(`background-image:${f.grad}`);
+  if (f.treat === 'flat' && f.flat) parts.push(`--specflat:${f.flat}`);
+  if (f.treat === 'variable' && f.varset) parts.push(`font-variation-settings:${f.varset}`);
+  return parts.join(';');
+}
+const faceClass = (f: HeroFace) =>
+  'spec' + (f.treat === 'gradient' ? ' spec--gradient' : f.treat === 'flat' ? ' spec--flat' : '');
+---
+
+{/* The masthead. One word, cycling through faces, the only colour in the room.
+   Rendered server-side; a tiny vanilla script (app.ts) cycles it. No React. */}
+<div style="text-align:center;">
+  <div style="height:210px;display:flex;align-items:center;justify-content:center;">
+    <div
+      id="hero-spec"
+      class={first ? faceClass(first) : 'spec'}
+      style={`${first ? faceStyle(first) : ''};font-size:148px;line-height:.9;white-space:nowrap;transition:opacity .17s var(--ease);`}
+    >
+      fonthead
+    </div>
+  </div>
+  <div
+    class="fh-mono"
+    style="margin-top:8px;font-size:12px;color:var(--ink-faint);letter-spacing:.02em;display:flex;gap:14px;justify-content:center;align-items:center;height:18px;"
+  >
+    <span>one word, every face on the wall</span>
+    <span style="color:var(--line-3);">·</span>
+    <span id="hero-cap" style="color:var(--ink-soft);transition:opacity .17s var(--ease);">
+      {first ? `${first.name} · ${first.designer}` : ''}
+    </span>
+  </div>
+</div>
+<script type="application/json" id="hero-faces" set:html={JSON.stringify(faces)}></script>

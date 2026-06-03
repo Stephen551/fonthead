@@ -59,6 +59,18 @@ function parse(row: FontRow): Font {
   return { ...row, meta };
 }
 
+export interface HeroFace {
+  id: string;
+  family: string;
+  name: string;
+  designer: string;
+  treat: 'normal' | 'gradient' | 'flat' | 'variable';
+  grad?: string;
+  flat?: string;
+  varset?: string;
+  italic?: boolean;
+}
+
 export type Sort = 'popular' | 'new';
 
 /** The public wall. popular = votes then recency; new = recency. */

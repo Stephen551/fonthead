@@ -1,8 +1,8 @@
 ---
 import Base from '../layouts/Base.astro';
 import FontCard from '../components/FontCard.astro';
-import CyclingWordmark, { type HeroFace } from '../components/CyclingWordmark.tsx';
-import { listPublicFonts, getUserInteractions, fontFaceCss, familyOf, type Sort } from '../lib/fonts';
+import CyclingWordmark from '../components/CyclingWordmark.astro';
+import { listPublicFonts, getUserInteractions, fontFaceCss, familyOf, type Sort, type HeroFace } from '../lib/fonts';
 import { getFeaturedFontIds } from '../lib/featured';
 import { createAuth } from '../lib/auth';
 
@@ -51,7 +51,7 @@ const heroFaces: HeroFace[] = heroFonts.map((f) => ({
     <header style="padding:56px 40px 30px;border-bottom:1px solid var(--line);position:relative;">
       <div class="fh-eyebrow" style="position:absolute;top:24px;left:40px;">fonthead.dev</div>
       <div class="fh-eyebrow" style="position:absolute;top:24px;right:40px;color:var(--ink-soft);">featuring · {isFeatured ? "yesterday's most-liked" : 'the starter set'}</div>
-      <CyclingWordmark faces={heroFaces} client:load />
+      <CyclingWordmark faces={heroFaces} />
       <p style="text-align:center;max-width:560px;margin:22px auto 0;font-size:15.5px;line-height:1.5;color:var(--ink-soft);">
         Make a font from an alphabet sheet, then publish it here. Below is a starter set of
         open-license faces, standing in until makers publish their own.
