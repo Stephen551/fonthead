@@ -111,6 +111,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
   const lastImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
+  // the live preview face + its blob URL, so each new build/edit tears down the last
+  const previewRef = useRef<{ face: FontFace; url: string } | null>(null);
   const traceOpts = TRACE_PRESETS[preset];
 
   const isColor = kind !== 'mono';
@@ -196,11 +198,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       // live preview from the built woff2 (fall back to otf); COLR renders in colour
       const previewBytes = res.woff2 || res.otf;
       if (previewBytes) {
-        const url = URL.createObjectURL(new Blob([previewBytes as BlobPart]));
-        const pf = `built-${Date.now()}`;
-        const face = new FontFace(pf, `url(${url})`);
-        await face.load();
-        (document as any).fonts.add(face);
+        const pf = await loadPreviewFont(previewBytes as Uint8Array);
         setPreviewFam(pf);
         setPreviewText(fam);
       }
@@ -239,11 +237,21 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   }
 
   async function loadPreviewFont(bytes: Uint8Array): Promise<string> {
+    // tear down the previous preview face + blob URL before adding a new one,
+    // so repeated builds and per-glyph edits don't pile up fonts/URLs
+    const prev = previewRef.current;
+    if (prev) {
+      try {
+        (document as any).fonts.delete(prev.face);
+      } catch {}
+      URL.revokeObjectURL(prev.url);
+    }
     const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
     const pf = `built-${Date.now()}`;
     const face = new FontFace(pf, `url(${url})`);
     await face.load();
     (document as any).fonts.add(face);
+    previewRef.current = { face, url };
     return pf;
   }
 

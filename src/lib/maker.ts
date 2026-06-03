@@ -617,9 +617,13 @@ export function fileToImage(file: File): Promise<HTMLImageElement> {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
+      URL.revokeObjectURL(url);
       resolve(img);
     };
-    img.onerror = () => reject(new Error('could not read that image'));
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('could not read that image'));
+    };
     img.src = url;
   });
 }
