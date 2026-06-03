@@ -41,6 +41,8 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
   <script is:inline src={`/assets/vendor/font-engine-colr-v1.js?v=${V}`}></script>
   <script is:inline src={`/assets/vendor/font-engine-color-build.js?v=${V}`}></script>
   <script is:inline src={`/assets/vendor/font-engine-formats.js?v=${V}`}></script>
+  <!-- the engine's own validator: the gate that drops fonts that fail (mono + colour) -->
+  <script is:inline src={`/assets/vendor/font-engine-validate.js?v=${V}`}></script>
   <script is:inline src={`/assets/color-orchestrator.js?v=${V}`}></script>
 
   <div style="background:var(--paper);min-height:100vh;">

@@ -2,6 +2,7 @@ import { defineAction, ActionError } from 'astro:actions';
 import { z } from 'astro:schema';
 import { createAuth } from '../lib/auth';
 import { ensureHandle, uniqueFontId } from '../lib/util';
+import { verifySfntChecksums } from '../lib/sfnt';
 
 // Mutations live here as Astro Actions (per the build brief).
 async function requireUser(ctx: { locals: App.Locals; request: Request }) {
@@ -134,6 +135,17 @@ export const server = {
       // validate real font signatures (don't trust the client-declared type)
       if (!isOtf(otf) || !isWoff2(woff2) || (ttf && !isTtf(ttf))) {
         throw new ActionError({ code: 'BAD_REQUEST', message: 'Those are not valid font files.' });
+      }
+      // table-checksum gate: never publish a font Windows would reject
+      const otfCk = verifySfntChecksums(otf);
+      if (!otfCk.ok) {
+        throw new ActionError({ code: 'BAD_REQUEST', message: `Font has invalid checksums: ${otfCk.errors.join('; ')}` });
+      }
+      if (ttf) {
+        const ttfCk = verifySfntChecksums(ttf);
+        if (!ttfCk.ok) {
+          throw new ActionError({ code: 'BAD_REQUEST', message: `TTF has invalid checksums: ${ttfCk.errors.join('; ')}` });
+        }
       }
 
       await env.FONTS.put(keys.otf, otf, { httpMetadata: { contentType: 'font/otf' } });

@@ -7,7 +7,22 @@
 // the thin, typed bridge to them. It only ever runs in the browser.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { fixSfntChecksums } from './sfnt';
+
 const w = () => window as any;
+
+/** Hard gate: run the engine's own validateFont; throw (drop the font) if it
+ *  fails. Mirrors the source tool, which never ships a font that fails. */
+async function assertValid(bytes?: Uint8Array): Promise<void> {
+  if (!bytes) throw new Error('no font was produced');
+  const vf = w().validateFont;
+  if (!vf) return; // validator not loaded — skip rather than block
+  const r = await vf(bytes);
+  if (r && r.ok === false) {
+    const msg = (r.errors || []).map((e: any) => e.message || e.code).join('; ');
+    throw new Error('font failed validation: ' + (msg || 'unknown'));
+  }
+}
 
 export interface TraceOpts {
   threshold: number;
@@ -61,7 +76,7 @@ const ENGINE_VERSION = '0.8.59';
 export function waitForEngine(timeoutMs = 15000): Promise<void> {
   return new Promise((resolve, reject) => {
     const ready = () =>
-      w().TracerCore && w().buildFontForStyle && w().estimateBBox && w().Potrace;
+      w().TracerCore && w().buildFontForStyle && w().estimateBBox && w().Potrace && w().wrapAsWoff2 && w().validateFont;
     if (ready()) return resolve();
     const t0 = Date.now();
     const iv = setInterval(() => {
@@ -227,8 +242,19 @@ export interface BuildOpts {
   formats?: Array<'otf' | 'ttf' | 'woff' | 'woff2'>;
 }
 
-/** Build font files from traced glyphs via the worker. */
-export function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: Progress): Promise<FontResult> {
+function rawWorkerBuild(payload: unknown, onProgress?: Progress): Promise<FontResult> {
+  return new Promise((resolve, reject) => {
+    const wk = getWorker();
+    const id = ++_next;
+    _reqs.set(id, { resolve, reject, progress: onProgress });
+    wk.postMessage({ id, type: 'generate', payload });
+  });
+}
+
+/** Build font files from traced glyphs via the worker, then correct table
+ *  checksums (the worker's woff2 wrapped the uncorrected otf, so re-wrap from
+ *  the fixed otf) and validate. Throws if the font fails validation. */
+export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: Progress): Promise<FontResult> {
   const payload = {
     glyphs: glyphs.map((g) => ({
       char: g.char,
@@ -250,12 +276,20 @@ export function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: Progres
     embedTTHints: false,
     opticalSidebearings: false,
   };
-  return new Promise((resolve, reject) => {
-    const wk = getWorker();
-    const id = ++_next;
-    _reqs.set(id, { resolve, reject, progress: onProgress });
-    wk.postMessage({ id, type: 'generate', payload });
-  });
+  const raw = await rawWorkerBuild(payload, onProgress);
+  const otf = raw.otf ? fixSfntChecksums(raw.otf) : undefined;
+  const ttf = raw.ttf ? fixSfntChecksums(raw.ttf) : undefined;
+  let woff2 = raw.woff2;
+  if (otf && w().wrapAsWoff2) {
+    try {
+      await w().wawoff2Ready;
+      woff2 = await w().wrapAsWoff2(otf);
+    } catch {
+      /* fall back to the worker's woff2 */
+    }
+  }
+  await assertValid(otf);
+  return { otf, ttf, woff2, _hinting: raw._hinting };
 }
 
 // ---- sample sheet + download ----------------------------------------------
@@ -331,7 +365,7 @@ export interface ColorResult {
 export function waitForColorEngine(timeoutMs = 20000): Promise<void> {
   return new Promise((resolve, reject) => {
     const ready = () =>
-      w().ColorMaker && w().buildColorFont && w().buildGradientFont && w().ColorCore && w().wrapAsWoff2;
+      w().ColorMaker && w().buildColorFont && w().buildGradientFont && w().ColorCore && w().wrapAsWoff2 && w().validateFont;
     if (ready()) return resolve();
     const t0 = Date.now();
     const iv = setInterval(() => {
@@ -361,14 +395,17 @@ export async function buildColorFontFromImage(
     charLines: ROW_CHARS,
   });
   onProgress?.('build', `COLR ${res.colrStatus} · packing`);
+  // correct table checksums BEFORE wrapping woff2 (so the woff2 wraps valid otf)
+  const otf = fixSfntChecksums(res.otf as Uint8Array);
   let woff2: Uint8Array | undefined;
   try {
-    woff2 = await w().wrapAsWoff2(res.otf);
+    woff2 = await w().wrapAsWoff2(otf);
   } catch {
     /* woff2 is optional; the otf is the source of truth */
   }
+  await assertValid(otf);
   return {
-    otf: res.otf as Uint8Array,
+    otf,
     woff2,
     mode,
     colrStatus: res.colrStatus,
