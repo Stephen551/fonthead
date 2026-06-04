@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro';
 import FontCard from '../components/FontCard.astro';
 import FeatureCard from '../components/FeatureCard.astro';
+import WideSpecimen from '../components/WideSpecimen.astro';
 import CyclingWordmark from '../components/CyclingWordmark.astro';
 import { listPublicFonts, getFontsByIds, getUserInteractions, fontFaceCss, familyOf, pageInfo, PAGE_SIZE, type Sort, type HeroFace, type Font } from '../lib/fonts';
 import { getFeaturedFontIds } from '../lib/featured';
@@ -126,16 +127,29 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
       </div>
     </div>
 
-    <!-- the wall: the lead font shown big, then the uniform grid -->
+    <!-- the wall: the lead font big, the grid, and one wide specimen mid-scroll -->
     {fonts.length > 0 ? (
-      <>
-        {showHero && (
-          <FeatureCard font={fonts[0]} voted={inter.voted.has(fonts[0].id)} favorited={inter.favorited.has(fonts[0].id)} />
-        )}
-        <div style="padding:28px 40px 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:20px;">
-          {(showHero ? fonts.slice(1) : fonts).map((f) => <FontCard font={f} voted={inter.voted.has(f.id)} favorited={inter.favorited.has(f.id)} />)}
-        </div>
-      </>
+      (() => {
+        const rest = showHero ? fonts.slice(1) : fonts;
+        const wide = showHero ? rest.find((f) => f.meta.badge === 'color') : undefined;
+        const gridFonts = wide ? rest.filter((f) => f.id !== wide.id) : rest;
+        const wideAt = wide ? Math.min(7, gridFonts.length - 1) : -1;
+        return (
+          <>
+            {showHero && (
+              <FeatureCard font={fonts[0]} voted={inter.voted.has(fonts[0].id)} favorited={inter.favorited.has(fonts[0].id)} />
+            )}
+            <div style="padding:28px 40px 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:20px;">
+              {gridFonts.map((f, i) => (
+                <>
+                  <FontCard font={f} voted={inter.voted.has(f.id)} favorited={inter.favorited.has(f.id)} />
+                  {wide && i === wideAt && <WideSpecimen font={wide} />}
+                </>
+              ))}
+            </div>
+          </>
+        );
+      })()
     ) : (
       <div class="fh-mono" style="padding:64px 40px;text-align:center;font-size:13px;color:var(--ink-soft);line-height:1.7;">
         <p style="margin:0 0 14px;">Nothing matches "{q}" yet.</p>

@@ -1,0 +1,24 @@
+---
+import { type Font, specClass, specTreat, familyOf } from '../lib/fonts';
+
+// A second composition break: one font set as a full-width living specimen
+// dropped into the wall, re-asserting the type-first hierarchy mid-scroll so
+// the grid stops reading as a single uniform module. Spans every grid column.
+interface Props {
+  font: Font;
+  label?: string;
+}
+const { font: f, label = 'in colour' } = Astro.props;
+const m = f.meta;
+---
+
+<a href={`/f/${f.id}`} class="fh-wide" aria-label={`${f.specimen_word}, open ${f.name}`}>
+  <div class="fh-eyebrow fh-wide-label">{label}</div>
+  <div
+    class={specClass(m)}
+    style={`font-family:'${familyOf(f.id)}',var(--sans);${specTreat(m)};font-size:min(240px,19vw);line-height:.86;white-space:nowrap;max-width:100%;`}
+  >
+    {f.specimen_word}
+  </div>
+  <div class="fh-mono fh-wide-credit">{f.name} · by {f.maker_handle}&nbsp;&nbsp;&rarr;</div>
+</a>
