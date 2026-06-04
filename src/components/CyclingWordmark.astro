@@ -33,8 +33,12 @@ const faceClass = (f: HeroFace) =>
   <div style="height:210px;display:flex;align-items:center;justify-content:center;max-width:100%;overflow:hidden;">
     <div
       id="hero-spec"
+      contenteditable="true"
+      spellcheck="false"
+      role="textbox"
+      aria-label="Type a word to preview it in every font on the wall"
       class={first ? faceClass(first) : 'spec'}
-      style={`${first ? faceStyle(first) : ''};font-size:clamp(44px,13vw,148px);line-height:.9;white-space:nowrap;max-width:100%;transition:opacity .17s var(--ease);`}
+      style={`${first ? faceStyle(first) : ''};font-size:clamp(44px,13vw,148px);line-height:.9;white-space:nowrap;max-width:100%;outline:none;caret-color:var(--signal);transition:opacity .17s var(--ease);`}
     >
       fonthead
     </div>
@@ -43,7 +47,7 @@ const faceClass = (f: HeroFace) =>
     class="fh-mono"
     style="margin-top:8px;font-size:12px;color:var(--ink-faint);letter-spacing:.02em;display:flex;gap:14px;justify-content:center;align-items:center;height:18px;"
   >
-    <span>one word, every face on the wall</span>
+    <span>type a word, every face on the wall</span>
     <span style="color:var(--line-3);">·</span>
     <span id="hero-cap" style="color:var(--ink-soft);transition:opacity .17s var(--ease);">
       {first ? `${first.name} · ${first.designer}` : ''}

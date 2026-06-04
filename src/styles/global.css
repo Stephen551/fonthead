@@ -168,8 +168,14 @@ body {
 .fh-vote .caret { width: 9px; height: 9px; }
 .fh-vote .caret svg { display: block; width: 9px; height: 9px; stroke: currentColor;
   stroke-width: 1.8; fill: none; }
-/* count roll-up: precise, no bounce */
-.fh-count { display: inline-block; transition: transform .22s var(--ease); }
+/* count roll-up: precise, no bounce (slide + fade, triggered in app.ts) */
+.fh-count { display: inline-block; transition: transform .22s var(--ease), opacity .22s var(--ease); }
+
+/* masthead type-into: placeholder while the visitor has it focused and empty
+   (on blur, app.ts restores 'fonthead'). -webkit-text-fill-color overrides the
+   transparent fill a gradient specimen face would otherwise apply. */
+#hero-spec:empty::before { content: 'type a word'; color: var(--ink-faint);
+  -webkit-text-fill-color: var(--ink-faint); opacity: .6; }
 
 /* ---- specimen treatments (the only real color) ---- */
 .spec { line-height: .92; display: inline-block; letter-spacing: -.01em; }
