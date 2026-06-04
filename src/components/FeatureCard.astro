@@ -1,0 +1,59 @@
+---
+import Badge from './Badge.astro';
+import { type Font, specClass, specTreat, familyOf, kb } from '../lib/fonts';
+
+// The wall's lead, shown big and TYPE-INTO: the loudest expression of the
+// site's idea. You type straight into the lead font's specimen here, the same
+// act the hero and font page invite. A credit + actions column sits beside it
+// and stacks on mobile. The specimen sizes to its column via a container query
+// and wraps rather than shearing.
+interface Props {
+  font: Font;
+  voted?: boolean;
+  favorited?: boolean;
+}
+const { font: f, voted = false, favorited = false } = Astro.props;
+const m = f.meta;
+---
+
+<section class="fh-feature" aria-label="Featured font">
+  <div class="fh-feature-spec">
+    {(m.badge || f.visibility === 'private') && (
+      <div style="position:absolute;top:0;right:0;z-index:1;display:flex;gap:6px;">
+        <Badge vis={f.visibility === 'private' ? 'private' : null} />
+        <Badge kind={m.badge} />
+      </div>
+    )}
+    <div
+      class={specClass(m)}
+      data-typeinto
+      contenteditable="true"
+      spellcheck="false"
+      role="textbox"
+      aria-label={`Type to preview ${f.name}`}
+      style={`font-family:'${familyOf(f.id)}',var(--sans);${specTreat(m)};font-size:min(168px,30cqw);line-height:.92;max-width:100%;white-space:normal;overflow-wrap:anywhere;outline:none;caret-color:var(--signal);`}
+    >
+      {f.specimen_word}
+    </div>
+  </div>
+
+  <div class="fh-feature-meta">
+    <div>
+      <a href={`/f/${f.id}`} class="fh-feature-name">{f.name}</a>
+      <a href={`/u/${f.maker_handle}`} class="fh-mono fh-feature-maker">by {f.maker_handle}</a>
+    </div>
+    <div class="fh-mono fh-feature-stat">{f.glyph_count ?? '—'} glyphs · woff2 {kb(f.woff2_size)}</div>
+    <div class="fh-mono fh-feature-stat" style="color:var(--ink-faint);">click the specimen to type</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
+      <button class={`fh-fav${favorited ? ' on' : ''}`} data-fav data-font-id={f.id} aria-pressed={favorited} aria-label={`Favorite ${f.name}`}>
+        <svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-9.2-8.3C1.3 8.9 2.6 5.5 5.8 5.5c2 0 3.3 1.4 3.9 2.4 0 0 .1.2.3.2s.3-.2.3-.2c.6-1 1.9-2.4 3.9-2.4 3.2 0 4.5 3.4 3 6.2C19 15.6 12 20 12 20z"/></svg>
+      </button>
+      <button class={`fh-vote${voted ? ' on' : ''}`} data-vote data-font-id={f.id} aria-pressed={voted}>
+        <span class="caret" aria-hidden="true"><svg viewBox="0 0 9 9"><path d="M1.5 5.5L4.5 2.5L7.5 5.5"/></svg></span>
+        <span class="fh-count" data-count>{f.votes_count.toLocaleString()}</span>
+        <span class="sr-only"> upvotes for {f.name}</span>
+      </button>
+      <a href={`/f/${f.id}`} class="fh-btn fh-btn--ghost" style="margin-left:auto;">view the font&nbsp;&nbsp;&rarr;</a>
+    </div>
+  </div>
+</section>
