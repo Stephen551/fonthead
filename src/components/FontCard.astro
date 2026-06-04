@@ -14,15 +14,15 @@ const size = Math.min(m.size, 92);
 // a link). The specimen and name link to the font page.
 ---
 
-<div class="fh-card" style="display:flex;flex-direction:column;">
+<div class="fh-card" style="display:flex;flex-direction:column;position:relative;">
+  {(m.badge || f.visibility === 'private') && (
+    <div style="position:absolute;top:14px;right:14px;z-index:1;display:flex;gap:6px;">
+      <Badge vis={f.visibility === 'private' ? 'private' : null} />
+      <Badge kind={m.badge} />
+    </div>
+  )}
   <a href={`/f/${f.id}`} aria-label={`${f.specimen_word}, open ${f.name}`} style="text-decoration:none;color:inherit;display:block;">
     <div style="position:relative;height:200px;padding:0 26px;display:flex;align-items:center;justify-content:center;overflow:hidden;border-bottom:1px solid var(--line);background:var(--paper);">
-      {(m.badge || f.visibility === 'private') && (
-        <div style="position:absolute;top:14px;right:14px;display:flex;gap:6px;">
-          <Badge vis={f.visibility === 'private' ? 'private' : null} />
-          <Badge kind={m.badge} />
-        </div>
-      )}
       <div
         class={specClass(m)}
         data-font={familyOf(f.id)}
