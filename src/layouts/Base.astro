@@ -3,12 +3,14 @@ import '../styles/global.css';
 import { ClientRouter } from 'astro:transitions';
 import FHNav from '../components/FHNav.astro';
 import { createAuth } from '../lib/auth';
+import { escapeJsonForScript } from '../lib/util';
 
 interface Props {
   title?: string;
   description?: string;
   active?: 'library' | 'make';
   ogImage?: string;
+  schema?: Record<string, unknown> | Record<string, unknown>[];
 }
 
 const {
@@ -16,11 +18,35 @@ const {
   description = 'A community font library and maker. Turn an alphabet sheet into a real font, publish it, browse what everyone makes.',
   active = 'library',
   ogImage = '/og.png',
+  schema,
 } = Astro.props;
 
 // Absolute URLs for canonical + social cards, from the request origin.
 const canonical = Astro.url.href;
-const ogImageAbs = new URL(ogImage, Astro.url.origin).href;
+const origin = Astro.url.origin;
+const ogImageAbs = new URL(ogImage, origin).href;
+
+// Site-wide structured data: the site itself, its search action, and the
+// publisher. Per-page schema (e.g. a font's CreativeWork) is passed in via the
+// schema prop. Both are escaped before set:html — a font name in the per-page
+// schema is user-controlled (see escapeJsonForScript / the hero data island).
+const siteLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      name: 'fonthead.dev',
+      url: origin + '/',
+      description: 'A community font library and maker.',
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: { '@type': 'EntryPoint', urlTemplate: origin + '/?q={search_term_string}' },
+        'query-input': 'required name=search_term_string',
+      },
+    },
+    { '@type': 'Organization', name: 'fonthead.dev', url: origin + '/' },
+  ],
+};
 
 // Auth state for the nav. getSession returns null cheaply when there is no
 // session cookie, so anonymous page loads do not hit the database.
@@ -53,6 +79,8 @@ try {
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageAbs} />
+    <script type="application/ld+json" is:inline set:html={escapeJsonForScript(JSON.stringify(siteLd))} />
+    {schema && <script type="application/ld+json" is:inline set:html={escapeJsonForScript(JSON.stringify(schema))} />}
     <ClientRouter />
     <slot name="head" />
   </head>

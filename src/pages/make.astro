@@ -14,7 +14,11 @@ const V = '0.8.59';
 const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2') format('woff2');font-display:swap;}";
 ---
 
-<Base title="Make a font · fonthead.dev" active="make">
+<Base
+  title="Make a font · fonthead.dev"
+  description="Drop an alphabet sheet and trace it into a real, installable font in your browser. Monochrome or colour, yours to download. Nothing leaves the page."
+  active="make"
+>
   <style slot="head" is:inline set:html={faceCss}></style>
   <!-- vendored font engine (client-side). Classic globals; the worker self-loads the rest. -->
   <script is:inline src={`/assets/vendor/opentype.min.js?v=${V}`}></script>

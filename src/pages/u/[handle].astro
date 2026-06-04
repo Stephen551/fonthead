@@ -29,9 +29,10 @@ const inter = session
   : { voted: new Set<string>(), favorited: new Set<string>() };
 const publicCount = fonts.filter((f) => f.visibility === 'public').length;
 const privateCount = fonts.length - publicCount;
+const makerDescription = `Fonts by ${handle} on fonthead.dev: ${publicCount} published ${publicCount === 1 ? 'font' : 'fonts'}. Browse and download them, or make your own.`;
 ---
 
-<Base title={`@${handle} · fonthead.dev`} active="library">
+<Base title={`@${handle} · fonthead.dev`} description={makerDescription} active="library">
   <style slot="head" is:inline set:html={faceCss}></style>
 
   <div style="background:var(--paper);min-height:100vh;">

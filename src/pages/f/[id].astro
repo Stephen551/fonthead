@@ -47,9 +47,31 @@ const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const lower = 'abcdefghijklmnopqrstuvwxyz';
 const other = '0123456789&?!@#.,()$';
 const specInline = specStyle(f.id, m);
+
+// Per-page SEO: a font-specific description and a CreativeWork record. The name
+// and maker are user-controlled, but Base escapes the JSON-LD before set:html.
+const origin = Astro.url.origin;
+const canonicalUrl = Astro.url.href;
+const kind = m.badge === 'color' ? 'colour font' : 'font';
+const fontDescription = `${f.name}, a ${kind} by ${f.maker_handle} on fonthead.dev. Preview every glyph and download it, or trace your own from an alphabet sheet.`;
+const fontSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'CreativeWork',
+  name: f.name,
+  url: canonicalUrl,
+  creator: { '@type': 'Person', name: f.maker_handle, url: `${origin}/u/${f.maker_handle}` },
+  dateCreated: f.created_at,
+  genre: 'Typeface',
+  ...(f.glyph_count ? { numberOfItems: f.glyph_count } : {}),
+};
 ---
 
-<Base title={`${f.name} · fonthead.dev`} active="library">
+<Base
+  title={`${f.name} · fonthead.dev`}
+  description={fontDescription}
+  schema={fontSchema}
+  active="library"
+>
   <style slot="head" is:inline set:html={faceCss}></style>
 
   <div style="background:var(--paper);min-height:100vh;">
