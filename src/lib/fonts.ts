@@ -73,16 +73,91 @@ export interface HeroFace {
 
 export type Sort = 'popular' | 'new';
 
-/** The public wall. popular = votes then recency; new = recency. */
-export async function listPublicFonts(db: D1Database, sort: Sort): Promise<Font[]> {
+/** Default and max fonts per wall page. */
+export const PAGE_SIZE = 24;
+const PAGE_MAX = 60;
+
+export interface FontPage {
+  items: Font[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Escape a user search term for a LIKE pattern (so % and _ are literal). The
+ *  caller pairs this with ESCAPE '\\' in the query. */
+export function escapeLike(term: string): string {
+  return term.replace(/[\\%_]/g, (c) => '\\' + c);
+}
+
+export interface ListOpts {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface PageInfo {
+  page: number;
+  pages: number;
+  offset: number;
+  limit: number;
+  hasPrev: boolean;
+  hasNext: boolean;
+}
+
+/** Clamp a requested page against a total and derive the offset + nav state. */
+export function pageInfo(total: number, page: number, pageSize: number = PAGE_SIZE): PageInfo {
+  const limit = Math.max(Math.trunc(pageSize) || PAGE_SIZE, 1);
+  const pages = Math.max(Math.ceil(Math.max(total, 0) / limit), 1);
+  const cur = Math.min(Math.max(Math.trunc(page) || 1, 1), pages);
+  return { page: cur, pages, offset: (cur - 1) * limit, limit, hasPrev: cur > 1, hasNext: cur < pages };
+}
+
+/** The public wall. popular = votes then recency; new = recency. Paginated
+ *  (LIMIT/OFFSET) with an optional LIKE search over name + maker handle. */
+export async function listPublicFonts(db: D1Database, sort: Sort, opts: ListOpts = {}): Promise<FontPage> {
+  const limit = Math.min(Math.max(Math.trunc(opts.limit ?? PAGE_SIZE), 1), PAGE_MAX);
+  const offset = Math.max(Math.trunc(opts.offset ?? 0), 0);
   const order =
     sort === 'popular'
       ? 'votes_count DESC, created_at DESC, rowid DESC'
       : 'created_at DESC, rowid DESC';
+
+  const where = ["visibility = 'public'"];
+  const filterBinds: unknown[] = [];
+  const q = (opts.q ?? '').trim();
+  if (q) {
+    where.push("(name LIKE ? ESCAPE '\\' OR maker_handle LIKE ? ESCAPE '\\')");
+    const like = `%${escapeLike(q)}%`;
+    filterBinds.push(like, like);
+  }
+  const whereSql = where.join(' AND ');
+
+  const countRow = await db
+    .prepare(`SELECT COUNT(*) AS n FROM fonts WHERE ${whereSql}`)
+    .bind(...filterBinds)
+    .first<{ n: number }>();
+  const total = countRow?.n ?? 0;
+
   const { results } = await db
-    .prepare(`SELECT rowid, * FROM fonts WHERE visibility = 'public' ORDER BY ${order}`)
+    .prepare(`SELECT rowid, * FROM fonts WHERE ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
+    .bind(...filterBinds, limit, offset)
     .all<FontRow>();
-  return (results ?? []).map(parse);
+
+  return { items: (results ?? []).map(parse), total, limit, offset };
+}
+
+/** Fetch specific public fonts by id, returned in the order of the ids given
+ *  (used for the hero's featured/starter set). */
+export async function getFontsByIds(db: D1Database, ids: string[]): Promise<Font[]> {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const { results } = await db
+    .prepare(`SELECT rowid, * FROM fonts WHERE id IN (${placeholders}) AND visibility = 'public'`)
+    .bind(...ids)
+    .all<FontRow>();
+  const byId = new Map((results ?? []).map((r) => [r.id, parse(r)]));
+  return ids.map((id) => byId.get(id)).filter((f): f is Font => Boolean(f));
 }
 
 /** A maker's fonts. Public only, unless the owner is viewing their own page. */
