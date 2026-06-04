@@ -11,7 +11,7 @@ const env = Astro.locals.runtime.env;
 const f = id ? await getFont(env.DB, id) : null;
 
 if (!f) {
-  return new Response('Font not found', { status: 404 });
+  return Astro.rewrite('/404');
 }
 
 const auth = createAuth(env);
@@ -20,7 +20,7 @@ const userId = session?.user.id ?? null;
 
 // private fonts are visible only to their owner
 if (f.visibility === 'private' && userId !== f.owner_id) {
-  return new Response('Font not found', { status: 404 });
+  return Astro.rewrite('/404');
 }
 
 let voted = false;

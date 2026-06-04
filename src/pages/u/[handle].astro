@@ -14,7 +14,7 @@ const maker = handle
   : null;
 
 if (!maker) {
-  return new Response('Maker not found', { status: 404 });
+  return Astro.rewrite('/404');
 }
 
 // owner viewing their own page sees private fonts too
