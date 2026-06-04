@@ -5,6 +5,11 @@ import { betterAuth } from 'better-auth';
 // request — never at module top level. Better Auth 1.5+ detects the D1 binding
 // natively, so we pass env.DB straight in.
 export function createAuth(env: Env) {
+  // Fail loud and early on a missing config rather than booting an auth instance
+  // with an empty secret (which would silently break sessions in production).
+  if (!env.BETTER_AUTH_SECRET || !env.BETTER_AUTH_URL) {
+    throw new Error('Auth is not configured: BETTER_AUTH_SECRET and BETTER_AUTH_URL are required.');
+  }
   // localhost origins are trusted only when running locally; production trusts
   // just its own canonical origin.
   const isLocal = /localhost|127\.0\.0\.1/.test(env.BETTER_AUTH_URL || '');
@@ -21,6 +26,14 @@ export function createAuth(env: Env) {
     baseURL: env.BETTER_AUTH_URL,
     emailAndPassword: { enabled: true },
     trustedOrigins,
+    advanced: {
+      // single-origin app: Lax is the right default, and Secure everywhere but
+      // local http. Explicit so it does not ride on a browser default.
+      defaultCookieAttributes: {
+        sameSite: 'lax',
+        secure: !isLocal,
+      },
+    },
   });
 }
 
