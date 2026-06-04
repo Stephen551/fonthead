@@ -10,18 +10,24 @@ async function onFav(btn: HTMLElement) {
     window.location.href = '/sign-in';
     return;
   }
+  if (btn.dataset.busy) return; // ignore a second click while the first is in flight
+  btn.dataset.busy = '1';
   const id = btn.dataset.fontId!;
   const was = btn.classList.contains('on');
   btn.classList.toggle('on', !was);
   btn.setAttribute('aria-pressed', String(!was));
-  const { data, error } = await actions.toggleFavorite({ fontId: id });
-  if (error || !data) {
-    btn.classList.toggle('on', was);
-    btn.setAttribute('aria-pressed', String(was));
-    return;
+  try {
+    const { data, error } = await actions.toggleFavorite({ fontId: id });
+    if (error || !data) {
+      btn.classList.toggle('on', was);
+      btn.setAttribute('aria-pressed', String(was));
+      return;
+    }
+    btn.classList.toggle('on', data.favorited);
+    btn.setAttribute('aria-pressed', String(data.favorited));
+  } finally {
+    delete btn.dataset.busy;
   }
-  btn.classList.toggle('on', data.favorited);
-  btn.setAttribute('aria-pressed', String(data.favorited));
 }
 
 async function onVote(btn: HTMLElement) {
@@ -29,6 +35,8 @@ async function onVote(btn: HTMLElement) {
     window.location.href = '/sign-in';
     return;
   }
+  if (btn.dataset.busy) return; // ignore a second click while the first is in flight
+  btn.dataset.busy = '1';
   const id = btn.dataset.fontId!;
   const countEl = btn.querySelector('[data-count]') as HTMLElement | null;
   const was = btn.classList.contains('on');
@@ -36,16 +44,20 @@ async function onVote(btn: HTMLElement) {
   btn.classList.toggle('on', !was);
   btn.setAttribute('aria-pressed', String(!was));
   if (countEl) countEl.textContent = (cur + (was ? -1 : 1)).toLocaleString();
-  const { data, error } = await actions.toggleVote({ fontId: id });
-  if (error || !data) {
-    btn.classList.toggle('on', was);
-    btn.setAttribute('aria-pressed', String(was));
-    if (countEl) countEl.textContent = cur.toLocaleString();
-    return;
+  try {
+    const { data, error } = await actions.toggleVote({ fontId: id });
+    if (error || !data) {
+      btn.classList.toggle('on', was);
+      btn.setAttribute('aria-pressed', String(was));
+      if (countEl) countEl.textContent = cur.toLocaleString();
+      return;
+    }
+    btn.classList.toggle('on', data.voted);
+    btn.setAttribute('aria-pressed', String(data.voted));
+    if (countEl) countEl.textContent = data.count.toLocaleString();
+  } finally {
+    delete btn.dataset.busy;
   }
-  btn.classList.toggle('on', data.voted);
-  btn.setAttribute('aria-pressed', String(data.voted));
-  if (countEl) countEl.textContent = data.count.toLocaleString();
 }
 
 async function onReport(btn: HTMLElement) {

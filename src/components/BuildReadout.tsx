@@ -15,7 +15,7 @@ const STEPS: Step[] = [
   { k: 'binarize', d: 'threshold · otsu adaptive', t: 1.1, ms: 1100 },
   { k: 'slice', d: '26 cells · baseline locked', t: 0.9, ms: 900 },
   { k: 'trace', d: 'contours · vectorise', t: 1.6, ms: 1600 },
-  { k: 'build', d: 'kern · hint · pack woff2', t: 1.3, ms: 1300 },
+  { k: 'build', d: 'metrics · pack otf woff2', t: 1.3, ms: 1300 },
 ];
 const TOTAL = STEPS.reduce((a, s) => a + s.ms, 0);
 
