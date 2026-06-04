@@ -169,7 +169,7 @@ body {
 .fh-vote .caret svg { display: block; width: 9px; height: 9px; stroke: currentColor;
   stroke-width: 1.8; fill: none; }
 /* count roll-up: precise, no bounce (slide + fade, triggered in app.ts) */
-.fh-count { display: inline-block; transition: transform .22s var(--ease), opacity .22s var(--ease); }
+.fh-count { display: inline-block; transition: transform .13s var(--ease), opacity .13s var(--ease); }
 
 /* masthead type-into: placeholder while the visitor has it focused and empty
    (on blur, app.ts restores 'fonthead'). -webkit-text-fill-color overrides the

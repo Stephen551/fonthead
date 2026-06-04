@@ -8,13 +8,15 @@ const signedIn = () => document.body.dataset.signedIn === 'true';
 // The vote count rolls on change: a short slide+fade (the .fh-count transition
 // in CSS was declared but never triggered). Precise, no bounce.
 function rollCount(el: HTMLElement, text: string) {
-  el.style.transform = 'translateY(-0.5em)';
+  el.style.transform = 'translateY(-0.4em)';
   el.style.opacity = '0';
+  // swap once the out-transition has completed (matches the .13s in CSS), so the
+  // roll reads as out-then-in rather than swapping mid-move.
   window.setTimeout(() => {
     el.textContent = text;
     el.style.transform = 'translateY(0)';
     el.style.opacity = '1';
-  }, 120);
+  }, 140);
 }
 
 async function onFav(btn: HTMLElement) {
