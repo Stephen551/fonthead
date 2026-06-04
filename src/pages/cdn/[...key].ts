@@ -35,9 +35,19 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   if (!object) return new Response('Not found', { status: 404 });
 
   const headers = new Headers();
-  object.writeHttpMetadata(headers);
+  // On real Workers this copies the stored content-type etc. Under miniflare
+  // (astro dev) it can throw serializing R2 metadata, so never let it 500 the
+  // font; the extension-derived content-type below covers that case.
+  try {
+    object.writeHttpMetadata(headers);
+  } catch {
+    /* dev-only miniflare quirk; fallback content-type applies */
+  }
   headers.set('etag', object.httpEtag);
-  if (!headers.has('content-type')) headers.set('content-type', 'font/woff2');
+  if (!headers.has('content-type')) {
+    const ext = key.slice(key.lastIndexOf('.') + 1);
+    headers.set('content-type', ext === 'otf' ? 'font/otf' : ext === 'ttf' ? 'font/ttf' : 'font/woff2');
+  }
   // never let a font body be sniffed as something executable, and never framed
   headers.set('x-content-type-options', 'nosniff');
   headers.set('x-frame-options', 'DENY');
