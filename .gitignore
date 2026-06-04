@@ -27,6 +27,10 @@ npm-debug.log*
 
 # test artifacts
 .playwright-mcp/
+test-results/
+playwright-report/
+coverage/
+e2e/built-sample.otf
 m1-*.png
 m2-*.png
 m3-*.png

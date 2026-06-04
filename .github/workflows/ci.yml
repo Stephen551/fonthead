@@ -35,3 +35,10 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: e2e smoke
         run: npm run test:e2e
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: independent font validity check (fontTools, the gate Windows applies)
+        run: |
+          pip install --quiet fonttools
+          python -c "from fontTools.ttLib import TTFont; TTFont('e2e/built-sample.otf', checkChecksums=2); print('fontTools strict checksums: OK')"
