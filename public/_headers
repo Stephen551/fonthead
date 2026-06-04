@@ -1,0 +1,14 @@
+# Long-lived immutable caching for static assets served by the Workers assets
+# binding. Without this they default to max-age=0, forcing a revalidation round
+# trip on every repeat visit. The /_astro bundles are content-hashed, the UI
+# fonts are stable, and the maker engine is loaded with a ?v= cache-buster, so
+# all three are safe to cache hard. (The R2 font binaries under /cdn are served
+# by the worker and already set immutable themselves.)
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
