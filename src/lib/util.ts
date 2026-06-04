@@ -1,5 +1,16 @@
 // Shared server helpers: slugs, font ids, and handle assignment.
 
+/** Is this email in the comma-separated admin allowlist? Case-insensitive,
+ *  whitespace-tolerant. Empty list or empty email means not an admin. */
+export function isAdminEmail(adminList: string | undefined | null, email: string | undefined | null): boolean {
+  if (!email) return false;
+  const admins = (adminList || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return admins.includes(email.toLowerCase());
+}
+
 export function slugify(s: string): string {
   return (
     s
