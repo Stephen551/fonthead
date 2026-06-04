@@ -177,6 +177,12 @@ body {
 #hero-spec:empty::before { content: 'type a word'; color: var(--ink-faint);
   -webkit-text-fill-color: var(--ink-faint); opacity: .6; }
 
+/* type-into specimens (hero, wall feature, font page): the blinking caret shows
+   on mouse focus, a real focus ring on keyboard focus. */
+#hero-spec, #specimen, [data-typeinto] { outline: none; }
+#hero-spec:focus-visible, #specimen:focus-visible, [data-typeinto]:focus-visible {
+  outline: 2px solid var(--signal); outline-offset: 6px; border-radius: 2px; }
+
 /* ---- specimen treatments (the only real color) ---- */
 .spec { line-height: .92; display: inline-block; letter-spacing: -.01em; }
 .spec--gradient { -webkit-background-clip: text; background-clip: text;
