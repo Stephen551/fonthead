@@ -114,6 +114,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [editErr, setEditErr] = useState('');
   const [preset, setPreset] = useState<'glyph' | 'logo' | 'sketch'>('glyph');
   const [colorOpts, setColorOpts] = useState<ColorOpts>(DEFAULT_COLOR_OPTS);
+  const [fineDetail, setFineDetail] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
   const lastImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
@@ -127,7 +128,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [rowBusy, setRowBusy] = useState<number | null>(null);
   const [rowErr, setRowErr] = useState('');
   const [rowSlicerSel, setRowSlicerSel] = useState<Record<number, SlicerKind>>({});
-  const traceOpts = TRACE_PRESETS[preset];
+  const traceOpts = { ...TRACE_PRESETS[preset], fineDetail };
 
   const isColor = kind !== 'mono';
   const stages = isColor ? COLOR_STAGES : MONO_STAGES;
@@ -198,7 +199,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         lastImgRef.current = img;
         captureSheet(img);
         setStage(0, 'reading the sheet');
-        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, colorOpts, (step, message) =>
+        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, { ...colorOpts, fineDetail }, (step, message) =>
           setStage(COLOR_STEP_STAGE[step] ?? 1, message),
         );
         res = { otf: cres.otf, woff2: cres.woff2 };
@@ -590,6 +591,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                   )}
                 </div>
               )}
+              <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                <ToggleRow label="fine detail" on={fineDetail} onChange={setFineDetail} />
+                <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
+                  resample each letter at higher resolution before tracing, so serifs and sharp corners survive. Slower.
+                </p>
+              </div>
               {lastImgRef.current && (
                 <button className="fh-btn fh-btn--ghost" disabled={phase === 'working'} onClick={rebuild} style={{ marginTop: 12 }}>
                   rebuild with these settings
