@@ -174,11 +174,14 @@ const specInline = specStyle(f.id, m);
       </aside>
     </div>
 
-    <footer style="padding:22px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;">
+    <footer style="padding:22px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:16px;">
       {m.standIn ? (
         <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">a stand-in face · the real makers arrive with the maker</div>
       ) : (
         <a href={`/u/${f.maker_handle}`} class="fh-mono" style="font-size:11px;color:var(--ink-faint);text-decoration:none;">more from @{f.maker_handle}&nbsp;&rarr;</a>
+      )}
+      {!m.standIn && (
+        <button data-report data-font-id={f.id} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--ink-faint);padding:0;text-decoration:underline;text-underline-offset:3px;">report this font</button>
       )}
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
     </footer>

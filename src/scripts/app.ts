@@ -48,6 +48,24 @@ async function onVote(btn: HTMLElement) {
   if (countEl) countEl.textContent = data.count.toLocaleString();
 }
 
+async function onReport(btn: HTMLElement) {
+  if (!signedIn()) {
+    window.location.href = '/sign-in';
+    return;
+  }
+  const id = btn.dataset.fontId!;
+  const reason = window.prompt('What looks wrong with this font? A short reason helps.');
+  if (!reason || !reason.trim()) return;
+  btn.setAttribute('disabled', 'true');
+  const { data, error } = await actions.reportFont({ fontId: id, reason: reason.trim() });
+  if (error || !data) {
+    btn.removeAttribute('disabled');
+    btn.textContent = 'report failed, try again';
+    return;
+  }
+  btn.textContent = 'reported, thank you';
+}
+
 function wireSocialOnce() {
   if ((window as Window & { __fhSocial?: boolean }).__fhSocial) return;
   (window as Window & { __fhSocial?: boolean }).__fhSocial = true;
@@ -55,12 +73,16 @@ function wireSocialOnce() {
     const t = e.target as HTMLElement;
     const fav = t.closest('[data-fav]') as HTMLElement | null;
     const vote = t.closest('[data-vote]') as HTMLElement | null;
+    const report = t.closest('[data-report]') as HTMLElement | null;
     if (fav) {
       e.preventDefault();
       onFav(fav);
     } else if (vote) {
       e.preventDefault();
       onVote(vote);
+    } else if (report) {
+      e.preventDefault();
+      onReport(report);
     }
   });
 }
