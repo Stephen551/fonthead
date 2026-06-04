@@ -32,6 +32,9 @@ export interface TraceOpts {
   alphamax: number;
   opttolerance: number;
   optcurve: boolean;
+  // opt-in: resample each glyph from the source at higher resolution before
+  // the threshold, so serifs and sharp corners survive. Off by default.
+  fineDetail: boolean;
 }
 
 export const DEFAULT_TRACE: TraceOpts = {
@@ -42,6 +45,7 @@ export const DEFAULT_TRACE: TraceOpts = {
   alphamax: 1.0,
   opttolerance: 0.15,
   optcurve: true,
+  fineDetail: false,
 };
 
 // Mono trace presets (mirrors the source tracer's glyph / logo / sketch).
@@ -58,8 +62,9 @@ export interface ColorOpts {
   bgDist?: number;
   outline?: boolean;
   gloss?: boolean;
+  fineDetail?: boolean;
 }
-export const DEFAULT_COLOR_OPTS: ColorOpts = { K: 3, stops: 5, bgDist: 20, outline: false, gloss: false };
+export const DEFAULT_COLOR_OPTS: ColorOpts = { K: 3, stops: 5, bgDist: 20, outline: false, gloss: false, fineDetail: false };
 
 export interface Glyph {
   char: string;
@@ -191,6 +196,60 @@ function filterFilledGlyphPaths(paths: string[], rowH: number, cellBaselineLocal
   return keep;
 }
 
+// Fine-detail supersample for the mono path. The mono cell is already 1-bit, so
+// (unlike colour) we must resample the cell region from the ORIGINAL source
+// image, then threshold at the higher resolution, mirroring binarizeFull's hard
+// threshold + invert and re-applying the slicer's ownership mask so a touching
+// neighbour's ink stays out of the cell.
+export function detailScale(cellH: number): number {
+  const TARGET = 320,
+    CAP = 3;
+  return Math.max(1, Math.min(CAP, Math.ceil(TARGET / Math.max(1, cellH))));
+}
+
+function supersampleMonoCell(
+  img: HTMLImageElement | ImageBitmap,
+  cx0: number,
+  cy0: number,
+  cx1: number,
+  cy1: number,
+  scale: number,
+  threshold: number,
+  invert: boolean,
+  ownerFn: ((x: number, y: number) => number) | null,
+  cellIdx: number,
+): { data: Uint8ClampedArray; w: number; h: number } {
+  const cw = cx1 - cx0,
+    ch = cy1 - cy0;
+  const ow = cw * scale,
+    oh = ch * scale;
+  const c = document.createElement('canvas');
+  c.width = ow;
+  c.height = oh;
+  const ctx = c.getContext('2d') as CanvasRenderingContext2D;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, ow, oh);
+  ctx.drawImage(img as CanvasImageSource, cx0, cy0, cw, ch, 0, 0, ow, oh);
+  const id = ctx.getImageData(0, 0, ow, oh);
+  const d = id.data;
+  for (let p = 0; p < d.length; p += 4) {
+    let lum = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+    if (invert) lum = 255 - lum;
+    let v = lum < threshold ? 0 : 255;
+    if (v === 0 && ownerFn) {
+      const px = (p >> 2) % ow;
+      const py = ((p >> 2) / ow) | 0;
+      const owner = ownerFn(cx0 + Math.floor(px / scale), cy0 + Math.floor(py / scale));
+      if (owner !== -1 && owner !== cellIdx) v = 255;
+    }
+    d[p] = d[p + 1] = d[p + 2] = v;
+    d[p + 3] = 255;
+  }
+  return { data: d, w: ow, h: oh };
+}
+
 async function rowToGlyphs(
   data: Uint8ClampedArray,
   W: number,
@@ -200,6 +259,7 @@ async function rowToGlyphs(
   chars: string,
   opts: TraceOpts,
   override: SlicerKind = 'auto',
+  sourceImg?: HTMLImageElement | ImageBitmap | null,
 ): Promise<{ glyphs: Glyph[]; slicer: PickedSlicer; forced: boolean; cellCount: number }> {
   const TC = w().TracerCore;
   const expected = chars.length;
@@ -221,9 +281,16 @@ async function rowToGlyphs(
     const cx1 = Math.min(W, x1 + pad);
     const cy0 = Math.max(0, y0 - pad);
     const cy1 = Math.min(H, y1 + pad);
-    const cell = TC.extractCellBinary(data, W, cx0, cx1, cy0, cy1, ownerFn, i);
     const map = TC.mapCellToGlyph(cx0, cy0, cx1, cy1, baselineAbs);
-    const svg = await TC.traceCellBitmap(cell, opts.turdsize, opts.optcurve, opts.alphamax, opts.opttolerance);
+    const scale = opts.fineDetail && sourceImg ? detailScale(cy1 - cy0) : 1;
+    let svg: string;
+    if (scale > 1 && sourceImg) {
+      const ssCell = supersampleMonoCell(sourceImg, cx0, cy0, cx1, cy1, scale, opts.threshold, opts.invert, ownerFn, i);
+      svg = await TC.traceCellBitmap(ssCell, opts.turdsize, opts.optcurve, opts.alphamax, opts.opttolerance, 1 / scale);
+    } else {
+      const cell = TC.extractCellBinary(data, W, cx0, cx1, cy0, cy1, ownerFn, i);
+      svg = await TC.traceCellBitmap(cell, opts.turdsize, opts.optcurve, opts.alphamax, opts.opttolerance);
+    }
     const paths = TC.extractPathDFromSvg(svg);
     const keep = filterFilledGlyphPaths(paths, rowH, map.baselineYInCell);
     if (keep.length === 0) continue;
@@ -372,6 +439,7 @@ interface MonoSession {
   opts: TraceOpts;
   rowGlyphs: Glyph[][]; // traced glyphs, per row
   rowInfo: MonoRowInfo[];
+  sourceImg: HTMLImageElement | ImageBitmap; // kept for fine-detail re-slices
 }
 let _monoSession: MonoSession | null = null;
 
@@ -402,13 +470,13 @@ export async function traceSheet(
   const rowInfo: MonoRowInfo[] = [];
   for (let i = 0; i < n; i++) {
     onProgress?.('trace', `row ${i + 1}/${n} · contours`);
-    const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], opts, 'auto');
+    const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], opts, 'auto', img);
     rowGlyphs.push(r.glyphs);
     rowInfo.push({ index: i, chars: lines[i], slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: lines[i].length, glyphCount: r.glyphs.length });
   }
   const glyphs = rowGlyphs.flat();
   const report = reportForGlyphs(glyphs);
-  _monoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo };
+  _monoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo, sourceImg: img };
   return { glyphs, rowWarning, detectedRows: bands.length, report, rows: rowInfo };
 }
 
@@ -431,7 +499,7 @@ export async function editMonoRow(
   try {
     const band = s.bands[rowIndex];
     const chars = s.lines[rowIndex];
-    const r = await rowToGlyphs(s.data, s.W, s.H, band[0], band[1], chars, opts, slicer);
+    const r = await rowToGlyphs(s.data, s.W, s.H, band[0], band[1], chars, opts, slicer, s.sourceImg);
     s.rowGlyphs[rowIndex] = r.glyphs;
     s.opts = opts;
     s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: chars.length, glyphCount: r.glyphs.length };
@@ -647,6 +715,7 @@ export async function buildColorFontFromImage(
     bgDist: colorOpts.bgDist,
     outline: colorOpts.outline,
     gloss: colorOpts.gloss,
+    fineDetail: !!colorOpts.fineDetail,
   });
   onProgress?.('build', `COLR ${res.colrStatus} · packing`);
   // correct table checksums BEFORE wrapping woff2 (so the woff2 wraps valid otf)
