@@ -49,3 +49,6 @@ firetest.png
 dist/firetest.png
 mk-editor.png
 mk-grid.png
+
+# judge-panel run output (screenshots, lighthouse, verdicts) — regenerable
+judge-panel-runs/
