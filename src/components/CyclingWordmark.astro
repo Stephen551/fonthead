@@ -30,11 +30,11 @@ const faceClass = (f: HeroFace) =>
 {/* The masthead. One word, cycling through faces, the only colour in the room.
    Rendered server-side; a tiny vanilla script (app.ts) cycles it. No React. */}
 <div style="text-align:center;">
-  <div style="height:210px;display:flex;align-items:center;justify-content:center;">
+  <div style="height:210px;display:flex;align-items:center;justify-content:center;max-width:100%;overflow:hidden;">
     <div
       id="hero-spec"
       class={first ? faceClass(first) : 'spec'}
-      style={`${first ? faceStyle(first) : ''};font-size:clamp(56px,15vw,148px);line-height:.9;white-space:nowrap;transition:opacity .17s var(--ease);`}
+      style={`${first ? faceStyle(first) : ''};font-size:clamp(44px,13vw,148px);line-height:.9;white-space:nowrap;max-width:100%;transition:opacity .17s var(--ease);`}
     >
       fonthead
     </div>

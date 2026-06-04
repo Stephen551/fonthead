@@ -130,10 +130,11 @@ body {
 /* mechanical range slider */
 .fh-range { -webkit-appearance: none; appearance: none; height: 2px;
   background: var(--line-2); border-radius: 0; outline: none; }
+/* 24px thumb to meet the WCAG 2.2 AA target-size minimum (centered on the 2px track) */
 .fh-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
-  width: 14px; height: 14px; border-radius: 0; background: var(--ink);
-  cursor: pointer; border: 0; }
-.fh-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 0;
+  width: 24px; height: 24px; border-radius: 0; background: var(--ink);
+  cursor: pointer; border: 0; margin-top: -11px; }
+.fh-range::-moz-range-thumb { width: 24px; height: 24px; border-radius: 0;
   background: var(--ink); cursor: pointer; border: 0; }
 
 /* text input */
@@ -182,6 +183,9 @@ body {
 
 /* card */
 .fh-card { background: var(--paper); border: 1px solid var(--line); border-radius: 2px;
+  /* the specimen sizes to the card width (min(size, 22cqw)) so words never
+     shear mid-glyph on narrow viewports */
+  container-type: inline-size;
   padding: 0; overflow: hidden; text-decoration: none; color: inherit;
   transition: border-color var(--dur) var(--ease),
   transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }

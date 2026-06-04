@@ -27,7 +27,7 @@ const size = Math.min(m.size, 92);
         class={specClass(m)}
         data-font={familyOf(f.id)}
         transition:name={`spec-${f.id}`}
-        style={`font-family:var(--sans);${specTreat(m)};font-size:${size}px;max-width:100%;white-space:nowrap;`}
+        style={`font-family:var(--sans);${specTreat(m)};font-size:min(${size}px,22cqw);max-width:100%;white-space:nowrap;`}
       >
         {f.specimen_word}
       </div>
