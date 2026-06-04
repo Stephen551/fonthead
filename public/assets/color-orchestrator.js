@@ -111,10 +111,35 @@
 
   // [color-builder.html:613] traceMask
   // Trace an RGBA mask (ink=black) to a single SVG path-d string via Potrace.
-  async function traceMask(mask, w, h, turd) {
+  // outScale (default 1) is passed to the tracer so a supersampled mask traces
+  // back into native cell coordinates.
+  async function traceMask(mask, w, h, turd, outScale) {
     const TracerCore = TC();
-    const svg = await TracerCore.traceCellBitmap({ data: mask, w, h }, turd, true, 1.0, 0.2);
+    const svg = await TracerCore.traceCellBitmap({ data: mask, w, h }, turd, true, 1.0, 0.2, outScale || 1);
     return TracerCore.extractPathDFromSvg(svg).join(' ');
+  }
+
+  // Fine-detail supersampling: how much to upscale a cell of this native height
+  // before tracing. Adaptive toward ~320px tall, capped at 3x; already-large
+  // cells return 1 (no resample, nothing to gain).
+  function detailScale(cellH) {
+    const TARGET = 320, CAP = 3;
+    return Math.max(1, Math.min(CAP, Math.ceil(TARGET / Math.max(1, cellH))));
+  }
+
+  // Upscale an already-extracted colour cell with smoothing. The cell is still
+  // colour (not yet thresholded), so the smoothed upscale gives separateGlyph a
+  // finer grid and the trace keeps serifs / sharp corners.
+  function supersampleColorCell(cell, scale) {
+    const W = cell.w * scale, H = cell.h * scale;
+    const src = document.createElement('canvas'); src.width = cell.w; src.height = cell.h;
+    const sctx = src.getContext('2d');
+    const id = sctx.createImageData(cell.w, cell.h); id.data.set(cell.data); sctx.putImageData(id, 0, 0);
+    const dst = document.createElement('canvas'); dst.width = W; dst.height = H;
+    const dctx = dst.getContext('2d');
+    dctx.imageSmoothingEnabled = true; dctx.imageSmoothingQuality = 'high';
+    dctx.drawImage(src, 0, 0, W, H);
+    return { data: dctx.getImageData(0, 0, W, H).data, w: W, h: H };
   }
 
   // [color-builder.html:626] sliceRowByGaps
@@ -276,14 +301,24 @@
   //   { palette, mode, outline, outlineWidth }
   async function traceRecord(rec, ctx) {
     const ColorCore = CC(), TracerCore = TC();
-    const pal = ctx.palette, cell = rec.cell; const [cx0, cy0, cx1, cy1] = rec.cellRect;
+    const pal = ctx.palette; let cell = rec.cell; const [cx0, cy0, cx1, cy1] = rec.cellRect;
+    // Fine-detail: resample the colour cell larger before separating and tracing,
+    // then trace back into native coordinates via outScale so metrics are
+    // unchanged. Adaptive and capped; a no-op on already-large cells.
+    let outScale = 1, dScale = 1;
+    if (ctx.fineDetail) {
+      dScale = detailScale(cell.h);
+      if (dScale > 1) { cell = supersampleColorCell(cell, dScale); outScale = 1 / dScale; }
+    }
     const sep = ColorCore.separateGlyph(cell.data, cell.w, cell.h, pal);
     if (sep.totalInk === 0) { rec.status = 'empty'; rec.flags = ['empty']; rec.baseD = null; rec.layers = []; return; }
-    const baseD = await traceMask(sep.union, cell.w, cell.h, rec.turd);
+    const baseD = await traceMask(sep.union, cell.w, cell.h, rec.turd, outScale);
     if (!baseD) { rec.status = 'empty'; rec.flags = ['empty']; rec.baseD = null; rec.layers = []; return; }
     const cellMap = TracerCore.mapCellToGlyph(cx0, cy0, cx1, cy1, rec.baselineAbs);
     rec.baseD = baseD; rec.cellW = cellMap.cellW; rec.baselineYInCell = cellMap.baselineYInCell;
-    rec.bodyMinX = sep.bodyMinX; rec.bodyMaxX = sep.bodyMaxX; rec.bodyW = sep.bodyMaxX - sep.bodyMinX;
+    // body extents come back in supersampled pixels; divide to native so the
+    // wide/narrow flags stay comparable across glyphs traced at different scales.
+    rec.bodyMinX = sep.bodyMinX / dScale; rec.bodyMaxX = sep.bodyMaxX / dScale; rec.bodyW = (sep.bodyMaxX - sep.bodyMinX) / dScale;
     // Counter-hole area for glow/bloat detection. In flat mode measure it on the
     // largest colour LAYER (the letter's own fill), not the merged silhouette, so
     // a different-coloured offset block / 3D extrude sitting behind the letter
@@ -298,7 +333,7 @@
     rec.insetD = null;
     if (ctx.mode !== 'gradient') {
       const layers = [];
-      for (const l of sep.layers) { const d = await traceMask(l.mask, cell.w, cell.h, rec.turd); if (d) layers.push({ paletteIndex: l.paletteIndex, d }); }
+      for (const l of sep.layers) { const d = await traceMask(l.mask, cell.w, cell.h, rec.turd, outScale); if (d) layers.push({ paletteIndex: l.paletteIndex, d }); }
       rec.layers = layers;
     } else {
       rec.layers = [];
@@ -307,10 +342,12 @@
       if (ctx.outline) {
         const w = cell.w, h = cell.h, bin = new Uint8Array(w * h);
         for (let p = 0; p < w * h; p++) bin[p] = sep.union[p * 4] === 0 ? 1 : 0;
-        const ow = Math.max(1, ctx.outlineWidth || 4);
+        // scale the outline thickness with the supersample so the ring reads the
+        // same width regardless of the trace resolution
+        const ow = Math.max(1, (ctx.outlineWidth || 4) * dScale);
         const inset = ColorCore.erode(bin, w, h, ow);
         let any = false; for (let p = 0; p < w * h; p++) { if (inset[p]) { any = true; break; } }
-        if (any) { const rgba = new Uint8ClampedArray(w * h * 4); for (let p = 0; p < w * h; p++) { const v = inset[p] ? 0 : 255, k = p * 4; rgba[k] = rgba[k + 1] = rgba[k + 2] = v; rgba[k + 3] = 255; } rec.insetD = await traceMask(rgba, w, h, rec.turd); }
+        if (any) { const rgba = new Uint8ClampedArray(w * h * 4); for (let p = 0; p < w * h; p++) { const v = inset[p] ? 0 : 255, k = p * 4; rgba[k] = rgba[k + 1] = rgba[k + 2] = v; rgba[k + 3] = 255; } rec.insetD = await traceMask(rgba, w, h, rec.turd, outScale); }
       }
     }
     if (rec.status !== 'excluded') rec.status = 'ok';
@@ -401,7 +438,7 @@
       ? ('Detected ' + work.rows.length + ' row' + (work.rows.length === 1 ? '' : 's') + ', but your character set has ' + expectedRows + ' lines. Row detection likely failed (a drop shadow, tall script, or touching rows can bridge the gaps). ' + usedRows + ' row' + (usedRows === 1 ? '' : 's') + ' built, so glyphs are probably misaligned. Re-check the sheet, or edit the Characters to match what was detected.')
       : '';
 
-    const traceCtx = { palette: pal, mode: cfg.mode, outline: cfg.outline, outlineWidth: cfg.outlineWidth };
+    const traceCtx = { palette: pal, mode: cfg.mode, outline: cfg.outline, outlineWidth: cfg.outlineWidth, fineDetail: !!cfg.fineDetail };
 
     for (let r = 0; r < usedRows; r++) {
       const [y0r, y1r] = work.rows[r]; const rowChars = charLines[r]; if (!rowChars.length) continue;
@@ -609,7 +646,7 @@
     const work = {
       palette: ana.palette, workData: ana.workData, union: ana.union, rows: ana.rows, w, h,
     };
-    const cfg = { mode, turd, outline, outlineWidth, charLines };
+    const cfg = { mode, turd, outline, outlineWidth, charLines, fineDetail: !!opts.fineDetail };
     const built = await buildRecords(work, cfg);
     const records = built.records;
     if (!records.length) throw new Error('No glyphs found — check the sheet and background sensitivity.');
@@ -644,7 +681,7 @@
       workData: ana.workData,
       w: w, h: h,
       mode: mode,
-      ctx: { palette: ana.palette, mode: mode, outline: outline, outlineWidth: outlineWidth },
+      ctx: { palette: ana.palette, mode: mode, outline: outline, outlineWidth: outlineWidth, fineDetail: !!opts.fineDetail },
       buildOpts: buildOpts,
     };
 
