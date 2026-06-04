@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCharset, guessCharset, guessCharsetFromRows, DEFAULT_CHAR_LINES } from '../src/lib/maker';
+import { parseCharset, guessCharset, guessCharsetFromRows, mergeNarrowRuns, DEFAULT_CHAR_LINES } from '../src/lib/maker';
 
 describe('parseCharset', () => {
   it('splits lines, trims trailing space, drops blanks', () => {
@@ -92,5 +92,48 @@ describe('guessCharsetFromRows (per-row cell counts)', () => {
       'abcdefghijklmnopqrstuvwxyz',
       '0123456789',
     ]);
+  });
+});
+
+describe('mergeNarrowRuns (slicer over-count fix)', () => {
+  it('rejoins a glyph whose split leaves an outlier gap among normal spacing', () => {
+    // four glyphs, the third split by a 4px gap while real gaps are 30px
+    expect(mergeNarrowRuns([[0, 20], [50, 70], [100, 110], [114, 130], [160, 180]])).toEqual([
+      [0, 20],
+      [50, 70],
+      [100, 130],
+      [160, 180],
+    ]);
+  });
+
+  it('keeps even spacing separate', () => {
+    expect(mergeNarrowRuns([[0, 20], [50, 70], [100, 120]])).toEqual([[0, 20], [50, 70], [100, 120]]);
+  });
+
+  it('leaves a tight but evenly spaced row alone (no false merges)', () => {
+    // small uniform gaps are real separators, not intra-glyph splits
+    expect(mergeNarrowRuns([[0, 20], [28, 48], [56, 76], [84, 104]])).toHaveLength(4);
+  });
+
+  it('leaves fewer than three runs untouched', () => {
+    expect(mergeNarrowRuns([[0, 20]])).toEqual([[0, 20]]);
+    expect(mergeNarrowRuns([[0, 20], [40, 60]])).toEqual([[0, 20], [40, 60]]);
+    expect(mergeNarrowRuns([])).toEqual([]);
+  });
+
+  it('collapses a 17-run ornate row back to 16 cells', () => {
+    const runs: number[][] = [];
+    let x = 0;
+    for (let i = 0; i < 16; i++) {
+      if (i === 7) {
+        runs.push([x, x + 9]);
+        runs.push([x + 11, x + 20]); // same glyph split by a 2px internal gap
+      } else {
+        runs.push([x, x + 20]);
+      }
+      x += 32;
+    }
+    expect(runs).toHaveLength(17);
+    expect(mergeNarrowRuns(runs)).toHaveLength(16);
   });
 });

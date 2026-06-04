@@ -373,10 +373,37 @@ export interface SheetGeometry {
   rows: { y0: number; y1: number; cells: [number, number][] }[];
 }
 
+/** Merge adjacent ink runs separated by a gap that is a strong OUTLIER below the
+ *  row's typical gap. A glyph with an internal vertical gap (a split double-quote,
+ *  a %, a bracket) leaves a gap far smaller than the spacing between glyphs, so it
+ *  over-reads a row's cell count; this rejoins it. Measuring against the median
+ *  GAP (not glyph width) adapts to each row's spacing: even rows, tight rows, and
+ *  wide rows all keep their real separators while only the outlier intra-glyph
+ *  gaps collapse. Used for the per-row count that drives the charset guess; the
+ *  trace recovers via the anchored-minima fallback once the count is right. */
+export function mergeNarrowRuns(runs: number[][], frac = 0.35): number[][] {
+  // need at least three runs (two gaps) for a meaningful median; otherwise the
+  // gap could be intra- or inter-glyph and merging is a guess, so leave it.
+  if (runs.length < 3) return runs.map((r) => r.slice());
+  const gaps: number[] = [];
+  for (let i = 1; i < runs.length; i++) gaps.push(runs[i][0] - runs[i - 1][1]);
+  const medGap = [...gaps].sort((a, b) => a - b)[gaps.length >> 1] || 1;
+  const minGap = medGap * frac;
+  const out: number[][] = [runs[0].slice()];
+  for (let i = 1; i < runs.length; i++) {
+    const prev = out[out.length - 1];
+    if (runs[i][0] - prev[1] < minGap) prev[1] = runs[i][1];
+    else out.push(runs[i].slice());
+  }
+  return out;
+}
+
 /** Full layout geometry for the source overlay: every detected row band and the
  *  cell cuts within it, in the image's own pixel coordinates. Lets the UI draw
  *  the rows and cells the maker found, so the user can confirm the cut before
- *  trusting the build. Same probe the trace uses, run once over the whole sheet. */
+ *  trusting the build. Same probe the trace uses, run once over the whole sheet.
+ *  Cell counts go through mergeNarrowRuns so an ornate glyph's internal gap does
+ *  not over-read the row. */
 export function detectGeometry(img: HTMLImageElement | ImageBitmap): SheetGeometry {
   const TC = w().TracerCore;
   const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
@@ -386,7 +413,7 @@ export function detectGeometry(img: HTMLImageElement | ImageBitmap): SheetGeomet
   const rows = bands.map(([y0, y1]) => {
     let cells: [number, number][] = [];
     try {
-      cells = TC.sliceRowByWhitespace(bin.data, bin.w, y0, y1) as [number, number][];
+      cells = mergeNarrowRuns(TC.sliceRowByWhitespace(bin.data, bin.w, y0, y1)) as [number, number][];
     } catch {
       cells = [];
     }
