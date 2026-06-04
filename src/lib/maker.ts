@@ -428,6 +428,49 @@ export function guessCharset(rows: number, cells0: number): string[] {
   }
 }
 
+// A standard punctuation bank in a common keyboard order. Punctuation rows are
+// filled from here in sequence. The exact symbols vary from sheet to sheet and
+// the slicer over-counts ornate glyphs, so a punctuation row is a best guess to
+// confirm in the charset box, unlike the letters and digits which are exact.
+const PUNCT_BANK = "!?@#$%^&*()-_+=[]{};:'\",.<>/\\|~`";
+
+/** Build the charset from the per-row cell counts (from detectGeometry), which is
+ *  far more accurate than the row-count template guess: it pins the A-M/N-Z/a-m/n-z
+ *  split (or full A-Z/a-z), the digits row (~10 cells), and one charset line per
+ *  detected row, so the row count always matches and letters/digits land exactly.
+ *  Punctuation rows are sized to their detected cell count from the bank above. */
+export function guessCharsetFromRows(cellsPerRow: number[]): string[] {
+  const HALVES = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz'];
+  const FULLS = ['ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'];
+  const DIGITS = '0123456789';
+  const n = cellsPerRow.length;
+  if (n === 0) return DEFAULT_CHAR_LINES;
+
+  const lines: string[] = [];
+  let i = 0;
+  const split = cellsPerRow[0] <= 16; // ~13 cells per row is the split alphabet
+  if (split) {
+    for (let h = 0; h < 4 && i < n && cellsPerRow[i] >= 11; h++, i++) lines.push(HALVES[h]);
+  } else {
+    for (let h = 0; h < 2 && i < n && cellsPerRow[i] >= 18; h++, i++) lines.push(FULLS[h]);
+  }
+  // a ~10-cell row right after the alphabet is the digit row
+  if (i < n && cellsPerRow[i] >= 8 && cellsPerRow[i] <= 11) {
+    lines.push(DIGITS);
+    i++;
+  }
+  // the remaining rows are punctuation, sized to each row's cell count and
+  // advancing through the bank so two punctuation rows do not collide
+  let p = 0;
+  for (; i < n; i++) {
+    const take = Math.min(Math.max(cellsPerRow[i], 1), PUNCT_BANK.length - p);
+    lines.push(take > 0 ? PUNCT_BANK.slice(p, p + take) : PUNCT_BANK.slice(0, Math.max(1, cellsPerRow[i])));
+    p += Math.max(take, 0);
+  }
+  while (lines.length < n) lines.push(PUNCT_BANK.slice(0, 8));
+  return lines.slice(0, n);
+}
+
 // Live mono build session: the binarized sheet plus per-row glyphs, kept so a
 // single row can be re-sliced and the font rebuilt without re-reading the image.
 interface MonoSession {

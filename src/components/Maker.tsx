@@ -8,9 +8,8 @@ import {
   makeSampleSheet,
   canvasToImage,
   fileToImage,
-  detectLayout,
   detectGeometry,
-  guessCharset,
+  guessCharsetFromRows,
   DEFAULT_TRACE,
   TRACE_PRESETS,
   DEFAULT_COLOR_OPTS,
@@ -392,16 +391,18 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     try {
-      // probe the layout and auto-guess the charset template (like the source
-      // tool), so a 4-row A-M/N-Z sheet maps correctly without manual editing.
+      // Read the per-row cell geometry and build the charset from it, so the row
+      // count always matches and letters + digits land exactly (a 4-row split, a
+      // 6-row sheet with digits + punctuation, or a 7-row sheet all map right).
       if (isColor) await waitForColorEngine();
       else await waitForEngine();
       const img = await fileToImage(file);
-      const layout = detectLayout(img);
-      const guessed = guessCharset(layout.rows, layout.cells0);
+      const geom = detectGeometry(img);
+      const cellsPerRow = geom.rows.map((r) => r.cells.length);
+      const guessed = guessCharsetFromRows(cellsPerRow);
       setCharsetText(guessed.join('\n'));
       await run(() => Promise.resolve(img), guessed);
-      setDetectedRows(layout.rows);
+      setDetectedRows(geom.rows.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not read that image');
       setPhase('error');
