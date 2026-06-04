@@ -31,6 +31,10 @@ test-results/
 playwright-report/
 coverage/
 e2e/built-sample.otf
+
+# lighthouse raw reports (the committed summary is docs/lighthouse/SCORES.md)
+docs/lighthouse/*.report.html
+docs/lighthouse/*.report.json
 m1-*.png
 m2-*.png
 m3-*.png
