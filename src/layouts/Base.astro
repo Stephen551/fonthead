@@ -8,13 +8,19 @@ interface Props {
   title?: string;
   description?: string;
   active?: 'library' | 'make';
+  ogImage?: string;
 }
 
 const {
   title = 'fonthead.dev',
   description = 'A community font library and maker. Turn an alphabet sheet into a real font, publish it, browse what everyone makes.',
   active = 'library',
+  ogImage = '/og.png',
 } = Astro.props;
+
+// Absolute URLs for canonical + social cards, from the request origin.
+const canonical = Astro.url.href;
+const ogImageAbs = new URL(ogImage, Astro.url.origin).href;
 
 // Auth state for the nav. getSession returns null cheaply when there is no
 // session cookie, so anonymous page loads do not hit the database.
@@ -35,7 +41,18 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="canonical" href={canonical} />
     <title>{title}</title>
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="fonthead.dev" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImageAbs} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageAbs} />
     <ClientRouter />
     <slot name="head" />
   </head>
