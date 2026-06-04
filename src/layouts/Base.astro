@@ -58,7 +58,9 @@ try {
   </head>
   <body data-signed-in={navUser ? 'true' : 'false'}>
     <FHNav active={active} user={navUser} />
-    <slot />
+    <main>
+      <slot />
+    </main>
     <script>
       import '../scripts/app';
     </script>
