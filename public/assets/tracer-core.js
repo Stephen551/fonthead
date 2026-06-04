@@ -580,7 +580,10 @@
     return { data: cell, w, h };
   }
 
-  function traceCellBitmap(cell, turdsize, optcurve, alphamax, opttolerance) {
+  // outScale (default 1) multiplies the emitted path coordinates. Tracing a
+  // supersampled cell at scale S and passing outScale = 1/S brings the extra
+  // detail back into the cell's native coordinate space. Default keeps 1:1.
+  function traceCellBitmap(cell, turdsize, optcurve, alphamax, opttolerance, outScale) {
     const cv = document.createElement('canvas');
     cv.width = cell.w; cv.height = cell.h;
     const cx = cv.getContext('2d');
@@ -595,10 +598,11 @@
       alphamax: alphamax,
       opttolerance: opttolerance,
     });
+    const s = outScale || 1;
     return new Promise(resolve => {
       tracer.loadImageFromUrl(cv.toDataURL('image/png'));
       tracer.process(() => {
-        const svgStr = tracer.getSVG(1);
+        const svgStr = tracer.getSVG(s);
         resolve(svgStr);
       });
     });
