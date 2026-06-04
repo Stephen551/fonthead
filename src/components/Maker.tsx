@@ -677,19 +677,30 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           )}
           {phase === 'done' && result && (
             <div>
+              {/* type into your freshly made font: the concept the rest of the site
+                  is built on, on the screen where you actually make the font */}
               <div
                 style={{
                   fontFamily: previewFam ? `'${previewFam}', var(--sans)` : 'var(--sans)',
-                  fontSize: 46,
+                  fontSize: 60,
                   color: 'var(--ink)',
-                  lineHeight: 1.1,
-                  minHeight: 56,
+                  lineHeight: 1.04,
+                  minHeight: 74,
                   wordBreak: 'break-word',
                 }}
               >
                 {previewText || family}
               </div>
-              <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '8px 0 14px' }}>
+              <input
+                type="text"
+                value={previewText}
+                onChange={(e) => setPreviewText(e.target.value.slice(0, 60))}
+                placeholder="type to preview your font"
+                aria-label="Type to preview your font"
+                className="fh-input"
+                style={{ marginTop: 12, width: '100%', maxWidth: 340 }}
+              />
+              <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '10px 0 14px' }}>
                 {glyphCount} glyphs · {isColor ? `colour ${colrStatus === 'ok' ? 'COLR/CPAL ✓' : colrStatus || 'mono fallback'}` : 'traced'} · built in your browser
               </div>
 
