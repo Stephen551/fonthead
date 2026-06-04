@@ -249,10 +249,45 @@ function wireHero() {
   }, 2600);
 }
 
+// Governs the standalone type-into specimens (the wall feature band and the
+// font page) the way the hero is: no newlines, single-line paste, and a hard
+// length cap so an edit can never grow the layout unboundedly.
+function wireTypeInto() {
+  const els = document.querySelectorAll<HTMLElement>('[data-typeinto], #specimen');
+  els.forEach((el) => {
+    if (el.dataset.tiWired) return;
+    el.dataset.tiWired = '1';
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        el.blur();
+      }
+    });
+    el.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData?.getData('text') || '').replace(/\s+/g, ' ').slice(0, 60);
+      document.execCommand('insertText', false, text);
+    });
+    el.addEventListener('input', () => {
+      const t = el.textContent || '';
+      if (t.length > 60) {
+        el.textContent = t.slice(0, 60);
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        r.collapse(false);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(r);
+      }
+    });
+  });
+}
+
 function init() {
   lazyFonts();
   wireSlider();
   wireHero();
+  wireTypeInto();
 }
 
 // fires on initial load and after every View Transitions navigation
