@@ -38,6 +38,9 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   object.writeHttpMetadata(headers);
   headers.set('etag', object.httpEtag);
   if (!headers.has('content-type')) headers.set('content-type', 'font/woff2');
+  // never let a font body be sniffed as something executable, and never framed
+  headers.set('x-content-type-options', 'nosniff');
+  headers.set('x-frame-options', 'DENY');
   if (isPrivate) {
     headers.set('cache-control', 'private, no-store');
   } else {
