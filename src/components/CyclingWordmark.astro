@@ -26,7 +26,7 @@ const faceClass = (f: HeroFace) =>
     <div
       id="hero-spec"
       class={first ? faceClass(first) : 'spec'}
-      style={`${first ? faceStyle(first) : ''};font-size:148px;line-height:.9;white-space:nowrap;transition:opacity .17s var(--ease);`}
+      style={`${first ? faceStyle(first) : ''};font-size:clamp(56px,15vw,148px);line-height:.9;white-space:nowrap;transition:opacity .17s var(--ease);`}
     >
       fonthead
     </div>

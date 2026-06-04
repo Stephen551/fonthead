@@ -199,6 +199,27 @@ body {
   animation-timing-function: var(--ease);
 }
 
+/* ---- responsive layout ---- */
+/* minmax(0,...) so a track can shrink below its content's min-content width
+   instead of forcing the page wider; min-width:0 lets the columns shrink too. */
+/* font page: content + a fixed sidebar on desktop, stacked on a phone */
+.fh-fontpage-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; align-items: stretch; }
+.fh-fontpage-grid > * { min-width: 0; }
+/* the maker: two columns on desktop, one on a phone */
+.fh-maker-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: stretch; }
+.fh-maker-grid > * { min-width: 0; }
+
+@media (max-width: 920px) {
+  .fh-maker-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 820px) {
+  .fh-fontpage-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .fh-nav { padding: 0 16px; gap: 12px; }
+  .fh-nav-secondary { display: none !important; }
+}
+
 /* reduced motion: no movement, static specimens, no page morph */
 @media (prefers-reduced-motion: reduce) {
   * , *::before, *::after { transition: none !important; animation: none !important; }

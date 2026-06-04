@@ -106,10 +106,10 @@ const specInline = specStyle(f.id, m);
     </section>
 
     <!-- glyph set + metadata -->
-    <div style="display:grid;grid-template-columns:1fr 380px;gap:0;align-items:stretch;">
+    <div class="fh-fontpage-grid">
       <div style="padding:28px 40px;border-right:1px solid var(--line);">
         <div class="fh-eyebrow" style="margin-bottom:18px;">Glyph set · {f.glyph_count ?? '—'} total</div>
-        <div style="display:grid;grid-template-columns:repeat(13,1fr);gap:8px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:8px;">
           {(upper + lower + other).split('').map((c) => (
             <div style="aspect-ratio:1;display:grid;place-items:center;border:1px solid var(--line);border-radius:2px;background:var(--paper);">
               <span class={specClass(m)} style={`${specInline};font-size:30px;line-height:1;`}>{c}</span>

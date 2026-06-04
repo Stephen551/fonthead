@@ -412,7 +412,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     stageIdx > i ? 'done' : stageIdx === i ? 'active' : 'queued';
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, alignItems: 'stretch' }}>
+    <div className="fh-maker-grid">
       {/* left: the sheet / input */}
       <div style={{ padding: '26px 32px 30px', borderRight: '1px solid var(--line)' }}>
         {/* build kind */}
@@ -632,7 +632,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                   {st === 'done' ? '✓' : st === 'active' ? '●' : '·'}
                 </span>
                 <span style={{ width: 74, color: '#fff' }}>{s.label}</span>
-                <span style={{ flex: 1, color: 'rgba(255,255,255,.55)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <span style={{ flex: 1, minWidth: 0, color: 'rgba(255,255,255,.55)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {st === 'active' && log ? log : s.desc}
                 </span>
                 <span style={{ color: st === 'done' ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.3)', width: 30, textAlign: 'right' }}>

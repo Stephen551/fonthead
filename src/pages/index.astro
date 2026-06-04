@@ -77,7 +77,7 @@ const heroFaces: HeroFace[] = heroFonts.map((f) => ({
     </div>
 
     <!-- the wall -->
-    <div style="padding:28px 40px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+    <div style="padding:28px 40px 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:20px;">
       {fonts.map((f) => <FontCard font={f} voted={inter.voted.has(f.id)} favorited={inter.favorited.has(f.id)} />)}
     </div>
 
