@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { rateLimit } from '../src/lib/ratelimit';
 import { isOtf, isTtf, isWoff2 } from '../src/lib/fontsig';
-import { isAdminEmail } from '../src/lib/util';
+import { isAdminEmail, escapeJsonForScript } from '../src/lib/util';
 
 // Minimal in-memory KV double: enough surface for the fixed-window limiter.
 function fakeKv() {
@@ -64,5 +64,29 @@ describe('isAdminEmail', () => {
     expect(isAdminEmail('', 'a@x.com')).toBe(false);
     expect(isAdminEmail(undefined, 'a@x.com')).toBe(false);
     expect(isAdminEmail('a@x.com', null)).toBe(false);
+  });
+});
+
+describe('escapeJsonForScript (hero data-island XSS guard)', () => {
+  it('neutralises a </script> breakout in a user-controlled font name', () => {
+    const faces = [{ name: '</script><img src=x onerror=alert(1)>', family: 'fh-x' }];
+    const out = escapeJsonForScript(JSON.stringify(faces));
+    expect(out).not.toContain('</script');
+    expect(out).not.toContain('<img');
+    expect(out).not.toContain('<');
+    expect(out).not.toContain('>');
+    expect(out).not.toContain('&');
+  });
+
+  it('round-trips through JSON.parse unchanged (the client reads it back)', () => {
+    const faces = [{ name: 'A & B </script> <weird>', designer: 'x>y' }];
+    expect(JSON.parse(escapeJsonForScript(JSON.stringify(faces)))).toEqual(faces);
+  });
+
+  it('leaves ordinary names untouched', () => {
+    const faces = [{ name: 'AC Flames', designer: 'a-c-meridian' }];
+    const out = escapeJsonForScript(JSON.stringify(faces));
+    expect(JSON.parse(out)).toEqual(faces);
+    expect(out).not.toContain('\\u');
   });
 });

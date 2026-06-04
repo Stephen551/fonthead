@@ -103,8 +103,19 @@ export const server = {
   publishFont: defineAction({
     accept: 'form',
     input: z.object({
-      name: z.string().min(1, 'Name your font').max(60),
-      specimenWord: z.string().max(40).optional(),
+      // Reject HTML markup characters in user-facing strings: defence in depth
+      // behind the data-island escaping, so a font name can never carry a script
+      // breakout no matter where it is later rendered.
+      name: z
+        .string()
+        .min(1, 'Name your font')
+        .max(60)
+        .refine((s) => !/[<>&]/.test(s), 'Name cannot contain < > or &'),
+      specimenWord: z
+        .string()
+        .max(40)
+        .refine((s) => !/[<>&]/.test(s), 'Specimen cannot contain < > or &')
+        .optional(),
       visibility: z.enum(['public', 'private']),
       glyphCount: z.coerce.number().int().min(0).max(10000),
       // 'normal' = monochrome (otf+ttf+woff2); 'gradient'/'flat' = COLR/CPAL colour (otf+woff2, no ttf)

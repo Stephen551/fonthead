@@ -1,5 +1,14 @@
 // Shared server helpers: slugs, font ids, and handle assignment.
 
+/** Escape a JSON string for safe embedding inside an HTML <script> element.
+ *  JSON.stringify does not escape < > or &, so a value containing </script>
+ *  would break out of the element. Escaping them to their \uXXXX form keeps the
+ *  text valid JSON (JSON.parse restores the characters) while making a markup
+ *  breakout impossible. Use on the output of JSON.stringify, never on raw HTML. */
+export function escapeJsonForScript(json: string): string {
+  return json.replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+}
+
 /** Is this email in the comma-separated admin allowlist? Case-insensitive,
  *  whitespace-tolerant. Empty list or empty email means not an admin. */
 export function isAdminEmail(adminList: string | undefined | null, email: string | undefined | null): boolean {

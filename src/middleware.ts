@@ -34,6 +34,11 @@ export const onRequest = defineMiddleware(async (_ctx, next) => {
     res.headers.set('x-content-type-options', 'nosniff');
     res.headers.set('x-frame-options', 'DENY');
     res.headers.set('referrer-policy', 'strict-origin-when-cross-origin');
+    // Force HTTPS for a year on revisits (the *.workers.dev host can't be
+    // preloaded, but the header is correct posture and carries to a custom domain).
+    res.headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');
+    // The app uses none of these powerful features; lock them off.
+    res.headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
   } catch {
     /* immutable response (e.g. a static asset) — nothing to decorate */
   }

@@ -1,11 +1,19 @@
 ---
 import type { HeroFace } from '../lib/fonts';
+import { escapeJsonForScript } from '../lib/util';
 
 interface Props {
   faces: HeroFace[];
 }
 const { faces } = Astro.props;
 const first = faces[0];
+
+// Font names and designer handles are user-controlled. set:html does not
+// HTML-escape, and JSON.stringify does not escape < > or &, so a font named
+// </script>... could break out of this data island and (under the inline-script
+// CSP) execute. escapeJsonForScript neutralises the markup-significant chars;
+// JSON.parse on the client restores them exactly, so the data round-trips.
+const facesJson = escapeJsonForScript(JSON.stringify(faces));
 
 function faceStyle(f: HeroFace): string {
   const parts = [`font-family:'${f.family}',var(--sans)`];
@@ -42,4 +50,4 @@ const faceClass = (f: HeroFace) =>
     </span>
   </div>
 </div>
-<script type="application/json" id="hero-faces" set:html={JSON.stringify(faces)}></script>
+<script type="application/json" id="hero-faces" set:html={facesJson}></script>
