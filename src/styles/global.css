@@ -34,8 +34,10 @@
   --line-3:   #c9c4b8;
 
   /* the one accent — used ONLY on active favorite, active upvote,
-     the build pulse, and the type-into cursor. Nowhere decorative. */
-  --signal:      #e0392a;
+     the build pulse, and the type-into cursor. Nowhere decorative.
+     Darkened from #e0392a to meet WCAG AA (4.5:1) as small text on paper,
+     e.g. the wordmark dot. Same red, tuned a touch deeper. */
+  --signal:      #d4342a;
   --signal-soft: #fae9e6;
 
   /* type */

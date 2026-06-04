@@ -15,7 +15,7 @@ const size = Math.min(m.size, 92);
 ---
 
 <div class="fh-card" style="display:flex;flex-direction:column;">
-  <a href={`/f/${f.id}`} aria-label={`Open ${f.name}`} style="text-decoration:none;color:inherit;display:block;">
+  <a href={`/f/${f.id}`} aria-label={`${f.specimen_word}, open ${f.name}`} style="text-decoration:none;color:inherit;display:block;">
     <div style="position:relative;height:200px;padding:0 26px;display:flex;align-items:center;justify-content:center;overflow:hidden;border-bottom:1px solid var(--line);background:var(--paper);">
       {(m.badge || f.visibility === 'private') && (
         <div style="position:absolute;top:14px;right:14px;display:flex;gap:6px;">
@@ -48,9 +48,10 @@ const size = Math.min(m.size, 92);
     <div class="fh-mono" style="font-size:10.5px;color:var(--ink-faint);letter-spacing:.02em;">
       {f.glyph_count ?? '—'} glyphs · woff2 {kb(f.woff2_size)}
     </div>
-    <button class={`fh-vote${voted ? ' on' : ''}`} data-vote data-font-id={f.id} aria-pressed={voted} aria-label={`Upvote ${f.name}`}>
+    <button class={`fh-vote${voted ? ' on' : ''}`} data-vote data-font-id={f.id} aria-pressed={voted}>
       <span class="caret" aria-hidden="true"><svg viewBox="0 0 9 9"><path d="M1.5 5.5L4.5 2.5L7.5 5.5"/></svg></span>
       <span class="fh-count" data-count>{f.votes_count.toLocaleString()}</span>
+      <span class="sr-only"> upvotes for {f.name}</span>
     </button>
   </div>
 </div>
