@@ -12,7 +12,11 @@
     "cf-typegen": "wrangler types",
     "db:apply:local": "wrangler d1 migrations apply DB --local",
     "db:apply:remote": "wrangler d1 migrations apply DB --remote",
-    "seed:fonts": "node scripts/seed-fonts.mjs"
+    "seed:fonts": "node scripts/seed-fonts.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "test:e2e": "playwright test"
   },
   "overrides": {
     "kysely": "0.28.17"
@@ -26,12 +30,16 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.3.0",
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
+    "@vitest/coverage-v8": "^4.1.8",
     "fontkit": "^2.0.4",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.7.3",
+    "vitest": "^4.1.8",
     "wrangler": "^4.97.0"
   }
 }
