@@ -34,6 +34,8 @@ jobs:
       - run: npm ci
       - name: install browser
         run: npx playwright install --with-deps chromium
+      - name: apply local D1 migrations (the dev server the e2e suite boots reads this D1; without the schema every page 500s and Playwright never sees the server become ready)
+        run: npm run db:apply:local
       - name: e2e smoke
         run: npm run test:e2e
       - uses: actions/setup-python@v5
