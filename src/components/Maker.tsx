@@ -68,7 +68,7 @@ function RangeRow({ label, min, max, value, onChange }: { label: string; min: nu
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', width: 96 }}>{label}</span>
-      <input type="range" className="fh-range" min={min} max={max} value={value} onChange={(e) => onChange(+e.target.value)} style={{ flex: 1 }} />
+      <input type="range" aria-label={label} className="fh-range" min={min} max={max} value={value} onChange={(e) => onChange(+e.target.value)} style={{ flex: 1 }} />
       <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-soft)', width: 20, textAlign: 'right' }}>{value}</span>
     </div>
   );
@@ -76,7 +76,7 @@ function RangeRow({ label, min, max, value, onChange }: { label: string; min: nu
 
 function ToggleRow({ label, on, onChange }: { label: string; on: boolean; onChange: (v: boolean) => void }) {
   return (
-    <button onClick={() => onChange(!on)} className="fh-mono" style={{ fontSize: 11.5, padding: '6px 12px', borderRadius: 2, cursor: 'pointer', border: `1px solid ${on ? 'var(--ink)' : 'var(--line-2)'}`, background: on ? 'var(--ink)' : 'var(--paper)', color: on ? 'var(--paper)' : 'var(--ink-soft)' }}>
+    <button type="button" aria-pressed={on} onClick={() => onChange(!on)} className="fh-mono" style={{ fontSize: 11.5, padding: '6px 12px', borderRadius: 2, cursor: 'pointer', border: `1px solid ${on ? 'var(--ink)' : 'var(--line-2)'}`, background: on ? 'var(--ink)' : 'var(--paper)', color: on ? 'var(--paper)' : 'var(--ink-soft)' }}>
       {label}
       {on ? ' ✓' : ''}
     </button>
@@ -421,6 +421,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           {KINDS.map((k) => (
             <button
               key={k.id}
+              type="button"
+              aria-pressed={kind === k.id}
               onClick={() => setKind(k.id)}
               className="fh-mono"
               disabled={phase === 'working'}
@@ -471,7 +473,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           <div className="fh-mono" style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
             drop an alphabet sheet
           </div>
-          <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 6 }}>
+          <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 6 }}>
             png or jpg · rows of A–Z, a–z, 0–9
           </div>
           <label
@@ -537,6 +539,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             style={{ width: '100%', resize: 'vertical', minHeight: 92, fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.6, whiteSpace: 'pre', overflowWrap: 'normal' }}
             value={charsetText}
             spellCheck={false}
+            aria-label="Charset, one row of characters per line"
             onChange={(e) => setCharsetText(e.target.value)}
           />
           <div className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 6, lineHeight: 1.5 }}>
@@ -545,10 +548,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         </div>
 
         <div style={{ marginTop: 22 }}>
-          <label className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', letterSpacing: '.06em', display: 'block', marginBottom: 7 }}>
+          <label htmlFor="font-name" className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', letterSpacing: '.06em', display: 'block', marginBottom: 7 }}>
             NAME
           </label>
           <input
+            id="font-name"
             className="fh-input"
             style={{ width: '100%' }}
             value={family}
@@ -574,7 +578,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                   <label className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', letterSpacing: '.06em', display: 'block', marginBottom: 7 }}>TRACE PRESET</label>
                   <div style={{ display: 'flex', gap: 6 }}>
                     {(['glyph', 'logo', 'sketch'] as const).map((p) => (
-                      <button key={p} onClick={() => setPreset(p)} className="fh-mono" style={{ fontSize: 11.5, padding: '6px 12px', borderRadius: 2, cursor: 'pointer', border: `1px solid ${preset === p ? 'var(--ink)' : 'var(--line-2)'}`, background: preset === p ? 'var(--ink)' : 'var(--paper)', color: preset === p ? 'var(--paper)' : 'var(--ink-soft)' }}>{p}</button>
+                      <button key={p} type="button" aria-pressed={preset === p} onClick={() => setPreset(p)} className="fh-mono" style={{ fontSize: 11.5, padding: '6px 12px', borderRadius: 2, cursor: 'pointer', border: `1px solid ${preset === p ? 'var(--ink)' : 'var(--line-2)'}`, background: preset === p ? 'var(--ink)' : 'var(--paper)', color: preset === p ? 'var(--paper)' : 'var(--ink-soft)' }}>{p}</button>
                     ))}
                   </div>
                   <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>glyph for clean letters, logo for bolder art, sketch for rough or hand-drawn.</p>
@@ -616,9 +620,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         </div>
 
         {/* dark terminal readout */}
-        <div style={{ background: 'var(--ink)', borderRadius: 3, padding: '16px 18px', fontFamily: 'var(--mono)' }}>
+        <div role="status" aria-live="polite" aria-label="Build progress" style={{ background: 'var(--ink)', borderRadius: 3, padding: '16px 18px', fontFamily: 'var(--mono)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <span style={{ fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,.4)' }}>
+            <span style={{ fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,.62)' }}>
               build · fonthead maker
             </span>
             <span style={{ fontSize: 11, color: phase === 'done' ? '#6fcf97' : phase === 'error' ? 'var(--signal)' : 'rgba(255,255,255,.55)' }}>
@@ -628,15 +632,15 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           {stages.map((s, i) => {
             const st = stageStateOf(i);
             return (
-              <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', fontSize: 12.5, opacity: st === 'queued' ? 0.38 : 1, transition: 'opacity .3s var(--ease)' }}>
-                <span style={{ width: 13, color: st === 'done' ? '#6fcf97' : st === 'active' ? 'var(--signal)' : 'rgba(255,255,255,.5)' }}>
+              <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', fontSize: 12.5, opacity: st === 'queued' ? 0.55 : 1, transition: 'opacity .3s var(--ease)' }}>
+                <span style={{ width: 13, color: st === 'done' ? '#6fcf97' : st === 'active' ? 'var(--signal)' : 'rgba(255,255,255,.62)' }}>
                   {st === 'done' ? '✓' : st === 'active' ? '●' : '·'}
                 </span>
                 <span style={{ width: 74, color: '#fff' }}>{s.label}</span>
-                <span style={{ flex: 1, minWidth: 0, color: 'rgba(255,255,255,.55)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <span style={{ flex: 1, minWidth: 0, color: 'rgba(255,255,255,.66)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {st === 'active' && log ? log : s.desc}
                 </span>
-                <span style={{ color: st === 'done' ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.3)', width: 30, textAlign: 'right' }}>
+                <span style={{ color: 'rgba(255,255,255,.62)', width: 30, textAlign: 'right' }}>
                   {st === 'done' ? '✓' : st === 'active' ? '···' : '—'}
                 </span>
               </div>
@@ -673,7 +677,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         {/* result / preview */}
         <div style={{ marginTop: 16, minHeight: 92 }}>
           {phase === 'error' && (
-            <p className="fh-mono" style={{ fontSize: 12, color: 'var(--signal)', lineHeight: 1.5 }}>{error}</p>
+            <p role="alert" className="fh-mono" style={{ fontSize: 12, color: 'var(--signal)', lineHeight: 1.5 }}>{error}</p>
           )}
           {phase === 'done' && result && (
             <div>
@@ -722,6 +726,19 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                           key={i}
                           title={isColor ? `${tip} · click to fix` : tip}
                           onClick={isColor ? () => openEditor(i) : undefined}
+                          role={isColor ? 'button' : undefined}
+                          tabIndex={isColor ? 0 : undefined}
+                          aria-label={isColor ? `Edit glyph ${g.char}${flagged ? ', flagged' : dropped ? `, ${g.status}` : ''}` : undefined}
+                          onKeyDown={
+                            isColor
+                              ? (e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    openEditor(i);
+                                  }
+                                }
+                              : undefined
+                          }
                           style={{ border: `1px solid ${editIdx === i ? 'var(--ink)' : border}`, borderRadius: 2, background: 'var(--paper)', aspectRatio: '1', display: 'grid', placeItems: 'center', position: 'relative', opacity: dropped ? 0.45 : 1, cursor: isColor ? 'pointer' : 'default' }}
                         >
                           <span style={{ fontFamily: previewFam ? `'${previewFam}', var(--sans)` : 'var(--sans)', fontSize: 24, lineHeight: 1 }}>{g.char}</span>
@@ -749,12 +766,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                             re-trace to clear specks, re-slice to fix the cut, or exclude it
                           </div>
                         </div>
-                        <button className="fh-mono" onClick={() => { setEditIdx(null); setEditErr(''); }} style={{ background: 'none', border: '1px solid var(--line-2)', borderRadius: 2, padding: '4px 9px', fontSize: 14, cursor: 'pointer', color: 'var(--ink-soft)' }}>×</button>
+                        <button type="button" aria-label="Close glyph editor" className="fh-mono" onClick={() => { setEditIdx(null); setEditErr(''); }} style={{ background: 'none', border: '1px solid var(--line-2)', borderRadius: 2, padding: '4px 9px', fontSize: 14, cursor: 'pointer', color: 'var(--ink-soft)' }}><span aria-hidden="true">×</span></button>
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 9 }}>
                         <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', width: 48 }}>speckle</span>
-                        <input type="range" className="fh-range" min={0} max={15} value={editTurd} onChange={(e) => setEditTurd(+e.target.value)} style={{ flex: 1 }} />
+                        <input type="range" aria-label="Speckle" className="fh-range" min={0} max={15} value={editTurd} onChange={(e) => setEditTurd(+e.target.value)} style={{ flex: 1 }} />
                         <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-soft)', width: 18 }}>{editTurd}</span>
                         <button className="fh-btn fh-btn--ghost" disabled={editBusy} onClick={() => applyEdit('retrace')}>re-trace</button>
                       </div>
@@ -762,9 +779,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 11 }}>
                         <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', width: 48 }}>edges</span>
                         <span className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>L</span>
-                        <input type="range" className="fh-range" min={-40} max={40} value={editLeft} onChange={(e) => setEditLeft(+e.target.value)} style={{ flex: 1 }} />
+                        <input type="range" aria-label="Left edge" className="fh-range" min={-40} max={40} value={editLeft} onChange={(e) => setEditLeft(+e.target.value)} style={{ flex: 1 }} />
                         <span className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>R</span>
-                        <input type="range" className="fh-range" min={-40} max={40} value={editRight} onChange={(e) => setEditRight(+e.target.value)} style={{ flex: 1 }} />
+                        <input type="range" aria-label="Right edge" className="fh-range" min={-40} max={40} value={editRight} onChange={(e) => setEditRight(+e.target.value)} style={{ flex: 1 }} />
                         <button className="fh-btn fh-btn--ghost" disabled={editBusy} onClick={() => applyEdit('reslice')}>re-slice</button>
                       </div>
 
@@ -776,7 +793,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                       </div>
 
                       {editErr && (
-                        <p className="fh-mono" style={{ fontSize: 11, color: 'var(--signal)', margin: '10px 0 0', lineHeight: 1.5 }}>{editErr}</p>
+                        <p role="alert" className="fh-mono" style={{ fontSize: 11, color: 'var(--signal)', margin: '10px 0 0', lineHeight: 1.5 }}>{editErr}</p>
                       )}
                     </div>
                   )}
@@ -802,6 +819,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                               <select
                                 value={sel}
                                 disabled={busy}
+                                aria-label={`Slicer for row ${r.index + 1}`}
                                 onChange={(e) => setRowSlicerSel((m) => ({ ...m, [r.index]: e.target.value as SlicerKind }))}
                                 className="fh-mono"
                                 style={{ fontSize: 10.5, padding: '4px 6px', border: '1px solid var(--line-2)', borderRadius: 2, background: 'var(--paper)', color: 'var(--ink-soft)', cursor: 'pointer' }}
@@ -820,7 +838,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                         })}
                       </div>
                       {rowErr && (
-                        <p className="fh-mono" style={{ fontSize: 11, color: 'var(--signal)', margin: '9px 0 0', lineHeight: 1.5 }}>{rowErr}</p>
+                        <p role="alert" className="fh-mono" style={{ fontSize: 11, color: 'var(--signal)', margin: '9px 0 0', lineHeight: 1.5 }}>{rowErr}</p>
                       )}
                       <div className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 8, lineHeight: 1.5 }}>
                         whitespace cuts on the gaps, anchored forces the exact count, components splits touching letters. A forced row means the gap cut missed the count.
@@ -872,11 +890,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                         value={specimenWord}
                         onChange={(e) => setSpecimenWord(e.target.value)}
                         placeholder="card word (optional)"
+                        aria-label="Card word (optional)"
                       />
-                      <div style={{ display: 'flex', border: '1px solid var(--line-2)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div role="group" aria-label="Visibility" style={{ display: 'flex', border: '1px solid var(--line-2)', borderRadius: 2, overflow: 'hidden' }}>
                         {(['public', 'private'] as const).map((v) => (
                           <button
                             key={v}
+                            type="button"
+                            aria-pressed={visibility === v}
                             onClick={() => setVisibility(v)}
                             className="fh-mono"
                             style={{ fontSize: 12, padding: '9px 16px', border: 'none', cursor: 'pointer', background: visibility === v ? 'var(--ink)' : 'var(--paper)', color: visibility === v ? 'var(--paper)' : 'var(--ink-soft)', transition: 'all var(--dur) var(--ease)' }}
@@ -890,7 +911,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                       </button>
                     </div>
                     {publishErr && (
-                      <p className="fh-mono" style={{ fontSize: 11.5, color: 'var(--signal)', marginTop: 10 }}>{publishErr}</p>
+                      <p role="alert" className="fh-mono" style={{ fontSize: 11.5, color: 'var(--signal)', marginTop: 10 }}>{publishErr}</p>
                     )}
                   </div>
                 )}

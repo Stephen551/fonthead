@@ -36,6 +36,7 @@ const faceClass = (f: HeroFace) =>
       contenteditable="true"
       spellcheck="false"
       role="textbox"
+      aria-multiline="false"
       aria-label="Type a word to preview it in every font on the wall"
       class={first ? faceClass(first) : 'spec'}
       style={`${first ? faceStyle(first) : ''};font-size:clamp(44px,13vw,148px);line-height:.9;white-space:nowrap;max-width:100%;caret-color:var(--signal);transition:opacity .17s var(--ease);`}

@@ -5,6 +5,17 @@ import { actions } from 'astro:actions';
 
 const signedIn = () => document.body.dataset.signedIn === 'true';
 
+// Announce a transient result to assistive tech via the global polite live
+// region, so an optimistic toggle that rolls back is never silent.
+function announce(msg: string) {
+  const el = document.getElementById('fh-status');
+  if (!el) return;
+  el.textContent = '';
+  window.setTimeout(() => {
+    el.textContent = msg;
+  }, 40);
+}
+
 // The vote count rolls on change: a short slide+fade (the .fh-count transition
 // in CSS was declared but never triggered). Precise, no bounce.
 function rollCount(el: HTMLElement, text: string) {
@@ -35,6 +46,7 @@ async function onFav(btn: HTMLElement) {
     if (error || !data) {
       btn.classList.toggle('on', was);
       btn.setAttribute('aria-pressed', String(was));
+      announce('Could not update favourite, try again.');
       return;
     }
     btn.classList.toggle('on', data.favorited);
@@ -64,6 +76,7 @@ async function onVote(btn: HTMLElement) {
       btn.classList.toggle('on', was);
       btn.setAttribute('aria-pressed', String(was));
       if (countEl) countEl.textContent = cur.toLocaleString();
+      announce('Could not update the vote, try again.');
       return;
     }
     btn.classList.toggle('on', data.voted);
@@ -87,9 +100,11 @@ async function onReport(btn: HTMLElement) {
   if (error || !data) {
     btn.removeAttribute('disabled');
     btn.textContent = 'report failed, try again';
+    announce('Report failed, try again.');
     return;
   }
   btn.textContent = 'reported, thank you';
+  announce('Reported, thank you.');
 }
 
 function wireSocialOnce() {

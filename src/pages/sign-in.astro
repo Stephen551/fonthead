@@ -20,20 +20,20 @@ if (session) return Astro.redirect('/account');
       </p>
 
       <form id="authform" style="display:flex;flex-direction:column;gap:12px;">
-        <label class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;">NAME (for a new account)</label>
+        <label for="name" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;">NAME (for a new account)</label>
         <input id="name" name="name" type="text" class="fh-input" autocomplete="name" placeholder="your name" />
 
-        <label class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">EMAIL</label>
+        <label for="email" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">EMAIL</label>
         <input id="email" name="email" type="email" class="fh-input" autocomplete="email" required placeholder="you@example.com" />
 
-        <label class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">PASSWORD</label>
+        <label for="password" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">PASSWORD</label>
         <input id="password" name="password" type="password" class="fh-input" autocomplete="current-password" required minlength="8" placeholder="at least 8 characters" />
 
         <div style="display:flex;gap:10px;margin-top:18px;">
           <button type="button" id="signin" class="fh-btn" style="flex:1;justify-content:center;">sign in</button>
           <button type="button" id="signup" class="fh-btn fh-btn--ghost" style="flex:1;justify-content:center;">create account</button>
         </div>
-        <p id="msg" class="fh-mono" style="font-size:11.5px;color:var(--signal);min-height:16px;margin:8px 0 0;"></p>
+        <p id="msg" role="status" aria-live="polite" class="fh-mono" style="font-size:11.5px;color:var(--signal);min-height:16px;margin:8px 0 0;"></p>
       </form>
     </div>
   </div>

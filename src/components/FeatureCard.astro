@@ -30,6 +30,7 @@ const m = f.meta;
       contenteditable="true"
       spellcheck="false"
       role="textbox"
+      aria-multiline="false"
       aria-label={`Type to preview ${f.name}`}
       style={`font-family:'${familyOf(f.id)}',var(--sans);${specTreat(m)};font-size:min(168px,30cqw);line-height:.92;max-width:100%;white-space:normal;overflow-wrap:anywhere;caret-color:var(--signal);`}
     >
