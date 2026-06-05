@@ -695,8 +695,8 @@ export function downloadFont(bytes: Uint8Array, family: string, fmt: string) {
 
 /** Render a clean three-row sample alphabet sheet so the maker can be tried
  *  without an upload. Renders in a heavy face for crisp tracing. */
-export function makeSampleSheet(font = '700 130px Anton, system-ui, sans-serif'): HTMLCanvasElement {
-  const W = 1600;
+export function makeSampleSheet(family = 'Anton, system-ui, sans-serif'): HTMLCanvasElement {
+  const W = 2000;
   const rowH = 240;
   const H = rowH * ROW_CHARS.length + 80;
   const c = document.createElement('canvas');
@@ -706,17 +706,26 @@ export function makeSampleSheet(font = '700 130px Anton, system-ui, sans-serif')
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#000000';
-  ctx.font = font;
   ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'center';
   ROW_CHARS.forEach((row, r) => {
     const y = 60 + r * rowH + rowH * 0.62;
     const n = row.length;
     const cellW = W / n;
+    // Size the row so even its widest glyph leaves a clear gap inside its cell:
+    // a condensed face (Anton) at full size touches its neighbours, and the
+    // whitespace slicer needs an empty column between every pair to read them
+    // as separate cells. Measure the widest letter and scale to fit.
+    let size = 130;
+    ctx.font = `700 ${size}px ${family}`;
+    const widest = Math.max(...[...row].map((ch) => ctx.measureText(ch).width)) || 1;
+    const maxGlyphW = cellW * 0.7;
+    if (widest > maxGlyphW) {
+      size = Math.max(48, Math.floor((size * maxGlyphW) / widest));
+      ctx.font = `700 ${size}px ${family}`;
+    }
     for (let i = 0; i < n; i++) {
-      const ch = row[i];
-      const cx = i * cellW + cellW / 2;
-      ctx.textAlign = 'center';
-      ctx.fillText(ch, cx, y);
+      ctx.fillText(row[i], i * cellW + cellW / 2, y);
     }
   });
   return c;
@@ -843,8 +852,8 @@ export async function editColorGlyph(action: EditAction, idx: number, params: Ed
 /** A colour sample sheet: the alphabet filled with a vertical flame gradient
  *  per row, so both gradient (smooth COLRv1) and flat (posterised COLRv0) modes
  *  have real colour to separate. */
-export function makeColorSampleSheet(font = '700 130px Anton, system-ui, sans-serif'): HTMLCanvasElement {
-  const W = 1600;
+export function makeColorSampleSheet(family = 'Anton, system-ui, sans-serif'): HTMLCanvasElement {
+  const W = 2000;
   const rowH = 240;
   const H = rowH * ROW_CHARS.length + 80;
   const c = document.createElement('canvas');
@@ -853,12 +862,23 @@ export function makeColorSampleSheet(font = '700 130px Anton, system-ui, sans-se
   const ctx = c.getContext('2d')!;
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, W, H);
-  ctx.font = font;
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'center';
   ROW_CHARS.forEach((row, r) => {
     const top = 60 + r * rowH;
     const baseY = top + rowH * 0.62;
+    const n = row.length;
+    const cellW = W / n;
+    // size the row so its widest glyph leaves a clear gap inside its cell (see
+    // makeSampleSheet) so the slicer reads every letter as its own cell
+    let size = 130;
+    ctx.font = `700 ${size}px ${family}`;
+    const widest = Math.max(...[...row].map((ch) => ctx.measureText(ch).width)) || 1;
+    const maxGlyphW = cellW * 0.7;
+    if (widest > maxGlyphW) {
+      size = Math.max(48, Math.floor((size * maxGlyphW) / widest));
+      ctx.font = `700 ${size}px ${family}`;
+    }
     // flame: deep red at the foot, gold at the top of the row band
     const grad = ctx.createLinearGradient(0, baseY, 0, top + rowH * 0.05);
     grad.addColorStop(0, '#c41608');
@@ -866,8 +886,6 @@ export function makeColorSampleSheet(font = '700 130px Anton, system-ui, sans-se
     grad.addColorStop(0.8, '#f7a01e');
     grad.addColorStop(1, '#ffde5a');
     ctx.fillStyle = grad;
-    const n = row.length;
-    const cellW = W / n;
     for (let i = 0; i < n; i++) ctx.fillText(row[i], i * cellW + cellW / 2, baseY);
   });
   return c;
