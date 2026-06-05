@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -42,3 +43,25 @@ jobs:
         run: |
           pip install --quiet fonttools
           python -c "from fontTools.ttLib import TTFont; TTFont('e2e/built-sample.otf', checkChecksums=2); print('fontTools strict checksums: OK')"
+
+  deploy:
+    needs: build-and-test
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: deploy to cloudflare workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN secret is not set, skipping deploy. Add it under Settings, Secrets and variables, Actions to enable auto-deploy."
+            exit 0
+          fi
+          npm run deploy
