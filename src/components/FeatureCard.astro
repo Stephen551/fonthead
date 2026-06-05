@@ -43,7 +43,7 @@ const m = f.meta;
       <a href={`/f/${f.id}`} class="fh-feature-name">{f.name}</a>
       <a href={`/u/${f.maker_handle}`} class="fh-mono fh-feature-maker">by {f.maker_handle}</a>
     </div>
-    <div class="fh-mono fh-feature-stat">{f.glyph_count ?? '—'} glyphs · woff2 {kb(f.woff2_size)}</div>
+    <div class="fh-mono fh-feature-stat">{f.glyph_count ?? '–'} glyphs · woff2 {kb(f.woff2_size)}</div>
     <div class="fh-mono fh-feature-stat" style="color:var(--ink-faint);">click the specimen to type</div>
     <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
       <button class={`fh-fav${favorited ? ' on' : ''}`} data-fav data-font-id={f.id} aria-pressed={favorited} aria-label={`Favorite ${f.name}`}>

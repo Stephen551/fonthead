@@ -641,7 +641,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                   {st === 'active' && log ? log : s.desc}
                 </span>
                 <span style={{ color: 'rgba(255,255,255,.62)', width: 30, textAlign: 'right' }}>
-                  {st === 'done' ? '✓' : st === 'active' ? '···' : '—'}
+                  {st === 'done' ? '✓' : st === 'active' ? '···' : '–'}
                 </span>
               </div>
             );
@@ -652,7 +652,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         </div>
 
         {/* warning: the font built, but something looks off (row mismatch, lost counters).
-            Only while showing a built result — never alongside an error from a later attempt. */}
+            Only while showing a built result – never alongside an error from a later attempt. */}
         {warning && phase === 'done' && (
           <div
             className="fh-mono"

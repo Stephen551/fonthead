@@ -131,7 +131,7 @@ const fontSchema = {
     <!-- glyph set + metadata -->
     <div class="fh-fontpage-grid">
       <div style="padding:28px 40px;border-right:1px solid var(--line);">
-        <div class="fh-eyebrow" style="margin-bottom:18px;">Glyph set · {f.glyph_count ?? '—'} total</div>
+        <div class="fh-eyebrow" style="margin-bottom:18px;">Glyph set · {f.glyph_count ?? '–'} total</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:8px;">
           {(upper + lower + other).split('').map((c) => (
             <div style="aspect-ratio:1;display:grid;place-items:center;border:1px solid var(--line);border-radius:2px;background:var(--paper);">
@@ -157,7 +157,7 @@ const fontSchema = {
             ) : (
               <div class="fh-dl" aria-disabled="true" title={m.standIn ? 'stand-in face: install the woff2, or make your own' : `${file.label} not available for this font`}>
                 <span class="fh-mono fmt">{file.label}</span>
-                <span class="fh-mono sz">{m.standIn ? 'from the maker' : m.badge === 'color' ? 'n/a for colour' : '—'}</span>
+                <span class="fh-mono sz">{m.standIn ? 'from the maker' : m.badge === 'color' ? 'n/a for colour' : '–'}</span>
               </div>
             ),
           )}
@@ -166,7 +166,7 @@ const fontSchema = {
         <div class="fh-eyebrow" style="margin-bottom:4px;">Details</div>
         <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
           <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">glyphs</span>
-          <span class="fh-mono" style="font-size:12.5px;color:var(--ink);">{f.glyph_count ?? '—'}</span>
+          <span class="fh-mono" style="font-size:12.5px;color:var(--ink);">{f.glyph_count ?? '–'}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
           <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">format</span>

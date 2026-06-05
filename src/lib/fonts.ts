@@ -1,4 +1,4 @@
-// fonthead.dev — font data access + specimen helpers.
+// fonthead.dev – font data access + specimen helpers.
 // Fonts live in D1; their binaries live in R2 and are served by /cdn/[...key].
 
 export interface FontMeta {
@@ -250,4 +250,4 @@ export function specStyle(id: string, meta: FontMeta, fallback = 'var(--sans)'):
 }
 
 /** Human file size, e.g. "31 KB". */
-export const kb = (bytes: number | null) => (bytes == null ? '—' : `${Math.round(bytes / 1024)} KB`);
+export const kb = (bytes: number | null) => (bytes == null ? '–' : `${Math.round(bytes / 1024)} KB`);
