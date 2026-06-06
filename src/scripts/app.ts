@@ -298,22 +298,22 @@ function wireTypeInto() {
   });
 }
 
-// Support nudge: shown once per browser after a font is made (the maker fires a
+// Support nudge: shown once per session after a font is made (the maker fires a
 // 'fh:coffee' event) or downloaded (a click on a font page's .fh-dl link). The
 // card only exists when COFFEE_URL is set in Base.astro, so this is inert until
-// then. Dismiss or click-through marks it seen so it never returns.
+// then. sessionStorage so it returns on a fresh visit, but not twice in a session.
 function wireCoffeeOnce() {
   const SEEN = 'fh-coffee-seen';
   const seen = () => {
     try {
-      return !!localStorage.getItem(SEEN);
+      return !!sessionStorage.getItem(SEEN);
     } catch {
       return false;
     }
   };
   const mark = () => {
     try {
-      localStorage.setItem(SEEN, '1');
+      sessionStorage.setItem(SEEN, '1');
     } catch {
       /* private mode: skip persistence */
     }
