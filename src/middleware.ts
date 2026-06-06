@@ -41,7 +41,22 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-export const onRequest = defineMiddleware(async (_ctx, next) => {
+export const onRequest = defineMiddleware(async (ctx, next) => {
+  // Force HTTPS in production. Cloudflare passes plain HTTP through to the worker
+  // unless "Always Use HTTPS" is enabled at the edge, so upgrade it here too: HSTS
+  // only sticks after a first secure visit, this catches the first plain-http
+  // request. Skipped on localhost so astro dev and wrangler dev --local stay http.
+  const host = ctx.url.hostname;
+  if (host !== 'localhost' && host !== '127.0.0.1') {
+    const cfVisitor = ctx.request.headers.get('cf-visitor');
+    const isHttp = cfVisitor ? cfVisitor.includes('"scheme":"http"') : ctx.url.protocol === 'http:';
+    if (isHttp) {
+      const httpsUrl = new URL(ctx.url);
+      httpsUrl.protocol = 'https:';
+      return ctx.redirect(httpsUrl.toString(), 301);
+    }
+  }
+
   const res = await next();
   try {
     res.headers.set('content-security-policy', CSP);
