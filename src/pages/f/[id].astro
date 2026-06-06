@@ -84,7 +84,7 @@ const fontSchema = {
 
   <div style="background:var(--paper);min-height:100vh;">
     <!-- back + title row -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 40px;border-bottom:1px solid var(--line);">
+    <div class="fh-pad" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:18px 0;border-bottom:1px solid var(--line);">
       <a href="/" class="fh-mono" style="font-size:12.5px;color:var(--ink-soft);text-decoration:none;display:inline-flex;gap:8px;align-items:center;">
         <span>&larr;</span> library / {slug}
       </a>
@@ -96,8 +96,8 @@ const fontSchema = {
     </div>
 
     <!-- type-into specimen -->
-    <section style="padding:34px 40px 24px;border-bottom:1px solid var(--line);">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px;">
+    <section class="fh-pad" style="padding:34px 0 24px;border-bottom:1px solid var(--line);">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:18px;">
         <div>
           <h1 style="font-size:26px;font-weight:600;margin:0;letter-spacing:-.02em;">{f.name}</h1>
           <div class="fh-mono" style="font-size:12px;color:var(--ink-soft);margin-top:6px;">
@@ -106,10 +106,10 @@ const fontSchema = {
           </div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;">
-          <button class={`fh-fav${favorited ? ' on' : ''}`} data-fav data-font-id={f.id} aria-pressed={favorited} aria-label="favorite" style="width:38px;height:38px;">
+          <button class={`fh-fav${favorited ? ' on' : ''}`} data-fav data-font-id={f.id} aria-pressed={favorited} aria-label={`Favorite ${f.name}`} style="width:38px;height:38px;">
             <svg viewBox="0 0 24 24" style="width:17px;height:17px;"><path d="M12 20s-7-4.4-9.2-8.3C1.3 8.9 2.6 5.5 5.8 5.5c2 0 3.3 1.4 3.9 2.4 0 0 .1.2.3.2s.3-.2.3-.2c.6-1 1.9-2.4 3.9-2.4 3.2 0 4.5 3.4 3 6.2C19 15.6 12 20 12 20z"/></svg>
           </button>
-          <button class={`fh-vote${voted ? ' on' : ''}`} data-vote data-font-id={f.id} aria-pressed={voted}><span class="caret" aria-hidden="true"><svg viewBox="0 0 9 9"><path d="M1.5 5.5L4.5 2.5L7.5 5.5"/></svg></span><span class="fh-count" data-count>{f.votes_count.toLocaleString()}</span></button>
+          <button class={`fh-vote${voted ? ' on' : ''}`} data-vote data-font-id={f.id} aria-pressed={voted} aria-label={`Upvote ${f.name}`}><span class="caret" aria-hidden="true"><svg viewBox="0 0 9 9"><path d="M1.5 5.5L4.5 2.5L7.5 5.5"/></svg></span><span class="fh-count" data-count>{f.votes_count.toLocaleString()}</span></button>
         </div>
       </div>
 
@@ -138,7 +138,7 @@ const fontSchema = {
 
     <!-- glyph set + metadata -->
     <div class="fh-fontpage-grid">
-      <div style="padding:28px 40px;border-right:1px solid var(--line);">
+      <div class="fh-pad" style="padding:28px 0;border-right:1px solid var(--line);">
         <div class="fh-eyebrow" style="margin-bottom:18px;">Glyph set · {f.glyph_count ?? '–'} total</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:8px;">
           {(upper + lower + other).split('').map((c) => (
@@ -149,7 +149,7 @@ const fontSchema = {
         </div>
       </div>
 
-      <aside style="padding:28px 32px;background:var(--paper-2);">
+      <aside class="fh-pad" style="padding:28px 0;background:var(--paper-2);">
         <div class="fh-eyebrow" style="margin-bottom:8px;">Files</div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px;">
           {[
@@ -205,7 +205,7 @@ const fontSchema = {
       </aside>
     </div>
 
-    <footer style="padding:22px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:16px;">
+    <footer class="fh-pad" style="padding:22px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;">
       {m.standIn ? (
         <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">a stand-in face · the real makers arrive with the maker</div>
       ) : (
