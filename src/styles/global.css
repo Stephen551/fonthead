@@ -261,10 +261,13 @@ body {
   background: var(--paper); text-decoration: none; color: inherit; }
 .fh-wide-label { position: absolute; top: 18px; left: 40px; }
 .fh-wide-credit { position: absolute; bottom: 18px; right: 40px;
-  font-size: 11.5px; color: var(--ink-faint); letter-spacing: .02em; }
+  font-size: 11.5px; color: var(--ink-faint); letter-spacing: .02em; text-decoration: none; }
 .fh-wide:hover .fh-wide-credit { color: var(--ink-soft); }
 @media (max-width: 600px) {
-  .fh-wide { min-height: 220px; padding: 44px 20px; }
+  /* bleed the band to the screen edges so it still reads as a deliberate break in
+     the single-column wall (grid-column 1/-1 is a no-op at one column). The -20px
+     cancels the wall's 20px gutter; overflow:hidden keeps it from causing scroll. */
+  .fh-wide { min-height: 240px; padding: 44px 20px; margin-left: -20px; margin-right: -20px; }
   .fh-wide-label { left: 20px; }
   .fh-wide-credit { right: 20px; }
 }
@@ -291,6 +294,9 @@ body {
 /* the maker: two columns on desktop, one on a phone */
 .fh-maker-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: stretch; }
 .fh-maker-grid > * { min-width: 0; }
+/* the grid's display:grid would beat the default [hidden]; restore it so the
+   pre-hydration maker skeleton can hide once the island mounts. */
+.fh-maker-grid[hidden] { display: none; }
 
 @media (max-width: 920px) {
   .fh-maker-grid { grid-template-columns: minmax(0, 1fr); }
