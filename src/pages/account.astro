@@ -13,7 +13,19 @@ const session = await auth.api.getSession({ headers: Astro.request.headers });
 if (!session) return Astro.redirect('/sign-in');
 
 const { user } = session;
+// ensure a handle exists (assigned from name/email if unset; stays unlocked so
+// the maker can still choose their own here once).
 const handle = await ensureHandle(env.DB, user.id, user.name, user.email);
+// bio, image, and handle_locked are non-core columns: read them straight from D1.
+const row = await env.DB.prepare('SELECT name, email, image, bio, handle_locked FROM "user" WHERE id = ?')
+  .bind(user.id)
+  .first<{ name: string; email: string; image: string | null; bio: string | null; handle_locked: number }>();
+const name = row?.name ?? user.name;
+const email = row?.email ?? user.email;
+const bio = row?.bio ?? '';
+const image = row?.image ?? null;
+const handleLocked = !!row?.handle_locked;
+const avatarUrl = image ? `/cdn/${image}?v=${Date.now()}` : null;
 
 const { results: myFonts } = await env.DB.prepare(
   'SELECT id, name, visibility, votes_count FROM fonts WHERE owner_id = ? ORDER BY created_at DESC',
@@ -21,40 +33,72 @@ const { results: myFonts } = await env.DB.prepare(
   .bind(user.id)
   .all<{ id: string; name: string; visibility: string; votes_count: number }>();
 
-const initials = (user.name || user.email)
+const initials = (name || email)
   .split(/[\s@.]+/)
   .slice(0, 2)
   .map((s) => s[0]?.toUpperCase() ?? '')
   .join('');
+
+const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;';
 ---
 
 <Base title="Your account · fonthead.dev">
   <div style="background:var(--paper);min-height:100vh;">
     <div style="max-width:640px;margin:56px auto;padding:0 24px;">
       <p class="fh-eyebrow">fonthead.dev · account</p>
+      <h1 style="font-size:20px;font-weight:600;letter-spacing:-.01em;margin:14px 0 4px;">Your profile</h1>
+      <div class="fh-mono" style="font-size:12.5px;color:var(--ink-soft);margin-bottom:24px;">{email}</div>
 
-      <div style="display:flex;align-items:center;gap:16px;margin:18px 0 28px;">
-        <div class="fh-avatar" style="width:48px;height:48px;font-size:16px;">{initials}</div>
-        <div>
-          <h1 style="font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0;">{user.name}</h1>
-          <div class="fh-mono" style="font-size:12.5px;color:var(--ink-soft);margin-top:3px;">{user.email}</div>
+      <form id="profileform" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:4px;">
+          <div id="avatarwrap" class="fh-avatar" style="width:64px;height:64px;font-size:20px;overflow:hidden;flex:none;">
+            {avatarUrl ? (
+              <img id="avatarimg" src={avatarUrl} alt="" style="width:100%;height:100%;object-fit:cover;" />
+            ) : (
+              <span id="avatarinitials">{initials}</span>
+            )}
+          </div>
+          <label class="fh-btn fh-btn--ghost" style="cursor:pointer;">
+            change avatar
+            <input id="avatar" name="avatar" type="file" accept="image/png,image/jpeg,image/webp" style="display:none;" />
+          </label>
+          <span id="avatarnote" class="fh-mono" style="font-size:11px;color:var(--ink-faint);">PNG, JPEG, or WebP, under 2 MB</span>
         </div>
-        <div style="flex:1;"></div>
-        <a href={`/u/${handle}`} class="fh-btn fh-btn--ghost">your maker page&nbsp;&nbsp;&rarr;</a>
-      </div>
 
-      <div style="border:1px solid var(--line);border-radius:2px;margin-bottom:28px;">
-        <div style="display:flex;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);">
-          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">session</span>
-          <span class="fh-mono" style="font-size:12px;color:#2f6f5e;">active · held under SSR</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;padding:13px 16px;">
-          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">handle</span>
-          <span class="fh-mono" style="font-size:12px;color:var(--ink-soft);">@{handle}</span>
-        </div>
-      </div>
+        <label for="name" class="fh-mono" style={fieldLabel}>NAME</label>
+        <input id="name" name="name" type="text" class="fh-input" value={name} required maxlength="60" />
 
-      <div class="fh-eyebrow" style="margin-bottom:14px;">Your fonts · {myFonts?.length ?? 0}</div>
+        <label for="bio" class="fh-mono" style={`${fieldLabel}margin-top:6px;`}>BIO</label>
+        <textarea
+          id="bio"
+          name="bio"
+          class="fh-input"
+          rows="3"
+          maxlength="280"
+          placeholder="a line about you and your fonts"
+          style="resize:vertical;font-family:var(--sans);">{bio}</textarea>
+
+        <label for="handle" class="fh-mono" style={`${fieldLabel}margin-top:6px;`}>HANDLE</label>
+        {handleLocked ? (
+          <div class="fh-mono" style="font-size:13px;color:var(--ink-soft);">
+            @{handle}<span style="color:var(--ink-faint);">&nbsp;&nbsp;·&nbsp;&nbsp;set</span>
+          </div>
+        ) : (
+          <>
+            <input id="handle" type="text" class="fh-input" value={handle} maxlength="40" autocomplete="off" aria-describedby="handlestate" />
+            <p id="handlestate" role="status" aria-live="polite" class="fh-mono" style="font-size:11px;min-height:14px;margin:-4px 0 0;color:var(--ink-faint);"></p>
+            <p class="fh-mono" style="font-size:11px;color:var(--ink-faint);margin:0;">You can set your handle once. After that it locks.</p>
+          </>
+        )}
+
+        <div style="display:flex;align-items:center;gap:14px;margin-top:14px;">
+          <button type="button" id="save" class="fh-btn">save profile</button>
+          <a href={`/u/${handle}`} class="fh-btn fh-btn--ghost">your maker page&nbsp;&nbsp;&rarr;</a>
+        </div>
+        <p id="msg" role="status" aria-live="polite" class="fh-mono" style="font-size:12px;min-height:16px;margin:6px 0 0;color:var(--ink-soft);"></p>
+      </form>
+
+      <div class="fh-eyebrow" style="margin:34px 0 14px;">Your fonts · {myFonts?.length ?? 0}</div>
       {myFonts && myFonts.length > 0 ? (
         <div style="border:1px solid var(--line);border-radius:2px;">
           {myFonts.map((f, i) => (
@@ -83,7 +127,73 @@ const initials = (user.name || user.email)
 
 <script>
   import { authClient } from '../lib/auth-client';
-  document.getElementById('signout')?.addEventListener('click', async () => {
+  import { actions } from 'astro:actions';
+
+  const byId = (id: string) => document.getElementById(id);
+  const msg = byId('msg') as HTMLElement;
+  const setMsg = (t: string, color = 'var(--ink-soft)') => {
+    msg.textContent = t;
+    msg.style.color = color;
+  };
+
+  // avatar preview
+  const avatarInput = byId('avatar') as HTMLInputElement | null;
+  avatarInput?.addEventListener('change', () => {
+    const file = avatarInput.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const wrap = byId('avatarwrap') as HTMLElement;
+    wrap.innerHTML = `<img src="${url}" alt="" style="width:100%;height:100%;object-fit:cover;" />`;
+  });
+
+  // live handle availability (only present when the handle is still editable)
+  const handleInput = byId('handle') as HTMLInputElement | null;
+  const originalHandle = handleInput?.value.trim() ?? '';
+  const hstate = byId('handlestate');
+  let timer: ReturnType<typeof setTimeout>;
+  handleInput?.addEventListener('input', () => {
+    if (!hstate) return;
+    const v = handleInput.value.trim();
+    hstate.textContent = '';
+    clearTimeout(timer);
+    if (!v || v === originalHandle) return;
+    timer = setTimeout(async () => {
+      const { data } = await actions.checkHandle({ handle: v });
+      if (!data) return;
+      if (data.available) {
+        hstate.style.color = 'var(--ink-soft)';
+        hstate.textContent = 'available as @' + data.normalized;
+      } else {
+        hstate.style.color = 'var(--signal)';
+        hstate.textContent =
+          data.reason === 'taken' ? 'that handle is taken' : 'pick 2 to 32 letters, numbers, dots, or dashes';
+      }
+    }, 300);
+  });
+
+  async function save() {
+    setMsg('saving…');
+    // claim the handle first if it is editable and changed
+    if (handleInput) {
+      const h = handleInput.value.trim();
+      if (h && h !== originalHandle) {
+        const { error } = await actions.claimHandle({ handle: h });
+        if (error) return setMsg(error.message || 'could not set that handle', 'var(--signal)');
+      }
+    }
+    const fd = new FormData();
+    fd.set('name', (byId('name') as HTMLInputElement).value.trim());
+    fd.set('bio', (byId('bio') as HTMLTextAreaElement).value.trim());
+    const file = avatarInput?.files?.[0];
+    if (file) fd.set('avatar', file);
+    const { error } = await actions.updateProfile(fd);
+    if (error) return setMsg(error.message || 'could not save', 'var(--signal)');
+    window.location.reload();
+  }
+
+  byId('save')?.addEventListener('click', save);
+
+  byId('signout')?.addEventListener('click', async () => {
     await authClient.signOut();
     window.location.href = '/';
   });
