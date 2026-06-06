@@ -25,13 +25,16 @@ import { defineMiddleware } from 'astro:middleware';
 // governs the HTML that loads them.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  // static.cloudflareinsights.com serves the Cloudflare Web Analytics beacon
+  // (auto-injected on the zone); it reports back to cloudflareinsights.com below.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data: blob:",
   "worker-src 'self' blob:",
-  // the wawoff2 module fetches its WASM binary from an inline data: URL
-  "connect-src 'self' data:",
+  // the wawoff2 module fetches its WASM binary from an inline data: URL; the
+  // Cloudflare Web Analytics beacon posts to cloudflareinsights.com
+  "connect-src 'self' data: https://cloudflareinsights.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
