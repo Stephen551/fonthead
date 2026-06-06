@@ -10,7 +10,9 @@ const { handle } = Astro.params;
 const env = Astro.locals.runtime.env;
 
 const maker = handle
-  ? await env.DB.prepare('SELECT id, name FROM "user" WHERE handle = ?').bind(handle).first<{ id: string; name: string }>()
+  ? await env.DB.prepare('SELECT id, name, image, bio, updatedAt FROM "user" WHERE handle = ?')
+      .bind(handle)
+      .first<{ id: string; name: string; image: string | null; bio: string | null; updatedAt: string | null }>()
   : null;
 
 if (!maker) {
@@ -30,6 +32,12 @@ const inter = session
 const publicCount = fonts.filter((f) => f.visibility === 'public').length;
 const privateCount = fonts.length - publicCount;
 const makerDescription = `Fonts by ${handle} on fonthead.dev: ${publicCount} published ${publicCount === 1 ? 'font' : 'fonts'}. Browse and download them, or make your own.`;
+const avatarUrl = maker.image ? `/cdn/${maker.image}?v=${maker.updatedAt ? Date.parse(maker.updatedAt) : ''}` : null;
+const makerInitials = (maker.name || handle || '@')
+  .split(/[\s@.]+/)
+  .slice(0, 2)
+  .map((s) => s[0]?.toUpperCase() ?? '')
+  .join('');
 ---
 
 <Base title={`@${handle} · fonthead.dev`} description={makerDescription} active="library">
@@ -38,10 +46,24 @@ const makerDescription = `Fonts by ${handle} on fonthead.dev: ${publicCount} pub
   <div style="background:var(--paper);min-height:100vh;">
     <header style="padding:48px 40px 28px;border-bottom:1px solid var(--line);">
       <p class="fh-eyebrow">maker</p>
-      <h1 class="fh-mono" style="font-size:34px;font-weight:700;letter-spacing:-.01em;margin:10px 0 6px;">@{handle}</h1>
-      <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);">
-        {maker.name} · {publicCount} public{isOwner && privateCount > 0 ? ` · ${privateCount} private` : ''}
-      </p>
+      <div style="display:flex;align-items:center;gap:16px;margin:10px 0 0;">
+        <div class="fh-avatar" style="width:56px;height:56px;font-size:18px;overflow:hidden;flex:none;">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" style="width:100%;height:100%;object-fit:cover;" />
+          ) : (
+            <span>{makerInitials}</span>
+          )}
+        </div>
+        <div>
+          <h1 class="fh-mono" style="font-size:30px;font-weight:700;letter-spacing:-.01em;margin:0;">@{handle}</h1>
+          <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);margin:4px 0 0;">
+            {maker.name} · {publicCount} public{isOwner && privateCount > 0 ? ` · ${privateCount} private` : ''}
+          </p>
+        </div>
+      </div>
+      {maker.bio && (
+        <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;margin:16px 0 0;max-width:62ch;">{maker.bio}</p>
+      )}
     </header>
 
     {fonts.length > 0 ? (
