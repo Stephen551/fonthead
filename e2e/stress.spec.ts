@@ -62,33 +62,38 @@ async function buildSheet(
       input.files = dt.files;
       input.dispatchEvent(new Event('change', { bubbles: true }));
 
+      // settle: __lastBuild set, the "working…" readout cleared, AND the otf
+      // download control rendered. __lastBuild is set right after React's
+      // setResult, so the download button can lag the flag by a render; clicking
+      // before it exists is the flake that read zero bytes (worst on the heaviest
+      // faces, where the build and re-render take longest).
+      const findDl = () =>
+        Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'download otf');
       let waited = 0;
       while (waited < 80000) {
         await sleep(300);
         waited += 300;
         const lb = (window as { __lastBuild?: { glyphCount: number } }).__lastBuild;
-        if (lb && !/working…/.test(document.body.innerText)) break;
+        if (lb && findDl() && !/working…/.test(document.body.innerText)) break;
       }
       const lb = (window as { __lastBuild?: { glyphCount: number } }).__lastBuild;
       const expected = rows.join('').length;
-      // capture the otf bytes
+      // capture the otf bytes by intercepting the download blob
       let b64 = '';
-      const orig = URL.createObjectURL;
-      (URL as { createObjectURL: typeof URL.createObjectURL }).createObjectURL = function (o: Blob | MediaSource) {
-        if (o instanceof Blob) {
-          // capture lazily below
-        }
-        return orig.call(URL, o as Blob);
-      };
-      // simplest: read result via the download button
       let blob2: Blob | null = null;
+      const orig = URL.createObjectURL;
       (URL as { createObjectURL: typeof URL.createObjectURL }).createObjectURL = function (o: Blob | MediaSource) {
         if (o instanceof Blob) blob2 = o;
         return orig.call(URL, o as Blob);
       };
-      const dl = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'download otf');
-      dl?.click();
-      await sleep(150);
+      findDl()?.click();
+      // poll for the captured blob rather than a fixed wait: a slow re-render or
+      // serialization of the largest faces intermittently missed a fixed 150ms.
+      let dwait = 0;
+      while (!blob2 && dwait < 10000) {
+        await sleep(100);
+        dwait += 100;
+      }
       (URL as { createObjectURL: typeof URL.createObjectURL }).createObjectURL = orig;
       if (blob2) {
         const buf = new Uint8Array(await (blob2 as Blob).arrayBuffer());
