@@ -4,6 +4,7 @@ import { createAuth } from '../lib/auth';
 import { ensureHandle, uniqueFontId, isAdminEmail, normalizeHandle, isValidHandle, RESERVED_HANDLES } from '../lib/util';
 import { verifySfntChecksums } from '../lib/sfnt';
 import { isOtf, isTtf, isWoff2 } from '../lib/fontsig';
+import { imageExt, MIN_AVATAR_BYTES, MAX_AVATAR_BYTES, AVATAR_CONTENT_TYPE } from '../lib/imagesig';
 import { rateLimit } from '../lib/ratelimit';
 
 // Mutations live here as Astro Actions (per the build brief).
@@ -318,6 +319,75 @@ export const server = {
         throw new ActionError({ code: 'CONFLICT', message: 'That handle was just taken. Pick another.' });
       }
       return { handle: normalized };
+    },
+  }),
+
+  // Edit the profile: display name, bio, and an optional avatar. The avatar is
+  // validated by magic bytes (no SVG) and size, written to R2 under avatars/<id>,
+  // then recorded on the user row. A failed row update drops the just-written
+  // object, and a format change cleans up the previous key so nothing orphans.
+  updateProfile: defineAction({
+    accept: 'form',
+    input: z.object({
+      name: z
+        .string()
+        .min(1, 'Add a name')
+        .max(60)
+        .refine((s) => !/[<>&]/.test(s), 'Name cannot contain < > or &'),
+      bio: z
+        .string()
+        .max(280)
+        .refine((s) => !/[<>&]/.test(s), 'Bio cannot contain < > or &')
+        .optional(),
+      avatar: z.instanceof(File).optional(),
+    }),
+    handler: async (input, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      await limit(env, userId, 'profile', 30, 3600);
+      const bio = (input.bio || '').trim();
+
+      let newKey: string | null = null;
+      if (input.avatar && input.avatar.size > 0) {
+        const bytes = new Uint8Array(await input.avatar.arrayBuffer());
+        if (bytes.length < MIN_AVATAR_BYTES) {
+          throw new ActionError({ code: 'BAD_REQUEST', message: 'That image did not upload correctly.' });
+        }
+        if (bytes.length > MAX_AVATAR_BYTES) {
+          throw new ActionError({ code: 'BAD_REQUEST', message: 'Avatar must be under 2 MB.' });
+        }
+        const ext = imageExt(bytes);
+        if (!ext) {
+          throw new ActionError({ code: 'BAD_REQUEST', message: 'Avatar must be a PNG, JPEG, or WebP image.' });
+        }
+        newKey = `avatars/${userId}.${ext}`;
+        await env.FONTS.put(newKey, bytes, { httpMetadata: { contentType: AVATAR_CONTENT_TYPE[ext] } });
+      }
+
+      const prev = await env.DB.prepare('SELECT image FROM "user" WHERE id = ?')
+        .bind(userId)
+        .first<{ image: string | null }>();
+      const prevKey = prev?.image ?? null;
+
+      try {
+        const now = new Date().toISOString();
+        if (newKey) {
+          await env.DB.prepare('UPDATE "user" SET name = ?, bio = ?, image = ?, "updatedAt" = ? WHERE id = ?')
+            .bind(input.name, bio, newKey, now, userId)
+            .run();
+        } else {
+          await env.DB.prepare('UPDATE "user" SET name = ?, bio = ?, "updatedAt" = ? WHERE id = ?')
+            .bind(input.name, bio, now, userId)
+            .run();
+        }
+      } catch {
+        if (newKey) await env.FONTS.delete(newKey).catch(() => {});
+        throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: 'Could not save your profile. Try again.' });
+      }
+
+      if (newKey && prevKey && prevKey !== newKey) {
+        await env.FONTS.delete(prevKey).catch(() => {});
+      }
+      return { ok: true, image: newKey ?? prevKey };
     },
   }),
 };
