@@ -4,15 +4,21 @@ import { createAuth } from '../lib/auth';
 
 export const prerender = false;
 
-// If already signed in, go straight to the account page.
+// A ?next= path (set when a vote/favourite bounced a signed-out visitor here)
+// returns them where they were. Only same-origin paths are honoured, never an
+// absolute or protocol-relative URL, so it can't become an open redirect.
+const nextParam = Astro.url.searchParams.get('next');
+const safeNext = nextParam && /^\/(?![/\\])/.test(nextParam) ? nextParam : '/account';
+
+// If already signed in, go straight on.
 const auth = createAuth(Astro.locals.runtime.env);
 const session = await auth.api.getSession({ headers: Astro.request.headers });
-if (session) return Astro.redirect('/account');
+if (session) return Astro.redirect(safeNext);
 ---
 
 <Base title="Sign in · fonthead.dev">
-  <div style="background:var(--paper);min-height:100vh;">
-    <div style="max-width:420px;margin:64px auto;padding:0 24px;">
+  <div style="background:var(--paper);min-height:100vh;display:flex;flex-direction:column;">
+    <div style="flex:1;max-width:420px;width:100%;margin:64px auto;padding:0 24px;box-sizing:border-box;">
       <p class="fh-eyebrow">fonthead.dev · accounts</p>
       <h1 style="font-size:24px;font-weight:600;letter-spacing:-.02em;margin:12px 0 6px;">Sign in</h1>
       <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 26px;line-height:1.5;">
@@ -35,6 +41,11 @@ if (session) return Astro.redirect('/account');
         </p>
       </form>
     </div>
+
+    <footer class="fh-pad" style="padding:26px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;">
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);"><a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a></div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
+    </footer>
   </div>
 </Base>
 
@@ -56,7 +67,8 @@ if (session) return Astro.redirect('/account');
       setMsg(res.error.message || 'that did not work');
       return;
     }
-    window.location.href = '/account';
+    const n = new URLSearchParams(location.search).get('next');
+    window.location.href = n && /^\/(?![/\\])/.test(n) ? n : '/account';
   }
 
   document.getElementById('signin')?.addEventListener('click', signIn);

@@ -43,8 +43,8 @@ const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;'
 ---
 
 <Base title="Your account · fonthead.dev">
-  <div style="background:var(--paper);min-height:100vh;">
-    <div style="max-width:640px;margin:56px auto;padding:0 24px;">
+  <div style="background:var(--paper);min-height:100vh;display:flex;flex-direction:column;">
+    <div style="flex:1;max-width:640px;width:100%;margin:56px auto;padding:0 24px;box-sizing:border-box;">
       <p class="fh-eyebrow">fonthead.dev · account</p>
       <h1 style="font-size:20px;font-weight:600;letter-spacing:-.01em;margin:14px 0 4px;">Your profile</h1>
       <div class="fh-mono" style="font-size:12.5px;color:var(--ink-soft);margin-bottom:24px;">{email}</div>
@@ -122,6 +122,11 @@ const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;'
 
       <button id="signout" class="fh-btn fh-btn--ghost" style="margin-top:28px;">sign out</button>
     </div>
+
+    <footer class="fh-pad" style="padding:26px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;">
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);"><a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a></div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
+    </footer>
   </div>
 </Base>
 

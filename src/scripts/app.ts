@@ -5,6 +5,13 @@ import { actions } from 'astro:actions';
 
 const signedIn = () => document.body.dataset.signedIn === 'true';
 
+// Send a signed-out visitor to sign in, remembering where they were so the
+// vote/favourite they tried lands them back on the same font, not on /account.
+function toSignIn() {
+  const next = encodeURIComponent(location.pathname + location.search);
+  window.location.href = '/sign-in?next=' + next;
+}
+
 // Announce a transient result to assistive tech via the global polite live
 // region, so an optimistic toggle that rolls back is never silent.
 function announce(msg: string) {
@@ -32,7 +39,7 @@ function rollCount(el: HTMLElement, text: string) {
 
 async function onFav(btn: HTMLElement) {
   if (!signedIn()) {
-    window.location.href = '/sign-in';
+    toSignIn();
     return;
   }
   if (btn.dataset.busy) return; // ignore a second click while the first is in flight
@@ -58,7 +65,7 @@ async function onFav(btn: HTMLElement) {
 
 async function onVote(btn: HTMLElement) {
   if (!signedIn()) {
-    window.location.href = '/sign-in';
+    toSignIn();
     return;
   }
   if (btn.dataset.busy) return; // ignore a second click while the first is in flight
@@ -89,7 +96,7 @@ async function onVote(btn: HTMLElement) {
 
 async function onReport(btn: HTMLElement) {
   if (!signedIn()) {
-    window.location.href = '/sign-in';
+    toSignIn();
     return;
   }
   const id = btn.dataset.fontId!;
