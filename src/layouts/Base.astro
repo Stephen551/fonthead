@@ -63,6 +63,13 @@ try {
 } catch {
   /* nav stays anonymous on any auth error */
 }
+
+// Support nudge. Set COFFEE_URL to a real Buy Me a Coffee / Ko-fi / Sponsors link
+// to switch it on; left empty it renders nothing, so the feature ships dormant
+// until the link exists. app.ts shows the card once per browser after a font is
+// made or downloaded.
+const COFFEE_URL = '';
+const coffeeOn = COFFEE_URL.startsWith('https://');
 ---
 
 <!doctype html>
@@ -97,6 +104,13 @@ try {
     </main>
     {/* polite live region for transient status (vote/favourite/report results) */}
     <div id="fh-status" class="sr-only" role="status" aria-live="polite"></div>
+    {coffeeOn && (
+      <div id="fh-coffee" class="fh-coffee" hidden role="dialog" aria-label="Support fonthead">
+        <button id="fh-coffee-x" class="fh-coffee-x" type="button" aria-label="Dismiss">&times;</button>
+        <p class="fh-coffee-msg">fonthead is free to use. if it saved you some time, a coffee helps me keep building it.</p>
+        <a id="fh-coffee-link" class="fh-btn" href={COFFEE_URL} target="_blank" rel="noopener noreferrer">buy me a coffee</a>
+      </div>
+    )}
     <script>
       import '../scripts/app';
     </script>

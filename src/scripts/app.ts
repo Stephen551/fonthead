@@ -298,6 +298,52 @@ function wireTypeInto() {
   });
 }
 
+// Support nudge: shown once per browser after a font is made (the maker fires a
+// 'fh:coffee' event) or downloaded (a click on a font page's .fh-dl link). The
+// card only exists when COFFEE_URL is set in Base.astro, so this is inert until
+// then. Dismiss or click-through marks it seen so it never returns.
+function wireCoffeeOnce() {
+  const SEEN = 'fh-coffee-seen';
+  const seen = () => {
+    try {
+      return !!localStorage.getItem(SEEN);
+    } catch {
+      return false;
+    }
+  };
+  const mark = () => {
+    try {
+      localStorage.setItem(SEEN, '1');
+    } catch {
+      /* private mode: skip persistence */
+    }
+  };
+  const show = () => {
+    const c = document.getElementById('fh-coffee');
+    if (!c || c.dataset.shown === '1' || seen()) return;
+    c.dataset.shown = '1';
+    c.hidden = false;
+    requestAnimationFrame(() => c.classList.add('in'));
+  };
+  const dismiss = () => {
+    mark();
+    const c = document.getElementById('fh-coffee');
+    if (c) {
+      c.classList.remove('in');
+      setTimeout(() => {
+        c.hidden = true;
+      }, 320);
+    }
+  };
+  document.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('#fh-coffee-x')) return dismiss();
+    if (t.closest('#fh-coffee-link')) return mark(); // clicked through; do not nag again
+    if (t.closest('.fh-dl')) setTimeout(show, 500); // a font page download
+  });
+  window.addEventListener('fh:coffee', () => setTimeout(show, 400)); // a font was just made
+}
+
 function init() {
   lazyFonts();
   wireSlider();
@@ -308,3 +354,4 @@ function init() {
 // fires on initial load and after every View Transitions navigation
 document.addEventListener('astro:page-load', init);
 wireSocialOnce();
+wireCoffeeOnce();

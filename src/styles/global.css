@@ -295,3 +295,47 @@ body {
   ::view-transition-old(*),
   ::view-transition-new(*) { animation: none !important; }
 }
+
+/* support nudge: a small dismissible card shown once after a font is made or
+   downloaded. Not a modal, never blocks the page. */
+.fh-coffee {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  max-width: 290px;
+  background: var(--paper);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  box-shadow: 0 8px 30px rgba(21, 20, 15, 0.12);
+  padding: 16px 16px 14px;
+  transform: translateY(12px);
+  opacity: 0;
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.fh-coffee.in { transform: translateY(0); opacity: 1; }
+.fh-coffee-msg {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin: 0 0 12px;
+  padding-right: 16px;
+}
+.fh-coffee-x {
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.fh-coffee-x:hover { color: var(--ink); }
+@media (max-width: 520px) {
+  .fh-coffee { right: 12px; left: 12px; bottom: 12px; max-width: none; }
+}
