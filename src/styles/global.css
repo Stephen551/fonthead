@@ -74,8 +74,10 @@ body {
 /* shared page gutter: 40px on desktop, 20px on a phone, so every stacked section
    shares one left edge instead of mixing 40/32/24. Sets horizontal padding only;
    sections keep their own vertical padding inline. */
-.fh-pad { padding-left: 40px; padding-right: 40px; }
-@media (max-width: 600px) { .fh-pad { padding-left: 20px; padding-right: 20px; } }
+/* !important so the gutter wins over an element's own inline `padding` shorthand
+   (which would otherwise set padding-left/right to 0 and collapse the gutter). */
+.fh-pad { padding-left: 40px !important; padding-right: 40px !important; }
+@media (max-width: 600px) { .fh-pad { padding-left: 20px !important; padding-right: 20px !important; } }
 
 /* screen-reader-only (accessible headings without visual chrome) */
 .sr-only {
