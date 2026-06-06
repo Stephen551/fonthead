@@ -98,6 +98,31 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
       </div>
     </section>
 
+    <!-- static shell shown until the React maker hydrates, and for no-JS. The
+         island hides #maker-skeleton on mount, so the maker is never a blank
+         void on a slow connection. Same grid as the real maker, so no layout shift. -->
+    <div id="maker-skeleton" class="fh-maker-grid" aria-hidden="true">
+      <div style="padding:26px 32px 30px;">
+        <span class="fh-eyebrow">01 · the sheet</span>
+        <div style="margin-top:14px;border:1px dashed var(--line-2);border-radius:3px;background:var(--paper-3);padding:38px 16px;text-align:center;">
+          <div class="fh-mono" style="font-size:13px;color:var(--ink-soft);">drop an alphabet sheet</div>
+          <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);margin-top:6px;">loading the maker…</div>
+        </div>
+      </div>
+      <div style="padding:26px 32px 30px;background:var(--paper-2);">
+        <span class="fh-eyebrow">02 · the build</span>
+        <div style="margin-top:14px;background:var(--ink);border-radius:3px;padding:16px 18px;min-height:120px;">
+          <span class="fh-mono" style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.62);">build · fonthead maker</span>
+          <div class="fh-mono" style="color:rgba(255,255,255,.55);font-size:12px;margin-top:14px;">idle</div>
+        </div>
+      </div>
+    </div>
+    <noscript>
+      <div class="fh-pad" style="padding:24px 0;color:var(--ink-soft);font-size:14px;line-height:1.6;">
+        The maker traces and builds fonts in your browser, so it needs JavaScript turned on. Enable it and reload to make a font.
+      </div>
+    </noscript>
+
     <Maker client:only="react" signedIn={signedIn} />
 
     <footer class="fh-pad" style="padding:20px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;">

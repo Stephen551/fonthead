@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { actions } from 'astro:actions';
 import {
   waitForEngine,
@@ -135,6 +135,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const isColor = kind !== 'mono';
   const stages = isColor ? COLOR_STAGES : MONO_STAGES;
   const flaggedCount = report.filter((g) => g.status !== 'ok' || g.flags.length > 0).length;
+
+  // Once the island hydrates, hide the server-rendered skeleton so the real
+  // maker takes over (the skeleton covers the pre-hydration / no-JS window).
+  useEffect(() => {
+    const sk = document.getElementById('maker-skeleton');
+    if (sk) sk.hidden = true;
+  }, []);
 
   const setStage = (i: number, msg: string) => {
     setStageIdx((cur) => (i > cur ? i : cur));
