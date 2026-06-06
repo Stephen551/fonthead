@@ -21,11 +21,11 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
 >
   <style slot="head" is:inline set:html={faceCss}></style>
   <!-- vendored font engine (client-side). Classic globals; the worker self-loads the rest. -->
-  <script is:inline src={`/assets/vendor/opentype.min.js?v=${V}`}></script>
-  <script is:inline src={`/assets/vendor/potrace.js?v=${V}`}></script>
-  <script is:inline src={`/assets/vendor/font-engine-builder.js?v=${V}`}></script>
-  <script is:inline src={`/assets/tracer-core.js?v=${V}`}></script>
-  <script is:inline src={`/assets/singleline-core.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/opentype.min.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/potrace.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/font-engine-builder.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/tracer-core.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/singleline-core.js?v=${V}`}></script>
   <!-- color path: builds COLR/CPAL on the main thread, so wawoff2 loads here too -->
   <script is:inline>
     window.Module = {};
@@ -36,22 +36,22 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
       };
     });
   </script>
-  <script is:inline src={`/assets/vendor/wawoff2_compress.js?v=${V}`}></script>
-  <script is:inline src={`/assets/color-core.js?v=${V}`}></script>
-  <script is:inline src={`/assets/vendor/font-engine-tables.js?v=${V}`}></script>
-  <script is:inline src={`/assets/vendor/font-engine-autokern.js?v=${V}`}></script>
-  <script is:inline src={`/assets/vendor/font-engine-features.js?v=${V}`}></script>
-  <script is:inline src={`/assets/vendor/font-engine-colr-cpal.js?v=${V}`}></script>
-  <script is:inline src={`/assets/vendor/font-engine-colr-v1.js?v=${V}`}></script>
-  <script is:inline src={`/assets/vendor/font-engine-color-build.js?v=${V}`}></script>
-  <script is:inline src={`/assets/vendor/font-engine-formats.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/wawoff2_compress.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/color-core.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/font-engine-tables.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/font-engine-autokern.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/font-engine-features.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/font-engine-colr-cpal.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/font-engine-colr-v1.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/font-engine-color-build.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/font-engine-formats.js?v=${V}`}></script>
   <!-- the engine's own validator: the gate that drops fonts that fail (mono + colour) -->
-  <script is:inline src={`/assets/vendor/font-engine-validate.js?v=${V}`}></script>
-  <script is:inline src={`/assets/color-orchestrator.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/vendor/font-engine-validate.js?v=${V}`}></script>
+  <script is:inline defer src={`/assets/color-orchestrator.js?v=${V}`}></script>
 
-  <div style="background:var(--paper);min-height:100vh;">
+  <div id="maker-page" style="background:var(--paper);min-height:100vh;">
     <!-- title + steps -->
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:30px 40px 24px;border-bottom:1px solid var(--line);">
+    <div class="fh-pad" style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:30px 0 24px;border-bottom:1px solid var(--line);">
       <div>
         <h1 style="font-size:30px;font-weight:600;margin:0;letter-spacing:-.02em;">Make a font</h1>
         <p style="margin:8px 0 0;font-size:14.5px;color:var(--ink-soft);">Drop an alphabet sheet, or generate one below. We build a real, installable font in your browser.</p>
@@ -95,7 +95,7 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
 
     <Maker client:only="react" signedIn={signedIn} />
 
-    <footer style="padding:20px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;">
+    <footer class="fh-pad" style="padding:20px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">builds otf · ttf · woff2 · colour (COLR) · nothing leaves your browser</div>
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">your font · your license</div>
     </footer>
@@ -157,18 +157,44 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
 
     // Onboarding walkthrough: auto-shows on the first maker visit, retriggerable
     // via the tutorial button, and remembers dismissal so it does not reappear.
+    // As a modal (aria-modal) it manages focus: moves focus in on open, traps
+    // Tab within the card, makes the page behind it inert, and returns focus to
+    // the trigger on close.
     const TOUR_SEEN = 'fh-maker-tour-seen';
     const tour = document.getElementById('maker-tour');
+    const bg = [document.getElementById('maker-page'), document.querySelector('.fh-nav')];
+    let tourReturn: HTMLElement | null = null;
+    const tourFocusables = (): HTMLElement[] =>
+      tour
+        ? (Array.from(
+            tour.querySelectorAll('button, a[href], input, [tabindex]:not([tabindex="-1"])'),
+          ) as HTMLElement[]).filter((el) => !el.hasAttribute('disabled'))
+        : [];
+    const setBgInert = (on: boolean) => {
+      for (const el of bg) {
+        if (!el) continue;
+        if (on) el.setAttribute('inert', '');
+        else el.removeAttribute('inert');
+      }
+    };
     const showTour = () => {
-      if (tour) tour.hidden = false;
+      if (!tour) return;
+      tourReturn = document.activeElement as HTMLElement | null;
+      tour.hidden = false;
+      setBgInert(true);
+      requestAnimationFrame(() => tourFocusables()[0]?.focus());
     };
     const closeTour = () => {
-      if (tour) tour.hidden = true;
+      if (!tour) return;
+      tour.hidden = true;
+      setBgInert(false);
       try {
         localStorage.setItem(TOUR_SEEN, '1');
       } catch {
         /* private mode */
       }
+      tourReturn?.focus?.();
+      tourReturn = null;
     };
     document.getElementById('maker-tour-open')?.addEventListener('click', showTour);
     document.getElementById('maker-tour-x')?.addEventListener('click', closeTour);
@@ -182,6 +208,21 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
     });
     tour?.addEventListener('click', (e) => {
       if (e.target === tour) closeTour(); // click the backdrop, not the card
+    });
+    // keep Tab within the dialog while it is open
+    tour?.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const f = tourFocusables();
+      if (!f.length) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && tour && !tour.hidden) closeTour();
