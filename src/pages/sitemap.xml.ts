@@ -16,6 +16,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
   const locs = [
     `${origin}/`,
     `${origin}/make`,
+    `${origin}/faq`,
     ...fonts.map((f) => `${origin}/f/${f.id}`),
     ...handles.map((h) => `${origin}/u/${h}`),
   ];

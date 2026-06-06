@@ -1,0 +1,75 @@
+---
+import Base from '../layouts/Base.astro';
+
+export const prerender = false;
+
+// Each Q&A renders both as visible text and inside the FAQPage JSON-LD, from the
+// same source, so the markup matches what a reader sees (Google requires that).
+const faqs = [
+  {
+    q: 'Is fonthead free?',
+    a: 'Yes. Making, downloading, and publishing fonts is free, and you can browse and download without an account. An account lets you publish to the wall and keep favorites.',
+  },
+  {
+    q: 'Does my image or font leave my computer?',
+    a: 'Not while you build. Tracing, font assembly, and woff2 compression all run in your browser. A font only leaves your device if you choose to publish it.',
+  },
+  {
+    q: 'What formats can I make?',
+    a: 'Monochrome fonts export as OTF, TTF, and WOFF2. Colour fonts export as COLR/CPAL OTF and WOFF2. They install like any other font.',
+  },
+  {
+    q: 'How do I make a font?',
+    a: 'Drop an alphabet sheet, a grid of your letters, into the maker. It traces each letter and assembles a font you can preview, download, and publish.',
+  },
+  {
+    q: 'Will the fonts work on Windows?',
+    a: 'Yes. Every font is checksum-verified before it is built, the same check Windows applies, so the files open and install across systems.',
+  },
+  {
+    q: 'Who runs fonthead?',
+    a: 'fonthead.dev is built by A&C Meridian.',
+  },
+];
+
+const faqSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: faqs.map((f) => ({
+    '@type': 'Question',
+    name: f.q,
+    acceptedAnswer: { '@type': 'Answer', text: f.a },
+  })),
+};
+---
+
+<Base
+  title="FAQ · fonthead.dev"
+  description="Common questions about fonthead.dev: what it costs, what stays in your browser, the font formats you can make, and how the maker works."
+  schema={faqSchema}
+  active="library"
+>
+  <div style="background:var(--paper);min-height:100vh;">
+    <header style="padding:48px 40px 28px;border-bottom:1px solid var(--line);">
+      <p class="fh-eyebrow">fonthead.dev</p>
+      <h1 class="fh-mono" style="font-size:34px;font-weight:700;letter-spacing:-.01em;margin:10px 0 6px;">Questions</h1>
+      <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);">What fonthead is, what stays on your machine, and how the maker works.</p>
+    </header>
+
+    <div style="max-width:720px;padding:8px 40px 48px;">
+      {faqs.map((f) => (
+        <section style="padding:26px 0;border-bottom:1px solid var(--line);">
+          <h2 style="font-size:16px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px;">{f.q}</h2>
+          <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;margin:0;max-width:62ch;">{f.a}</p>
+        </section>
+      ))}
+    </div>
+
+    <footer style="padding:26px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;">
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">
+        <a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a>
+      </div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
+    </footer>
+  </div>
+</Base>
