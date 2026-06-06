@@ -62,6 +62,10 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
     res.headers.set('content-security-policy', CSP);
     res.headers.set('x-content-type-options', 'nosniff');
     res.headers.set('x-frame-options', 'DENY');
+    // Isolate our browsing context from cross-origin openers. allow-popups keeps
+    // the support link (and any future OAuth popup) working; strict same-origin
+    // would sever those for no real gain here (we use no SharedArrayBuffer).
+    res.headers.set('cross-origin-opener-policy', 'same-origin-allow-popups');
     res.headers.set('referrer-policy', 'strict-origin-when-cross-origin');
     // Force HTTPS for a year on revisits (the *.workers.dev host can't be
     // preloaded, but the header is correct posture and carries to a custom domain).
