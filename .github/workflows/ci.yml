@@ -36,6 +36,13 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: apply local D1 migrations (the dev server the e2e suite boots reads this D1; without the schema every page 500s and Playwright never sees the server become ready)
         run: npm run db:apply:local
+      - name: seed the wall (starter set plus house fonts) so the library search specs have data to match
+        run: |
+          npx wrangler d1 execute DB --local --file scripts/seed.generated.sql
+          npx wrangler d1 execute DB --local --file scripts/add-ac-fonts.sql
+      - name: provide dev runtime env (gitignored .dev.vars, read by the platform proxy; CI-only placeholders, not real secrets)
+        run: |
+          printf 'BETTER_AUTH_SECRET=fonthead-ci-e2e-placeholder-secret\nBETTER_AUTH_URL=http://localhost:4321\n' > .dev.vars
       - name: e2e smoke
         run: npm run test:e2e
       - uses: actions/setup-python@v5
