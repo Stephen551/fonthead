@@ -39,6 +39,10 @@
      e.g. the wordmark dot. Same red, tuned a touch deeper. */
   --signal:      #d4342a;
   --signal-soft: #fae9e6;
+  /* a lighter red for the one place the accent sits on the dark terminal: the
+     "failed" status word and the active-stage marker. #d4342a on --ink is only
+     3.8:1; this clears 4.5:1 (AA) on the near-black readout. */
+  --signal-on-dark: #ff6f63;
 
   /* type */
   --mono: "JetBrains Mono", ui-monospace, monospace;
@@ -67,6 +71,11 @@ body {
   text-transform: uppercase; color: var(--ink-faint); font-weight: 500; }
 .fh-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .fh-rule { border: 0; border-top: 1px solid var(--line); }
+/* shared page gutter: 40px on desktop, 20px on a phone, so every stacked section
+   shares one left edge instead of mixing 40/32/24. Sets horizontal padding only;
+   sections keep their own vertical padding inline. */
+.fh-pad { padding-left: 40px; padding-right: 40px; }
+@media (max-width: 600px) { .fh-pad { padding-left: 20px; padding-right: 20px; } }
 
 /* screen-reader-only (accessible headings without visual chrome) */
 .sr-only {
@@ -92,8 +101,12 @@ body {
   letter-spacing: -.01em; color: var(--ink); text-decoration: none; }
 .fh-wordmark .dot { color: var(--signal); }
 .fh-navlink { font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft);
-  letter-spacing: .02em; text-decoration: none; }
+  letter-spacing: .02em; text-decoration: none; display: inline-flex; align-items: center;
+  min-height: 24px; padding: 4px 4px; }
 .fh-navlink:hover { color: var(--ink); }
+/* the desktop wordmark/links divider + the flex spacer that pushes the CTA right */
+.fh-nav-div { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+.fh-nav-spacer { flex: 1; }
 
 /* buttons */
 .fh-btn { font-family: var(--mono); font-size: 12.5px; letter-spacing: .04em;
@@ -280,12 +293,25 @@ body {
 @media (max-width: 920px) {
   .fh-maker-grid { grid-template-columns: minmax(0, 1fr); }
 }
+/* the build readout's stage rows budget desktop-fixed columns; on a phone that
+   ellipsis-clips the descriptions. Let them wrap and drop the trailing tick so
+   the "honest readout" stays fully legible. */
+@media (max-width: 560px) {
+  .fh-build-desc { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+  .fh-build-tick { display: none !important; }
+}
 @media (max-width: 820px) {
   .fh-fontpage-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 600px) {
-  .fh-nav { padding: 0 16px; gap: 12px; }
-  .fh-nav-secondary { display: none !important; }
+  /* the nav wraps to two rows instead of overflowing: the fixed-width make
+     button + auth links cannot shrink, so on a phone the row would push the
+     page wider than the screen. Drop the desktop spacer/divider and let the
+     links wrap, keeping library/make/faq reachable (no hamburger needed). */
+  .fh-nav { flex-wrap: wrap; height: auto; min-height: 56px; padding: 9px 16px;
+    gap: 9px 14px; overflow-x: clip; }
+  .fh-nav-div, .fh-nav-spacer { display: none; }
+  .fh-nav-secondary { display: contents; }
 }
 
 /* reduced motion: no movement, static specimens, no page morph */
@@ -360,7 +386,7 @@ body {
 }
 .fh-gen-copy { flex: none; align-self: flex-start; }
 @media (max-width: 620px) {
-  .fh-gen { padding: 20px 24px; }
+  .fh-gen { padding: 20px; }
   .fh-gen-out { flex-direction: column; }
 }
 

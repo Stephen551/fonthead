@@ -18,12 +18,12 @@ const initials = user
 <nav class="fh-nav">
   <a href="/" class="fh-wordmark">fonthead<span class="dot">.dev</span></a>
   <div class="fh-nav-secondary" style="display:contents">
-    <div style="width:1px;height:22px;background:var(--line);margin:0 4px;"></div>
+    <div class="fh-nav-div"></div>
     <a href="/" class="fh-navlink" style={active === 'library' ? 'color:var(--ink);font-weight:600;' : undefined}>library</a>
     <a href="/make" data-astro-reload class="fh-navlink" style={active === 'make' ? 'color:var(--ink);font-weight:600;' : undefined}>make</a>
     <a href="/faq" class="fh-navlink">faq</a>
   </div>
-  <div style="flex:1"></div>
+  <div class="fh-nav-spacer"></div>
   <a href="/make" data-astro-reload class="fh-btn">make a font&nbsp;&nbsp;&rarr;</a>
   {
     user ? (
