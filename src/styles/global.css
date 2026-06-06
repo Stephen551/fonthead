@@ -339,3 +339,46 @@ body {
 @media (max-width: 520px) {
   .fh-coffee { right: 12px; left: 12px; bottom: 12px; max-width: none; }
 }
+
+/* generate-a-sheet block on the maker page */
+.fh-gen { padding: 22px 40px 24px; border-bottom: 1px solid var(--line); background: var(--paper-2); }
+.fh-gen-lead { margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); max-width: 70ch; line-height: 1.55; }
+.fh-gen-styles { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }
+.fh-chip {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-soft); background: var(--paper);
+  border: 1px solid var(--line-2); border-radius: 999px; padding: 6px 13px; cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.fh-chip:hover { border-color: var(--ink); color: var(--ink); }
+.fh-gen-label { display: block; font-size: 11px; color: var(--ink-faint); letter-spacing: .06em; margin-bottom: 6px; }
+.fh-gen-input { width: min(520px, 100%); }
+.fh-gen-out { display: flex; align-items: stretch; gap: 10px; margin-top: 12px; max-width: 780px; }
+.fh-gen-prompt {
+  flex: 1; margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--ink-soft);
+  background: var(--paper); border: 1px solid var(--line-2); border-radius: 3px; padding: 12px 14px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.fh-gen-copy { flex: none; align-self: flex-start; }
+@media (max-width: 620px) {
+  .fh-gen { padding: 20px 24px; }
+  .fh-gen-out { flex-direction: column; }
+}
+
+/* onboarding walkthrough card (first run + retriggerable) */
+.fh-tour { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px; background: rgba(21, 20, 15, 0.38); }
+.fh-tour-card {
+  position: relative; width: min(440px, 100%); background: var(--paper); border: 1px solid var(--line-2);
+  border-radius: 6px; box-shadow: 0 18px 50px rgba(21, 20, 15, 0.25); padding: 26px 26px 22px;
+}
+.fh-tour-x {
+  position: absolute; top: 12px; right: 13px; width: 24px; height: 24px; border: 0; background: none;
+  color: var(--ink-faint); font-size: 19px; line-height: 1; cursor: pointer; border-radius: 2px;
+}
+.fh-tour-x:hover { color: var(--ink); }
+.fh-tour-title { font-size: 18px; font-weight: 600; letter-spacing: -.01em; margin: 8px 0 16px; }
+.fh-tour-steps {
+  margin: 0 0 20px; padding-left: 20px; display: flex; flex-direction: column; gap: 11px;
+  font-size: 13.5px; color: var(--ink-soft); line-height: 1.5;
+}
+.fh-tour-steps b { color: var(--ink); font-weight: 600; }
+.fh-tour-actions { display: flex; gap: 10px; flex-wrap: wrap; }

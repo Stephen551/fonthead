@@ -54,14 +54,44 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
     <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:30px 40px 24px;border-bottom:1px solid var(--line);">
       <div>
         <h1 style="font-size:30px;font-weight:600;margin:0;letter-spacing:-.02em;">Make a font</h1>
-        <p style="margin:8px 0 0;font-size:14.5px;color:var(--ink-soft);">Drop an alphabet sheet. We build a real, installable font in your browser.</p>
+        <p style="margin:8px 0 0;font-size:14.5px;color:var(--ink-soft);">Drop an alphabet sheet, or generate one below. We build a real, installable font in your browser.</p>
       </div>
-      <div class="fh-mono" style="display:flex;gap:18px;font-size:12px;">
-        <span style="color:var(--ink);"><b style="font-weight:700;">01</b> drop</span>
-        <span style="color:var(--signal);"><b style="font-weight:700;">02</b> build</span>
-        <span style="color:var(--ink-faint);"><b style="font-weight:700;">03</b> download</span>
+      <div style="display:flex;align-items:center;gap:18px;">
+        <div class="fh-mono" style="display:flex;gap:18px;font-size:12px;">
+          <span style="color:var(--ink);"><b style="font-weight:700;">01</b> drop</span>
+          <span style="color:var(--signal);"><b style="font-weight:700;">02</b> build</span>
+          <span style="color:var(--ink-faint);"><b style="font-weight:700;">03</b> download</span>
+        </div>
+        <button id="maker-tour-open" type="button" class="fh-btn fh-btn--ghost" style="font-size:12px;">tutorial</button>
       </div>
     </div>
+
+    <!-- no sheet? generate one: pick or type a style, copy the prompt into an image generator -->
+    <section class="fh-gen" aria-label="Generate an alphabet sheet">
+      <div class="fh-gen-intro">
+        <p class="fh-eyebrow">no sheet? generate one</p>
+        <p class="fh-gen-lead">Pick or describe a style, copy the prompt into an image generator (ChatGPT, Midjourney, and the like), then drop the result into the maker below.</p>
+      </div>
+      <div class="fh-gen-styles">
+        <button type="button" class="fh-chip" data-style="bold geometric sans-serif">geometric sans</button>
+        <button type="button" class="fh-chip" data-style="heavy slab serif">slab serif</button>
+        <button type="button" class="fh-chip" data-style="thick rounded marker handwriting">marker hand</button>
+        <button type="button" class="fh-chip" data-style="condensed art deco display">art deco</button>
+        <button type="button" class="fh-chip" data-style="blocky pixel bitmap">pixel</button>
+      </div>
+      <label for="gen-style" class="fh-mono fh-gen-label">YOUR STYLE</label>
+      <input
+        id="gen-style"
+        class="fh-input fh-gen-input"
+        type="text"
+        autocomplete="off"
+        placeholder="type a style: brush script, bubbly, monospace tech, hand-cut stencil..."
+      />
+      <div class="fh-gen-out">
+        <pre id="gen-prompt" class="fh-gen-prompt" aria-live="polite"></pre>
+        <button id="gen-copy" type="button" class="fh-btn fh-gen-copy">copy prompt</button>
+      </div>
+    </section>
 
     <Maker client:only="react" signedIn={signedIn} />
 
@@ -70,4 +100,96 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">your font · your license</div>
     </footer>
   </div>
+
+  <!-- onboarding walkthrough: first visit + retriggerable via the tutorial button -->
+  <div id="maker-tour" class="fh-tour" hidden role="dialog" aria-modal="true" aria-label="How the maker works">
+    <div class="fh-tour-card">
+      <button id="maker-tour-x" type="button" class="fh-tour-x" aria-label="Close">&times;</button>
+      <p class="fh-eyebrow">how the maker works</p>
+      <h2 class="fh-tour-title">From a sheet to a real font, in four steps.</h2>
+      <ol class="fh-tour-steps">
+        <li><b>Get a sheet.</b> Drop a png or jpg of your letters, or generate one with a prompt above.</li>
+        <li><b>Build.</b> We trace each letter and assemble a real, installable font in your browser.</li>
+        <li><b>Refine.</b> Check every glyph and re-slice any row that came out wrong.</li>
+        <li><b>Keep it.</b> Download otf, ttf, or woff2, or publish it to the library.</li>
+      </ol>
+      <div class="fh-tour-actions">
+        <button id="maker-tour-sample" type="button" class="fh-btn">try a sample sheet</button>
+        <button id="maker-tour-got" type="button" class="fh-btn fh-btn--ghost">got it</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Generate-a-sheet prompt builder: a style (a chip or typed) fills a prompt
+    // tuned for the tracer (white background, solid black letters, clean rows).
+    const PROMPT = (style: string) =>
+      `A clean alphabet specimen sheet on a pure white background with solid black letters, in a ${style} style. ` +
+      `Three evenly spaced rows: row one A B C D E F G H I J K L M N O P Q R S T U V W X Y Z, ` +
+      `row two a b c d e f g h i j k l m n o p q r s t u v w x y z, row three 0 1 2 3 4 5 6 7 8 9. ` +
+      `Each character clearly separated with even spacing, no overlap, no shadows, no decoration, high contrast, flat top-down view.`;
+    const DEFAULT_STYLE = 'bold geometric sans-serif';
+    const styleInput = document.getElementById('gen-style') as HTMLInputElement | null;
+    const promptEl = document.getElementById('gen-prompt');
+    const renderPrompt = () => {
+      if (promptEl) promptEl.textContent = PROMPT((styleInput?.value.trim() || DEFAULT_STYLE));
+    };
+    styleInput?.addEventListener('input', renderPrompt);
+    document.querySelectorAll<HTMLElement>('.fh-chip').forEach((chip) =>
+      chip.addEventListener('click', () => {
+        if (!styleInput) return;
+        styleInput.value = chip.dataset.style || '';
+        renderPrompt();
+        styleInput.focus();
+      }),
+    );
+    renderPrompt();
+    const copyBtn = document.getElementById('gen-copy');
+    copyBtn?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(promptEl?.textContent || '');
+        copyBtn.textContent = 'copied';
+        setTimeout(() => (copyBtn.textContent = 'copy prompt'), 1500);
+      } catch {
+        /* clipboard blocked; the prompt text stays selectable as a fallback */
+      }
+    });
+
+    // Onboarding walkthrough: auto-shows on the first maker visit, retriggerable
+    // via the tutorial button, and remembers dismissal so it does not reappear.
+    const TOUR_SEEN = 'fh-maker-tour-seen';
+    const tour = document.getElementById('maker-tour');
+    const showTour = () => {
+      if (tour) tour.hidden = false;
+    };
+    const closeTour = () => {
+      if (tour) tour.hidden = true;
+      try {
+        localStorage.setItem(TOUR_SEEN, '1');
+      } catch {
+        /* private mode */
+      }
+    };
+    document.getElementById('maker-tour-open')?.addEventListener('click', showTour);
+    document.getElementById('maker-tour-x')?.addEventListener('click', closeTour);
+    document.getElementById('maker-tour-got')?.addEventListener('click', closeTour);
+    document.getElementById('maker-tour-sample')?.addEventListener('click', () => {
+      closeTour();
+      const sample = Array.from(document.querySelectorAll('button')).find(
+        (b) => b.textContent?.trim() === 'try a sample sheet',
+      );
+      sample?.click();
+    });
+    tour?.addEventListener('click', (e) => {
+      if (e.target === tour) closeTour(); // click the backdrop, not the card
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && tour && !tour.hidden) closeTour();
+    });
+    try {
+      if (!localStorage.getItem(TOUR_SEEN)) showTour();
+    } catch {
+      /* private mode: skip the auto-show */
+    }
+  </script>
 </Base>
