@@ -5,13 +5,15 @@ import { test, expect, type Page } from '@playwright/test';
 // against the dev server's local D1 + R2.
 
 async function signUp(page: Page) {
-  const email = `e2e-${Date.now()}-${Math.floor(performance.now())}@example.test`;
-  await page.goto('/sign-in');
+  const stamp = `${Date.now()}${Math.floor(performance.now())}`;
+  const email = `e2e-${stamp}@example.test`;
+  await page.goto('/sign-up');
   await page.locator('#name').fill('E2E Maker');
+  await page.locator('#handle').fill(`e2e-${stamp}`);
   await page.locator('#email').fill(email);
   await page.locator('#password').fill('password123');
-  await page.locator('#signup').click();
-  // sign-up redirects to /account on success
+  await page.locator('#create').click();
+  // sign-up claims the handle, then redirects to /account on success
   await page.waitForURL('**/account', { timeout: 30_000 });
 }
 
