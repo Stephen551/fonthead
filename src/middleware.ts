@@ -1,17 +1,28 @@
 import { defineMiddleware } from 'astro:middleware';
 
 // Baseline security headers on every server-rendered response. The CSP locks the
-// app to its own origin while still allowing what the in-browser font engine
-// needs: a classic Web Worker (worker-src 'self'), the wawoff2 WASM compressor
-// (its Emscripten glue calls new Function, so script-src needs 'unsafe-eval'),
-// blob font/object URLs for the live preview, and data/blob images from the
-// canvas. Inline scripts/styles are allowed because Astro emits some inline
-// bootstraps. Even with those script relaxations the policy still blocks
-// off-origin scripts and resources, plugins, framing, base-tag hijacking, and
-// cross-origin connections. Tightening the script source to hashes is a
-// follow-up (Astro's experimental CSP). Static assets are served by the assets
-// binding and bypass this, which is fine — the CSP governs the HTML that loads
-// them.
+// app to its own origin and still blocks off-origin scripts and resources,
+// plugins, framing, base-tag hijacking, and cross-origin connections. It also
+// allows the in-browser font engine what it needs: a classic Web Worker
+// (worker-src 'self'), blob font/object URLs for the live preview, and the
+// wawoff2 WASM binary served from an inline data: URL (connect-src data:).
+//
+// Two relaxations are deliberate, not unfinished work:
+//   - script-src 'unsafe-eval': wawoff2, the Emscripten WASM compressor that
+//     builds woff2 in the browser, runs its glue through new Function. A WASM
+//     toolchain in the browser does not run without it.
+//   - 'unsafe-inline' on script and style: Astro injects inline island-hydration
+//     scripts, and the UI is built on inline style attributes. The only way to
+//     hash those away is Astro's CSP feature, which is documented as incompatible
+//     with both ClientRouter (the View Transitions this app uses) and inline
+//     style attributes. Dropping it would mean re-doing the navigation and
+//     converting the whole UI off inline styles, for no real XSS gain: every
+//     user-input sink is already escaped (escapeJsonForScript, the action input
+//     refines), so the injection surface is closed by output encoding, not by
+//     the CSP.
+//
+// Static assets are served by the assets binding and bypass this; the CSP
+// governs the HTML that loads them.
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
