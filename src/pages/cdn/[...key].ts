@@ -1,87 +1,106 @@
-// Serves font binaries from the R2 FONTS bucket. Public fonts are cached hard
-// and immutable; private fonts are gated to their owner via the session. The
-// key is fonts/<id>.<ext>, so visibility is looked up by font id (primary key).
 import type { APIRoute } from 'astro';
 import { createAuth } from '../../lib/auth';
 
 export const prerender = false;
 
+// Serves font binaries and avatar images from the R2 FONTS bucket. Public objects
+// are edge-cached with the Cloudflare Cache API, so a repeat download is served
+// from cache instead of re-reading R2. Private fonts are owner-gated and never
+// cached, and the D1 visibility lookup runs on every request, so a font flipped to
+// private stops serving at once even if a public copy was cached earlier.
 export const GET: APIRoute = async ({ params, locals, request }) => {
   const key = params.key;
   const env = locals.runtime.env;
+  const ctx = locals.runtime.ctx;
+  const cache = (
+    globalThis as unknown as {
+      caches?: { default?: { match(r: Request): Promise<Response | undefined>; put(r: Request, res: Response): Promise<void> } };
+    }
+  ).caches?.default;
+  // a clean, header-free cache key so range/conditional headers don't fragment it
+  const cacheKey = new Request(new URL(request.url).toString());
 
-  // Avatars: public profile images, served without a font-row lookup (they have
-  // none). Validated to the avatars/ prefix and image extensions only, and never
-  // marked immutable since the key is reused when a maker changes their avatar.
-  if (key && /^avatars\/[\w-]+\.(png|jpg|webp)$/.test(key)) {
-    const object = await env.FONTS.get(key);
+  // Return 304 if the caller already holds this etag, otherwise the response.
+  const conditional = (response: Response): Response => {
+    const inm = request.headers.get('if-none-match');
+    const etag = response.headers.get('etag');
+    if (inm && etag && inm === etag) return new Response(null, { status: 304, headers: response.headers });
+    return response;
+  };
+
+  // Serve a public object from R2 via the edge cache. Visibility (for fonts) must
+  // already be confirmed by the caller; avatars are always public.
+  const servePublic = async (k: string, headers: Headers): Promise<Response> => {
+    if (cache) {
+      const hit = await cache.match(cacheKey);
+      if (hit) return conditional(hit);
+    }
+    const object = await env.FONTS.get(k);
     if (!object) return new Response('Not found', { status: 404 });
+    headers.set('etag', object.httpEtag);
+    const response = new Response(object.body, { headers });
+    if (cache && ctx?.waitUntil) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    return conditional(response);
+  };
+
+  // Avatars: public images, no font-row lookup (they have none).
+  if (key && /^avatars\/[\w-]+\.(png|jpg|webp)$/.test(key)) {
     const ext = key.slice(key.lastIndexOf('.') + 1);
     const type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-    const headers = new Headers({
-      'content-type': type,
-      etag: object.httpEtag,
-      'x-content-type-options': 'nosniff',
-      'x-frame-options': 'DENY',
-      'cache-control': 'public, max-age=86400',
-      'access-control-allow-origin': '*',
-    });
-    if (request.headers.get('if-none-match') === object.httpEtag) {
-      return new Response(null, { status: 304, headers });
-    }
-    return new Response(object.body, { headers });
+    return servePublic(
+      key,
+      new Headers({
+        'content-type': type,
+        'x-content-type-options': 'nosniff',
+        'x-frame-options': 'DENY',
+        'cache-control': 'public, max-age=86400',
+        'access-control-allow-origin': '*',
+      }),
+    );
   }
 
   if (!key || !/^fonts\/[\w.-]+\.(otf|ttf|woff2)$/.test(key)) {
     return new Response('Not found', { status: 404 });
   }
-  const id = key.replace(/^fonts\//, '').replace(/\.(otf|ttf|woff2)$/, '');
 
-  // visibility gate: only private fonts incur the auth check
+  const id = key.replace(/^fonts\//, '').replace(/\.(otf|ttf|woff2)$/, '');
+  // visibility gate, live on every request so a flip to private takes effect now
   const row = await env.DB.prepare('SELECT visibility, owner_id FROM fonts WHERE id = ?')
     .bind(id)
     .first<{ visibility: string; owner_id: string | null }>();
-  // no DB row = untracked key (e.g. a deleted font): do not serve from R2
   if (!row) return new Response('Not found', { status: 404 });
-  const isPrivate = row.visibility === 'private';
 
-  if (isPrivate) {
+  const ext = key.slice(key.lastIndexOf('.') + 1);
+  const ctype = ext === 'otf' ? 'font/otf' : ext === 'ttf' ? 'font/ttf' : 'font/woff2';
+
+  if (row.visibility === 'private') {
     const auth = createAuth(env);
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session || session.user.id !== row?.owner_id) {
+    if (!session || session.user.id !== row.owner_id) {
       return new Response('Not found', { status: 404 });
     }
+    // private: owner-only, never cached
+    const object = await env.FONTS.get(key);
+    if (!object) return new Response('Not found', { status: 404 });
+    const headers = new Headers({
+      'content-type': ctype,
+      etag: object.httpEtag,
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'DENY',
+      'cache-control': 'private, no-store',
+    });
+    return conditional(new Response(object.body, { headers }));
   }
 
-  const object = await env.FONTS.get(key);
-  if (!object) return new Response('Not found', { status: 404 });
-
-  const headers = new Headers();
-  // On real Workers this copies the stored content-type etc. Under miniflare
-  // (astro dev) it can throw serializing R2 metadata, so never let it 500 the
-  // font; the extension-derived content-type below covers that case.
-  try {
-    object.writeHttpMetadata(headers);
-  } catch {
-    /* dev-only miniflare quirk; fallback content-type applies */
-  }
-  headers.set('etag', object.httpEtag);
-  if (!headers.has('content-type')) {
-    const ext = key.slice(key.lastIndexOf('.') + 1);
-    headers.set('content-type', ext === 'otf' ? 'font/otf' : ext === 'ttf' ? 'font/ttf' : 'font/woff2');
-  }
-  // never let a font body be sniffed as something executable, and never framed
-  headers.set('x-content-type-options', 'nosniff');
-  headers.set('x-frame-options', 'DENY');
-  if (isPrivate) {
-    headers.set('cache-control', 'private, no-store');
-  } else {
-    headers.set('cache-control', 'public, max-age=31536000, immutable');
-    headers.set('access-control-allow-origin', '*');
-  }
-
-  if (request.headers.get('if-none-match') === object.httpEtag) {
-    return new Response(null, { status: 304, headers });
-  }
-  return new Response(object.body, { headers });
+  // public font: edge-cached, immutable
+  return servePublic(
+    key,
+    new Headers({
+      'content-type': ctype,
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'DENY',
+      'cache-control': 'public, max-age=31536000, immutable',
+      'access-control-allow-origin': '*',
+    }),
+  );
 };
