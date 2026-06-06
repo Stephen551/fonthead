@@ -60,7 +60,9 @@ const fontSchema = {
   name: f.name,
   url: canonicalUrl,
   creator: { '@type': 'Person', name: f.maker_handle, url: `${origin}/u/${f.maker_handle}` },
+  author: { '@type': 'Person', name: f.maker_handle, url: `${origin}/u/${f.maker_handle}` },
   dateCreated: f.created_at,
+  datePublished: f.created_at,
   genre: 'Typeface',
   ...(f.glyph_count ? { numberOfItems: f.glyph_count } : {}),
 };
