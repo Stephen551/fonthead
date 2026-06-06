@@ -897,8 +897,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                         style={{ flex: 1, minWidth: 160 }}
                         value={specimenWord}
                         onChange={(e) => setSpecimenWord(e.target.value)}
-                        placeholder="card word (optional)"
-                        aria-label="Card word (optional)"
+                        placeholder="preview word (optional)"
+                        aria-label="Preview word (optional)"
                       />
                       <div role="group" aria-label="Visibility" style={{ display: 'flex', border: '1px solid var(--line-2)', borderRadius: 2, overflow: 'hidden' }}>
                         {(['public', 'private'] as const).map((v) => (
