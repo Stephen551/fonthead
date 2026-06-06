@@ -55,7 +55,7 @@ export const TRACE_PRESETS: Record<string, TraceOpts> = {
   sketch: { ...DEFAULT_TRACE, opttolerance: 0.4, turdsize: 8, alphamax: 1.2 },
 };
 
-// Sheet-level colour knobs passed to the colour build (re-run analysis).
+// Sheet-level color knobs passed to the color build (re-run analysis).
 export interface ColorOpts {
   K?: number;
   stops?: number;
@@ -197,7 +197,7 @@ function filterFilledGlyphPaths(paths: string[], rowH: number, cellBaselineLocal
 }
 
 // Fine-detail supersample for the mono path. The mono cell is already 1-bit, so
-// (unlike colour) we must resample the cell region from the ORIGINAL source
+// (unlike color) we must resample the cell region from the ORIGINAL source
 // image, then threshold at the higher resolution, mirroring binarizeFull's hard
 // threshold + invert and re-applying the slicer's ownership mask so a touching
 // neighbour's ink stays out of the cell.
@@ -740,7 +740,7 @@ export function canvasToImage(c: HTMLCanvasElement): Promise<HTMLImageElement> {
   });
 }
 
-// ---- colour fonts (COLR/CPAL, built on the main thread) -------------------
+// ---- color fonts (COLR/CPAL, built on the main thread) -------------------
 
 export type ColorMode = 'flat' | 'gradient';
 
@@ -755,7 +755,7 @@ export interface ColorResult {
   report?: GlyphReport[];
 }
 
-/** Resolve once the colour engine + main-thread wawoff2 are present. */
+/** Resolve once the color engine + main-thread wawoff2 are present. */
 export function waitForColorEngine(timeoutMs = 20000): Promise<void> {
   return new Promise((resolve, reject) => {
     const ready = () =>
@@ -768,13 +768,13 @@ export function waitForColorEngine(timeoutMs = 20000): Promise<void> {
         resolve();
       } else if (Date.now() - t0 > timeoutMs) {
         clearInterval(iv);
-        reject(new Error('colour engine did not load'));
+        reject(new Error('color engine did not load'));
       }
     }, 50);
   });
 }
 
-/** Build a COLR/CPAL colour font from a sheet. Runs on the main thread; woff2
+/** Build a COLR/CPAL color font from a sheet. Runs on the main thread; woff2
  *  is compressed via the main-thread wawoff2. Returns OTF + WOFF2 (no TTF). */
 export async function buildColorFontFromImage(
   img: HTMLImageElement | ImageBitmap,
@@ -784,7 +784,7 @@ export async function buildColorFontFromImage(
   colorOpts: ColorOpts,
   onProgress?: Progress,
 ): Promise<ColorResult> {
-  onProgress?.('separate', mode === 'gradient' ? 'palette + gradient sampling' : 'palette + colour separation');
+  onProgress?.('separate', mode === 'gradient' ? 'palette + gradient sampling' : 'palette + color separation');
   const res = await w().ColorMaker.buildColorFromImage(img, {
     mode,
     familyName: family || 'Color Font',
@@ -826,7 +826,7 @@ export interface EditParams {
   excluded?: boolean;
 }
 
-/** Edit one glyph in the live colour session (re-trace / re-slice / exclude) and
+/** Edit one glyph in the live color session (re-trace / re-slice / exclude) and
  *  re-assemble. Re-runs only that record + the records->font step, never the
  *  image pipeline. Returns the rebuilt font + the refreshed per-glyph report. */
 export async function editColorGlyph(action: EditAction, idx: number, params: EditParams): Promise<ColorResult> {
@@ -849,9 +849,9 @@ export async function editColorGlyph(action: EditAction, idx: number, params: Ed
   };
 }
 
-/** A colour sample sheet: the alphabet filled with a vertical flame gradient
+/** A color sample sheet: the alphabet filled with a vertical flame gradient
  *  per row, so both gradient (smooth COLRv1) and flat (posterised COLRv0) modes
- *  have real colour to separate. */
+ *  have real color to separate. */
 export function makeColorSampleSheet(family = 'Anton, system-ui, sans-serif'): HTMLCanvasElement {
   const W = 2000;
   const rowH = 240;

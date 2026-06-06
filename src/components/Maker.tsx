@@ -38,12 +38,12 @@ type Kind = 'mono' | 'gradient' | 'flat';
 const MONO_STAGES = [
   { key: 'binarize', label: 'binarize', desc: 'threshold · otsu adaptive' },
   { key: 'slice', label: 'slice', desc: 'rows · cells · baseline' },
-  { key: 'trace', label: 'trace', desc: 'contours · vectorise' },
+  { key: 'trace', label: 'trace', desc: 'contours · vectorize' },
   { key: 'build', label: 'build', desc: 'opentype · pack otf ttf woff2' },
 ];
 const COLOR_STAGES = [
   { key: 'binarize', label: 'read', desc: 'sheet · background' },
-  { key: 'separate', label: 'separate', desc: 'palette · colour masks' },
+  { key: 'separate', label: 'separate', desc: 'palette · color masks' },
   { key: 'paint', label: 'paint', desc: 'COLR / CPAL layers' },
   { key: 'pack', label: 'pack', desc: 'opentype · woff2' },
 ];
@@ -55,13 +55,13 @@ const STEP_STAGE: Record<string, number> = {
   trace: 2,
   otf: 3, sidebearings: 3, hint: 3, 'hint-embed': 3, ttf: 3, woff: 3, woff2: 3,
 };
-// engine step -> stage index (colour)
+// engine step -> stage index (color)
 const COLOR_STEP_STAGE: Record<string, number> = { separate: 1, build: 2 };
 
 const KINDS: { id: Kind; label: string }[] = [
   { id: 'mono', label: 'monochrome' },
-  { id: 'gradient', label: 'colour · gradient' },
-  { id: 'flat', label: 'colour · flat' },
+  { id: 'gradient', label: 'color · gradient' },
+  { id: 'flat', label: 'color · flat' },
 ];
 
 function RangeRow({ label, min, max, value, onChange }: { label: string; min: number; max: number; value: number; onChange: (v: number) => void }) {
@@ -248,7 +248,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         ttf: res.ttf?.length ?? 0,
         woff2: res.woff2?.length ?? 0,
       };
-      // live preview from the built woff2 (fall back to otf); COLR renders in colour
+      // live preview from the built woff2 (fall back to otf); COLR renders in color
       const previewBytes = res.woff2 || res.otf;
       if (previewBytes) {
         const pf = await loadPreviewFont(previewBytes as Uint8Array);
@@ -453,7 +453,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <span className="fh-eyebrow">01 · the sheet</span>
           <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
-            {isColor ? 'colour letters on white' : 'dark letters on white'}
+            {isColor ? 'color letters on white' : 'dark letters on white'}
           </span>
         </div>
 
@@ -569,7 +569,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           />
         </div>
 
-        {/* advanced: trace preset (mono) or colour knobs */}
+        {/* advanced: trace preset (mono) or color knobs */}
         <div style={{ marginTop: 20, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
           <button
             onClick={() => setShowAdvanced((v) => !v)}
@@ -593,7 +593,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-                  {kind === 'flat' && <RangeRow label="colours (K)" min={2} max={6} value={colorOpts.K ?? 3} onChange={(v) => setColorOpts((o) => ({ ...o, K: v }))} />}
+                  {kind === 'flat' && <RangeRow label="colors (K)" min={2} max={6} value={colorOpts.K ?? 3} onChange={(v) => setColorOpts((o) => ({ ...o, K: v }))} />}
                   {kind === 'gradient' && <RangeRow label="gradient stops" min={2} max={8} value={colorOpts.stops ?? 5} onChange={(v) => setColorOpts((o) => ({ ...o, stops: v }))} />}
                   <RangeRow label="background" min={6} max={40} value={colorOpts.bgDist ?? 20} onChange={(v) => setColorOpts((o) => ({ ...o, bgDist: v }))} />
                   {kind === 'gradient' && (
@@ -713,7 +713,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 style={{ marginTop: 12, width: '100%', maxWidth: 340 }}
               />
               <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '10px 0 14px' }}>
-                {glyphCount} glyphs · {isColor ? `colour ${colrStatus === 'ok' ? 'COLR/CPAL ✓' : colrStatus || 'mono fallback'}` : 'traced'} · built in your browser
+                {glyphCount} glyphs · {isColor ? `color ${colrStatus === 'ok' ? 'COLR/CPAL ✓' : colrStatus || 'mono fallback'}` : 'traced'} · built in your browser
               </div>
 
               {/* glyph inspection grid: every glyph rendered in the built font + health badge */}
@@ -929,7 +929,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           {phase === 'idle' && (
             <p className="fh-mono" style={{ fontSize: 11.5, color: 'var(--ink-faint)', lineHeight: 1.6 }}>
               Drop a sheet or try the sample. Everything builds in your browser, nothing is uploaded.
-              Monochrome gives otf, ttf, and woff2; colour gives a COLR/CPAL otf and woff2.
+              Monochrome gives otf, ttf, and woff2; color gives a COLR/CPAL otf and woff2.
             </p>
           )}
           {phase === 'working' && (

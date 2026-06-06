@@ -4,7 +4,7 @@ import { createAuth } from '../lib/auth';
 
 export const prerender = false;
 
-// A ?next= path (set when a vote/favourite bounced a signed-out visitor here)
+// A ?next= path (set when a vote/favorite bounced a signed-out visitor here)
 // returns them where they were. Only same-origin paths are honoured, never an
 // absolute or protocol-relative URL, so it can't become an open redirect.
 const nextParam = Astro.url.searchParams.get('next');

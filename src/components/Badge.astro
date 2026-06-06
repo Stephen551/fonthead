@@ -4,7 +4,7 @@ interface Props {
   vis?: 'private' | null;
 }
 const { kind = null, vis = null } = Astro.props;
-const label = kind === 'color' ? 'colour' : kind === 'line' ? 'single-line' : kind === 'variable' ? 'variable' : '';
+const label = kind === 'color' ? 'color' : kind === 'line' ? 'single-line' : kind === 'variable' ? 'variable' : '';
 ---
 
 {vis === 'private' && (

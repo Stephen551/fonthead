@@ -239,7 +239,7 @@ export function specClass(meta: FontMeta): string {
   return 'spec' + t;
 }
 
-/** Inline style for a specimen element (gradient image, flat colour, variation). */
+/** Inline style for a specimen element (gradient image, flat color, variation). */
 export function specStyle(id: string, meta: FontMeta, fallback = 'var(--sans)'): string {
   const parts = [`font-family:'${familyOf(id)}',${fallback}`];
   if (meta.italic) parts.push('font-style:italic');

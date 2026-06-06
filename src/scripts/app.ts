@@ -1,4 +1,4 @@
-// fonthead.dev — global client behaviour, wired for View Transitions.
+// fonthead.dev — global client behavior, wired for View Transitions.
 // One delegated listener handles favorite/vote across every page; lazy-font
 // loading and the font-page size slider re-init on each navigation.
 import { actions } from 'astro:actions';
@@ -6,7 +6,7 @@ import { actions } from 'astro:actions';
 const signedIn = () => document.body.dataset.signedIn === 'true';
 
 // Send a signed-out visitor to sign in, remembering where they were so the
-// vote/favourite they tried lands them back on the same font, not on /account.
+// vote/favorite they tried lands them back on the same font, not on /account.
 function toSignIn() {
   const next = encodeURIComponent(location.pathname + location.search);
   window.location.href = '/sign-in?next=' + next;
@@ -53,7 +53,7 @@ async function onFav(btn: HTMLElement) {
     if (error || !data) {
       btn.classList.toggle('on', was);
       btn.setAttribute('aria-pressed', String(was));
-      announce('Could not update favourite, try again.');
+      announce('Could not update favorite, try again.');
       return;
     }
     btn.classList.toggle('on', data.favorited);

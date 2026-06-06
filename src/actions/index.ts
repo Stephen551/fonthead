@@ -119,7 +119,7 @@ export const server = {
         .optional(),
       visibility: z.enum(['public', 'private']),
       glyphCount: z.coerce.number().int().min(0).max(10000),
-      // 'normal' = monochrome (otf+ttf+woff2); 'gradient'/'flat' = COLR/CPAL colour (otf+woff2, no ttf)
+      // 'normal' = monochrome (otf+ttf+woff2); 'gradient'/'flat' = COLR/CPAL color (otf+woff2, no ttf)
       treat: z.enum(['normal', 'gradient', 'flat']).default('normal'),
       otf: z.instanceof(File),
       woff2: z.instanceof(File),
@@ -166,8 +166,8 @@ export const server = {
         }
       }
 
-      // A real colour font carries its own COLR/CPAL colour, so no CSS treatment
-      // is applied (treat stays 'normal'); it just earns the colour badge.
+      // A real color font carries its own COLR/CPAL color, so no CSS treatment
+      // is applied (treat stays 'normal'); it just earns the color badge.
       const isColor = input.treat !== 'normal';
       const meta = {
         treat: 'normal',

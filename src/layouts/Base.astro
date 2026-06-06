@@ -110,7 +110,7 @@ const coffeeOn = COFFEE_URL.startsWith('https://');
     <main id="main">
       <slot />
     </main>
-    {/* polite live region for transient status (vote/favourite/report results) */}
+    {/* polite live region for transient status (vote/favorite/report results) */}
     <div id="fh-status" class="sr-only" role="status" aria-live="polite"></div>
     {coffeeOn && (
       <div id="fh-coffee" class="fh-coffee" hidden role="complementary" aria-label="Support fonthead">

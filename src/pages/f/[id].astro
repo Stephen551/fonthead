@@ -52,7 +52,7 @@ const specInline = specStyle(f.id, m);
 // and maker are user-controlled, but Base escapes the JSON-LD before set:html.
 const origin = Astro.url.origin;
 const canonicalUrl = Astro.url.href;
-const kind = m.badge === 'color' ? 'colour font' : 'font';
+const kind = m.badge === 'color' ? 'color font' : 'font';
 const fontDescription = `${f.name}, a ${kind} by ${f.maker_handle} on fonthead.dev. Preview every glyph and download it, or trace your own from an alphabet sheet.`;
 // Stand-in faces credit their original designer's full name (spaces and all) and
 // have no /u/ page, so only real makers get a profile url; that handle is already
@@ -165,7 +165,7 @@ const fontSchema = {
             ) : (
               <div class="fh-dl" aria-disabled="true" title={m.standIn ? 'stand-in face: install the woff2, or make your own' : `${file.label} not available for this font`}>
                 <span class="fh-mono fmt">{file.label}</span>
-                <span class="fh-mono sz">{m.standIn ? 'from the maker' : m.badge === 'color' ? 'n/a for colour' : '–'}</span>
+                <span class="fh-mono sz">{m.standIn ? 'from the maker' : m.badge === 'color' ? 'n/a for color' : '–'}</span>
               </div>
             ),
           )}

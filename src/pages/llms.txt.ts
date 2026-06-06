@@ -12,7 +12,7 @@ export const GET: APIRoute = ({ url }) => {
 
 ## Pages
 - [Library](${o}/): browse and vote on fonts the community has made
-- [Maker](${o}/make): trace an alphabet sheet into an OTF, TTF, or WOFF2 font, monochrome or colour
+- [Maker](${o}/make): trace an alphabet sheet into an OTF, TTF, or WOFF2 font, monochrome or color
 - [Sign in](${o}/sign-in): an account holds your fonts, favorites, and what you publish
 
 ## About

@@ -82,9 +82,9 @@ test.describe('maker builds valid fonts', () => {
     writeFileSync('e2e/built-sample.otf', otf);
   });
 
-  test('colour gradient sample renders COLR', async ({ page }) => {
+  test('color gradient sample renders COLR', async ({ page }) => {
     await page.goto('/make');
-    await clickButton(page, 'colour · gradient');
+    await clickButton(page, 'color · gradient');
     await clickButton(page, 'try a sample sheet');
     await buildDone(page);
     const lb = await lastBuild(page);
@@ -93,9 +93,9 @@ test.describe('maker builds valid fonts', () => {
     assertValidFont(await captureOtf(page), lb.glyphCount);
   });
 
-  test('colour flat sample renders COLR', async ({ page }) => {
+  test('color flat sample renders COLR', async ({ page }) => {
     await page.goto('/make');
-    await clickButton(page, 'colour · flat');
+    await clickButton(page, 'color · flat');
     await clickButton(page, 'try a sample sheet');
     await buildDone(page);
     const lb = await lastBuild(page);

@@ -16,7 +16,7 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
 
 <Base
   title="Make a font · fonthead.dev"
-  description="Drop an alphabet sheet and trace it into a real, installable font in your browser. Monochrome or colour, yours to download. Nothing leaves the page."
+  description="Drop an alphabet sheet and trace it into a real, installable font in your browser. Monochrome or color, yours to download. Nothing leaves the page."
   active="make"
 >
   <style slot="head" is:inline set:html={faceCss}></style>
@@ -45,7 +45,7 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
   <script is:inline defer src={`/assets/vendor/font-engine-colr-v1.js?v=${V}`}></script>
   <script is:inline defer src={`/assets/vendor/font-engine-color-build.js?v=${V}`}></script>
   <script is:inline defer src={`/assets/vendor/font-engine-formats.js?v=${V}`}></script>
-  <!-- the engine's own validator: the gate that drops fonts that fail (mono + colour) -->
+  <!-- the engine's own validator: the gate that drops fonts that fail (mono + color) -->
   <script is:inline defer src={`/assets/vendor/font-engine-validate.js?v=${V}`}></script>
   <script is:inline defer src={`/assets/color-orchestrator.js?v=${V}`}></script>
 
@@ -96,7 +96,7 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
     <Maker client:only="react" signedIn={signedIn} />
 
     <footer class="fh-pad" style="padding:20px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">builds otf · ttf · woff2 · colour (COLR) · nothing leaves your browser</div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">builds otf · ttf · woff2 · color (COLR) · nothing leaves your browser</div>
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">your font · your license</div>
     </footer>
   </div>

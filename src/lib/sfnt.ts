@@ -1,7 +1,7 @@
 // SFNT (OTF/TTF) table-checksum repair + verification.
 //
 // opentype.js can write a table checksum one off when the table length is not
-// 4-byte aligned (it surfaced on a 242-glyph colour font as a CFF checksum
+// 4-byte aligned (it surfaced on a 242-glyph color font as a CFF checksum
 // mismatch). Windows enforces table checksums and rejects such files, even
 // though browsers/fontkit tolerate them. fixSfntChecksums recomputes every
 // table checksum (zero-padded, per the OpenType spec) and head.checkSumAdjustment.
