@@ -10,15 +10,21 @@ export function createAuth(env: Env) {
   if (!env.BETTER_AUTH_SECRET || !env.BETTER_AUTH_URL) {
     throw new Error('Auth is not configured: BETTER_AUTH_SECRET and BETTER_AUTH_URL are required.');
   }
-  // localhost origins are trusted only when running locally; production trusts
-  // just its own canonical origin.
+  // A browser sends an Origin header that Better Auth checks against this list;
+  // the live domain MUST be here or sign-in/sign-up fail with "Invalid origin".
+  // Trust the canonical domain, the workers.dev fallback, whatever BETTER_AUTH_URL
+  // is set to, and localhost only when running locally.
   const isLocal = /localhost|127\.0\.0\.1/.test(env.BETTER_AUTH_URL || '');
   const trustedOrigins = [
-    env.BETTER_AUTH_URL,
-    ...(isLocal
-      ? ['http://localhost:4321', 'http://127.0.0.1:4321', 'http://localhost:8788', 'http://127.0.0.1:8788']
-      : []),
-  ].filter(Boolean);
+    ...new Set([
+      env.BETTER_AUTH_URL,
+      'https://fonthead.dev',
+      'https://fonthead.stephenalatriste.workers.dev',
+      ...(isLocal
+        ? ['http://localhost:4321', 'http://127.0.0.1:4321', 'http://localhost:8788', 'http://127.0.0.1:8788']
+        : []),
+    ]),
+  ].filter((o): o is string => !!o);
 
   return betterAuth({
     database: env.DB,
