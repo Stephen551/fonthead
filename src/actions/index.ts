@@ -267,15 +267,23 @@ export const server = {
   checkHandle: defineAction({
     input: z.object({ handle: z.string().min(1).max(40) }),
     handler: async ({ handle }, ctx) => {
-      const { env, userId } = await requireUser(ctx);
-      await limit(env, userId, 'handlecheck', 60, 60);
+      // Anonymous-friendly: the sign-up picker calls this before an account
+      // exists. Availability is public anyway (handles live at /u/<handle>). When
+      // signed in (the account editor) the user's own handle is excluded.
+      const env = ctx.locals.runtime.env;
+      const auth = createAuth(env);
+      const session = await auth.api.getSession({ headers: ctx.request.headers });
+      const who = session?.user.id ?? ctx.request.headers.get('cf-connecting-ip') ?? 'anon';
+      await limit(env, who, 'handlecheck', 60, 60);
       const normalized = normalizeHandle(handle);
       if (!isValidHandle(handle) || RESERVED_HANDLES.has(normalized)) {
         return { available: false, normalized, reason: 'invalid' as const };
       }
-      const taken = await env.DB.prepare('SELECT 1 FROM "user" WHERE handle = ? AND id <> ?')
-        .bind(normalized, userId)
-        .first();
+      const taken = session
+        ? await env.DB.prepare('SELECT 1 FROM "user" WHERE handle = ? AND id <> ?')
+            .bind(normalized, session.user.id)
+            .first()
+        : await env.DB.prepare('SELECT 1 FROM "user" WHERE handle = ?').bind(normalized).first();
       return { available: !taken, normalized, reason: (taken ? 'taken' : 'ok') as 'taken' | 'ok' };
     },
   }),
