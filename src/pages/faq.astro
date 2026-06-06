@@ -50,13 +50,13 @@ const faqSchema = {
   active="library"
 >
   <div style="background:var(--paper);min-height:100vh;">
-    <header style="padding:48px 40px 28px;border-bottom:1px solid var(--line);">
+    <header class="fh-pad" style="padding:48px 0 28px;border-bottom:1px solid var(--line);">
       <p class="fh-eyebrow">fonthead.dev</p>
       <h1 class="fh-mono" style="font-size:34px;font-weight:700;letter-spacing:-.01em;margin:10px 0 6px;">Questions</h1>
       <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);">What fonthead is, what stays on your machine, and how the maker works.</p>
     </header>
 
-    <div style="max-width:720px;padding:8px 40px 48px;">
+    <div class="fh-pad" style="max-width:760px;padding:8px 0 48px;">
       {faqs.map((f) => (
         <section style="padding:26px 0;border-bottom:1px solid var(--line);">
           <h2 style="font-size:16px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px;">{f.q}</h2>
@@ -65,7 +65,7 @@ const faqSchema = {
       ))}
     </div>
 
-    <footer style="padding:26px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;">
+    <footer class="fh-pad" style="padding:26px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;">
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">
         <a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a>
       </div>
