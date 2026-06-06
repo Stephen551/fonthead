@@ -3,6 +3,19 @@ import { writeFileSync } from 'node:fs';
 import { verifySfntChecksums } from '../src/lib/sfnt';
 import { isOtf } from '../src/lib/fontsig';
 
+// The onboarding walkthrough auto-shows a modal on the first /make visit, which
+// would block the maker UI here. Mark it seen before the page loads so these
+// tests drive the maker directly (the tour itself is covered by onboarding.spec).
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem('fh-maker-tour-seen', '1');
+    } catch {
+      /* private mode */
+    }
+  });
+});
+
 // The trust gate: prove the maker still produces a VALID, Windows-openable font
 // end to end, so a refactor cannot silently ship a broken one. We drive the real
 // /make page, build, then capture the actual OTF bytes and check the SFNT

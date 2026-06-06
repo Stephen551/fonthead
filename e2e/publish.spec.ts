@@ -1,5 +1,16 @@
 import { test, expect, type Page } from '@playwright/test';
 
+// Skip the maker onboarding modal so it does not block the build/publish flow.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem('fh-maker-tour-seen', '1');
+    } catch {
+      /* private mode */
+    }
+  });
+});
+
 // Flag 5: the auth + publish boundary, end to end. Sign up, build a font,
 // publish it, and confirm it reaches a font page and the public wall. Runs
 // against the dev server's local D1 + R2.

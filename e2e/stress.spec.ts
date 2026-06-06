@@ -2,6 +2,17 @@ import { test, expect, type Page } from '@playwright/test';
 import { verifySfntChecksums } from '../src/lib/sfnt';
 import { isOtf } from '../src/lib/fontsig';
 
+// Skip the maker onboarding modal so it does not block the build under test.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem('fh-maker-tour-seen', '1');
+    } catch {
+      /* private mode */
+    }
+  });
+});
+
 // Flag 3: the honest behavior matrix. Render adversarial sheets in-browser
 // (low resolution, touching letters, thin strokes, ornate serifs, punctuation),
 // feed each to the real maker, and record glyph coverage + validity. The hard
