@@ -369,7 +369,11 @@ body {
 /* generate-a-sheet block on the maker page */
 .fh-gen { padding: 22px 40px 24px; border-bottom: 1px solid var(--line); background: var(--paper-2); }
 .fh-gen-lead { margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); max-width: 70ch; line-height: 1.55; }
-.fh-gen-styles { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }
+.fh-gen-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }
+.fh-preset[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.fh-gen-styles { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+/* the chip row has display:flex, which overrides the default [hidden]; restore it */
+.fh-gen-styles[hidden], .fh-gen-field[hidden] { display: none; }
 .fh-chip {
   font-family: var(--mono); font-size: 12px; color: var(--ink-soft); background: var(--paper);
   border: 1px solid var(--line-2); border-radius: 999px; padding: 6px 13px; cursor: pointer;

@@ -66,27 +66,32 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
       </div>
     </div>
 
-    <!-- no sheet? generate one: pick or type a style, copy the prompt into an image generator -->
-    <section class="fh-gen" aria-label="Generate an alphabet sheet">
+    <!-- no sheet? generate one: pick a sheet type (each maps to a maker build
+         path), copy the prompt into an image generator, drop the result below -->
+    <section class="fh-gen" aria-label="Generate a character sheet">
       <div class="fh-gen-intro">
         <p class="fh-eyebrow">no sheet? generate one</p>
-        <p class="fh-gen-lead">Pick or describe a style, copy the prompt into an image generator like ChatGPT or Midjourney, then drop the result into the maker below.</p>
+        <p class="fh-gen-lead">Pick a sheet type, copy the prompt into an image generator like ChatGPT or Midjourney, then drop the result into the maker below.</p>
       </div>
-      <div class="fh-gen-styles">
+      <div class="fh-gen-presets" role="group" aria-label="Sheet type">
+        <button type="button" class="fh-chip fh-preset" data-preset="standard" aria-pressed="true">standard</button>
+        <button type="button" class="fh-chip fh-preset" data-preset="monoline" aria-pressed="false">monoline</button>
+        <button type="button" class="fh-chip fh-preset" data-preset="flat" aria-pressed="false">flat color</button>
+        <button type="button" class="fh-chip fh-preset" data-preset="gradient" aria-pressed="false">gradient color</button>
+      </div>
+      <!-- standard only: quick style chips that fill the box below -->
+      <div class="fh-gen-styles" id="gen-stylechips">
         <button type="button" class="fh-chip" data-style="bold geometric sans-serif">geometric sans</button>
         <button type="button" class="fh-chip" data-style="heavy slab serif">slab serif</button>
         <button type="button" class="fh-chip" data-style="thick rounded marker handwriting">marker hand</button>
         <button type="button" class="fh-chip" data-style="condensed art deco display">art deco</button>
         <button type="button" class="fh-chip" data-style="blocky pixel bitmap">pixel</button>
       </div>
-      <label for="gen-style" class="fh-mono fh-gen-label">YOUR STYLE</label>
-      <input
-        id="gen-style"
-        class="fh-input fh-gen-input"
-        type="text"
-        autocomplete="off"
-        placeholder="type a style: brush script, bubbly, monospace tech, hand-cut stencil..."
-      />
+      <!-- contextual box: style (standard) / palette (flat) / color family (gradient); hidden for monoline -->
+      <div class="fh-gen-field" id="gen-field">
+        <label for="gen-extra" class="fh-mono fh-gen-label" id="gen-extra-label">YOUR STYLE</label>
+        <input id="gen-extra" class="fh-input fh-gen-input" type="text" autocomplete="off" placeholder="type a style: brush script, bubbly, monospace tech, hand-cut stencil..." />
+      </div>
       <div class="fh-gen-out">
         <pre id="gen-prompt" class="fh-gen-prompt" aria-live="polite"></pre>
         <button id="gen-copy" type="button" class="fh-btn fh-gen-copy">copy prompt</button>
@@ -121,29 +126,153 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
   </div>
 
   <script>
-    // Generate-a-sheet prompt builder: a style (a chip or typed) fills a prompt
-    // tuned for the tracer (white background, solid black letters, clean rows).
-    const PROMPT = (style: string) =>
-      `A clean alphabet specimen sheet on a pure white background with solid black letters, in a ${style} style. ` +
-      `Three evenly spaced rows: row one A B C D E F G H I J K L M N O P Q R S T U V W X Y Z, ` +
-      `row two a b c d e f g h i j k l m n o p q r s t u v w x y z, row three 0 1 2 3 4 5 6 7 8 9. ` +
-      `Each character clearly separated with even spacing, no overlap, no shadows, no decoration, high contrast, flat top-down view.`;
-    const DEFAULT_STYLE = 'bold geometric sans-serif';
-    const styleInput = document.getElementById('gen-style') as HTMLInputElement | null;
-    const promptEl = document.getElementById('gen-prompt');
-    const renderPrompt = () => {
-      if (promptEl) promptEl.textContent = PROMPT((styleInput?.value.trim() || DEFAULT_STYLE));
+    // Generate-a-sheet: four presets, each mapping to a maker build path
+    // (standard -> mono, monoline -> single-line, flat/gradient -> color). Each
+    // is a full prompt with one fill slot: standard takes a style, flat a palette,
+    // gradient a color family, monoline none. The two symbol rows match the
+    // maker's punctuation order so the charset auto-detect reads every row.
+    // (Template lines sit at column 0 so no source indentation leaks into the copy.)
+    type Preset = 'standard' | 'monoline' | 'flat' | 'gradient';
+
+    const STANDARD = (style: string) =>
+      `Hand-drawn alphabet sheet, 7 rows on white paper:
+Row 1: capitals A B C D E F G H I J K L M
+Row 2: capitals N O P Q R S T U V W X Y Z
+Row 3: lowercase a b c d e f g h i j k l m
+Row 4: lowercase n o p q r s t u v w x y z
+Row 5: digits 0 1 2 3 4 5 6 7 8 9
+Row 6: symbols ! ? @ # $ % ^ & * ( ) - _ + = [ ]
+Row 7: symbols { } ; : ' " , . < > / \\ |
+
+Requirements:
+- Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
+- Consistent letterform style throughout ${style ? `(${style})` : '(serif or sans-serif, your choice)'}
+- Wide horizontal spacing between letters (at least one letter-width gap)
+- Even pitch within each row, letters baseline-aligned
+- No swashes or decorative flourishes that extend into the next letter
+- High resolution: at least 2000px wide
+- Output: one clean PNG image, 7 rows of letters as specified above`;
+
+    const MONOLINE = () =>
+      `Hand-drawn MONOLINE alphabet sheet, 7 rows on white paper:
+Row 1: capitals A B C D E F G H I J K L M
+Row 2: capitals N O P Q R S T U V W X Y Z
+Row 3: lowercase a b c d e f g h i j k l m
+Row 4: lowercase n o p q r s t u v w x y z
+Row 5: digits 0 1 2 3 4 5 6 7 8 9
+Row 6: symbols ! ? @ # $ % ^ & * ( ) - _ + = [ ]
+Row 7: symbols { } ; : ' " , . < > / \\ |
+
+MONOLINE style is critical (this sheet feeds a pen / single-line tracer):
+- Every stroke the SAME uniform width, like a round-tipped marker or technical pen
+- ZERO thick/thin contrast, no stroke modulation anywhere on any letter
+- No serifs, no flared or tapered terminals, rounded stroke ends
+- Geometric or humanist sans style, one single weight throughout
+- Moderate stroke weight, roughly 1/9 of the letter height, not hairline and not bold
+
+Other requirements:
+- Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
+- Wide horizontal spacing between letters (at least one letter-width gap)
+- Even pitch within each row, letters baseline-aligned
+- No swashes or flourishes that extend into the next letter
+- High resolution: at least 2000px wide
+- Output: one clean PNG image, 7 rows of letters as specified above`;
+
+    const FLAT = (palette: string) =>
+      `Hand-drawn FLAT-COLOR character sheet for a layered color-font builder, 6 rows on white paper:
+Row 1: capitals A B C D E F G H I J K L M
+Row 2: capitals N O P Q R S T U V W X Y Z
+Row 3: lowercase a b c d e f g h i j k l m
+Row 4: lowercase n o p q r s t u v w x y z
+Row 5: digits 0 1 2 3 4 5 6 7 8 9
+Row 6: punctuation . , ! ? : ; ' " - & @ #
+
+This feeds a COLRv0 FLAT-LAYER builder, so flat color is critical:
+- Use a FIXED palette of exactly these flat colors on every character: ${palette || '[list 2 to 4 flat colors]'}
+- Every character uses two or more of those colors in solid flat fills (a two-tone glyph, or a colored face with an offset block in a second color)
+- Reuse the SAME palette on every character; do not introduce new colors per glyph
+- ZERO gradients, no shading, no texture, no glow; hard clean edges between color regions
+- Any outline stroke must be one of the palette colors, not a new color
+
+Other requirements:
+- Solid PURE-WHITE background, no off-white paper texture, no drop shadows on the paper
+- Wide horizontal spacing between characters (at least one character-width gap)
+- Even pitch within each row, all characters baseline-aligned and the same height
+- No swashes or flourishes that extend into the next character
+- ALL 6 rows present, every character clearly separated with clean gaps
+- High resolution: at least 2400px wide
+- Output: one clean PNG image, the 6 rows above and nothing else`;
+
+    const GRADIENT = (family: string) =>
+      `Hand-drawn COLOR character sheet for a gradient color-font builder, 6 rows on white paper:
+Row 1: capitals A B C D E F G H I J K L M
+Row 2: capitals N O P Q R S T U V W X Y Z
+Row 3: lowercase a b c d e f g h i j k l m
+Row 4: lowercase n o p q r s t u v w x y z
+Row 5: digits 0 1 2 3 4 5 6 7 8 9
+Row 6: punctuation . , ! ? : ; ' " - & @ #
+
+This feeds a COLRv1 GRADIENT builder, so each character must read as one richly colored shape:
+- Color family: ${family || '[name one color family]'}, the SAME family on every character
+- Each character is a bold filled letter that shades SMOOTHLY within itself (lighter toward the top, deeper toward the bottom). That internal shading becomes the font gradient
+- Give every character a clean solid BLACK outline (the builder can keep it as a real outline)
+- Smooth color only inside the letters, no busy texture, no photo detail, no separate background shapes
+- Keep it consistent: same color family, same outline, every character
+
+Other requirements:
+- Solid PURE-WHITE background, no off-white paper texture, no drop shadows on the paper
+- Wide horizontal spacing between characters (at least one character-width gap)
+- Even pitch within each row, all characters baseline-aligned and the same height
+- No swashes or flourishes that extend into the next character
+- ALL 6 rows present, every character clearly separated with clean gaps
+- High resolution: at least 2400px wide
+- Output: one clean PNG image, the 6 rows above and nothing else`;
+
+    const PRESETS: Record<Preset, { build: (v: string) => string; chips: boolean; label: string | null; placeholder: string }> = {
+      standard: { build: STANDARD, chips: true, label: 'YOUR STYLE', placeholder: 'type a style: brush script, bubbly, monospace tech, hand-cut stencil...' },
+      monoline: { build: () => MONOLINE(), chips: false, label: null, placeholder: '' },
+      flat: { build: FLAT, chips: false, label: 'YOUR PALETTE', placeholder: 'list 2 to 4 flat colors' },
+      gradient: { build: GRADIENT, chips: false, label: 'COLOR FAMILY', placeholder: 'name one color family' },
     };
-    styleInput?.addEventListener('input', renderPrompt);
-    document.querySelectorAll<HTMLElement>('.fh-chip').forEach((chip) =>
+
+    let activePreset: Preset = 'standard';
+    const extra = document.getElementById('gen-extra') as HTMLInputElement | null;
+    const extraLabel = document.getElementById('gen-extra-label');
+    const field = document.getElementById('gen-field');
+    const stylechips = document.getElementById('gen-stylechips');
+    const promptEl = document.getElementById('gen-prompt');
+
+    const renderPrompt = () => {
+      if (promptEl) promptEl.textContent = PRESETS[activePreset].build(extra?.value.trim() || '');
+    };
+
+    const applyPreset = (p: Preset) => {
+      activePreset = p;
+      const cfg = PRESETS[p];
+      document.querySelectorAll<HTMLElement>('.fh-preset').forEach((b) =>
+        b.setAttribute('aria-pressed', String(b.dataset.preset === p)),
+      );
+      if (stylechips) stylechips.hidden = !cfg.chips;
+      if (field) field.hidden = cfg.label === null;
+      if (cfg.label && extraLabel) extraLabel.textContent = cfg.label;
+      if (cfg.label && extra) extra.placeholder = cfg.placeholder;
+      if (extra) extra.value = ''; // a style does not carry into a palette
+      renderPrompt();
+    };
+
+    document.querySelectorAll<HTMLElement>('.fh-preset').forEach((b) =>
+      b.addEventListener('click', () => applyPreset((b.dataset.preset as Preset) || 'standard')),
+    );
+    extra?.addEventListener('input', renderPrompt);
+    document.querySelectorAll<HTMLElement>('#gen-stylechips .fh-chip').forEach((chip) =>
       chip.addEventListener('click', () => {
-        if (!styleInput) return;
-        styleInput.value = chip.dataset.style || '';
+        if (!extra) return;
+        extra.value = chip.dataset.style || '';
         renderPrompt();
-        styleInput.focus();
+        extra.focus();
       }),
     );
-    renderPrompt();
+    applyPreset('standard');
     const copyBtn = document.getElementById('gen-copy');
     copyBtn?.addEventListener('click', async () => {
       try {

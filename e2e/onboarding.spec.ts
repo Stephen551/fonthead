@@ -18,11 +18,17 @@ test('walkthrough shows, dismisses, retriggers; prompt builder reflects the styl
   await page.keyboard.press('Escape');
   await expect(tour).toBeHidden();
 
-  // a style chip fills the prompt
+  // a style chip fills the prompt (standard preset)
   await page.getByRole('button', { name: 'art deco', exact: true }).click();
   await expect(page.locator('#gen-prompt')).toContainText('condensed art deco display');
 
   // a typed style updates the prompt live
-  await page.locator('#gen-style').fill('pixel bitmap');
+  await page.locator('#gen-extra').fill('pixel bitmap');
   await expect(page.locator('#gen-prompt')).toContainText('pixel bitmap');
+
+  // switching preset swaps the whole prompt and its fill slot
+  await page.getByRole('button', { name: 'flat color', exact: true }).click();
+  await expect(page.locator('#gen-prompt')).toContainText('COLRv0 FLAT-LAYER builder');
+  await page.locator('#gen-extra').fill('charcoal, red, cream');
+  await expect(page.locator('#gen-prompt')).toContainText('charcoal, red, cream');
 });
