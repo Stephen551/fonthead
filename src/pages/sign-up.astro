@@ -1,0 +1,101 @@
+---
+import Base from '../layouts/Base.astro';
+import { createAuth } from '../lib/auth';
+
+export const prerender = false;
+
+// If already signed in, go straight to the account page.
+const auth = createAuth(Astro.locals.runtime.env);
+const session = await auth.api.getSession({ headers: Astro.request.headers });
+if (session) return Astro.redirect('/account');
+---
+
+<Base title="Create an account · fonthead.dev">
+  <div style="background:var(--paper);min-height:100vh;">
+    <div style="max-width:420px;margin:64px auto;padding:0 24px;">
+      <p class="fh-eyebrow">fonthead.dev · accounts</p>
+      <h1 style="font-size:24px;font-weight:600;letter-spacing:-.02em;margin:12px 0 6px;">Create an account</h1>
+      <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 26px;line-height:1.5;">
+        Your handle is the name on your maker page and your fonts. You pick it once, so choose one you like.
+      </p>
+
+      <form id="authform" style="display:flex;flex-direction:column;gap:12px;">
+        <label for="name" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;">NAME</label>
+        <input id="name" name="name" type="text" class="fh-input" autocomplete="name" required placeholder="your name" />
+
+        <label for="handle" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">HANDLE</label>
+        <input id="handle" name="handle" type="text" class="fh-input" autocomplete="off" required placeholder="your-handle" aria-describedby="handlestate" />
+        <p id="handlestate" role="status" aria-live="polite" class="fh-mono" style="font-size:11px;min-height:14px;margin:-4px 0 0;color:var(--ink-faint);"></p>
+
+        <label for="email" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">EMAIL</label>
+        <input id="email" name="email" type="email" class="fh-input" autocomplete="email" required placeholder="you@example.com" />
+
+        <label for="password" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">PASSWORD</label>
+        <input id="password" name="password" type="password" class="fh-input" autocomplete="new-password" required minlength="8" placeholder="at least 8 characters" />
+
+        <div style="margin-top:18px;">
+          <button type="button" id="create" class="fh-btn" style="width:100%;justify-content:center;">create account</button>
+        </div>
+        <p id="msg" role="status" aria-live="polite" class="fh-mono" style="font-size:11.5px;color:var(--signal);min-height:16px;margin:8px 0 0;"></p>
+        <p class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);margin:4px 0 0;">
+          Already have an account? <a href="/sign-in" style="color:var(--ink);">Sign in</a>
+        </p>
+      </form>
+    </div>
+  </div>
+</Base>
+
+<script>
+  import { authClient } from '../lib/auth-client';
+  import { actions } from 'astro:actions';
+
+  const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
+  const msg = document.getElementById('msg') as HTMLElement;
+  const hstate = document.getElementById('handlestate') as HTMLElement;
+  const setMsg = (t: string) => (msg.textContent = t);
+
+  let timer: ReturnType<typeof setTimeout>;
+  document.getElementById('handle')?.addEventListener('input', () => {
+    const v = $('handle').value.trim();
+    hstate.textContent = '';
+    clearTimeout(timer);
+    if (!v) return;
+    timer = setTimeout(async () => {
+      const { data } = await actions.checkHandle({ handle: v });
+      if (!data) return;
+      if (data.available) {
+        hstate.style.color = 'var(--ink-soft)';
+        hstate.textContent = 'available as @' + data.normalized;
+      } else {
+        hstate.style.color = 'var(--signal)';
+        hstate.textContent =
+          data.reason === 'taken' ? 'that handle is taken' : 'pick 2 to 32 letters, numbers, dots, or dashes';
+      }
+    }, 300);
+  });
+
+  async function create() {
+    const name = $('name').value.trim();
+    const handle = $('handle').value.trim();
+    const email = $('email').value.trim();
+    const password = $('password').value;
+    if (!name || !email || !password) return setMsg('name, email, and password are required');
+    if (!handle) return setMsg('pick a handle');
+    setMsg('creating account…');
+
+    const res = await authClient.signUp.email({ email, password, name });
+    if (res.error) return setMsg(res.error.message || 'that did not work');
+
+    // Now signed in: claim the handle. If it was taken in the gap, the account is
+    // still created and they can set a handle on their profile.
+    const { data, error } = await actions.claimHandle({ handle });
+    if (error || !data) {
+      setMsg((error?.message || 'that handle was just taken') + ' Set one on your profile.');
+      setTimeout(() => (window.location.href = '/account'), 1500);
+      return;
+    }
+    window.location.href = '/account';
+  }
+
+  document.getElementById('create')?.addEventListener('click', create);
+</script>

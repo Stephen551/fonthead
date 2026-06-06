@@ -29,7 +29,10 @@ const initials = user
     user ? (
       <a href="/account" class="fh-avatar" title={user.name}>{initials}</a>
     ) : (
-      <a href="/sign-in" class="fh-navlink">sign in</a>
+      <>
+        <a href="/sign-in" class="fh-navlink">sign in</a>
+        <a href="/sign-up" class="fh-navlink">sign up</a>
+      </>
     )
   }
 </nav>
