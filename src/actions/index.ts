@@ -1,7 +1,7 @@
 import { defineAction, ActionError } from 'astro:actions';
 import { z } from 'astro:schema';
 import { createAuth } from '../lib/auth';
-import { ensureHandle, uniqueFontId, isAdminEmail } from '../lib/util';
+import { ensureHandle, uniqueFontId, isAdminEmail, normalizeHandle, isValidHandle, RESERVED_HANDLES } from '../lib/util';
 import { verifySfntChecksums } from '../lib/sfnt';
 import { isOtf, isTtf, isWoff2 } from '../lib/fontsig';
 import { rateLimit } from '../lib/ratelimit';
@@ -258,6 +258,66 @@ export const server = {
       const keys = [row.otf_key, row.ttf_key, row.woff2_key].filter((k): k is string => !!k);
       await Promise.allSettled(keys.map((k) => env.FONTS.delete(k)));
       return { ok: true };
+    },
+  }),
+
+  // Live availability for the handle picker. Read-only: returns the normalized
+  // form and whether it is free, taken, or not a valid handle.
+  checkHandle: defineAction({
+    input: z.object({ handle: z.string().min(1).max(40) }),
+    handler: async ({ handle }, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      await limit(env, userId, 'handlecheck', 60, 60);
+      const normalized = normalizeHandle(handle);
+      if (!isValidHandle(handle) || RESERVED_HANDLES.has(normalized)) {
+        return { available: false, normalized, reason: 'invalid' as const };
+      }
+      const taken = await env.DB.prepare('SELECT 1 FROM "user" WHERE handle = ? AND id <> ?')
+        .bind(normalized, userId)
+        .first();
+      return { available: !taken, normalized, reason: (taken ? 'taken' : 'ok') as 'taken' | 'ok' };
+    },
+  }),
+
+  // Claim a handle, once. Sets it and locks it, and rewrites the maker credit on
+  // the owner's existing fonts so their attribution stays correct. The user
+  // UPDATE is guarded by handle_locked = 0 so a second claim cannot overwrite it,
+  // and a UNIQUE(handle) collision (someone claimed it between check and claim)
+  // surfaces as a conflict.
+  claimHandle: defineAction({
+    input: z.object({ handle: z.string().min(1).max(40) }),
+    handler: async ({ handle }, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      await limit(env, userId, 'claimhandle', 10, 3600);
+      const normalized = normalizeHandle(handle);
+      if (!isValidHandle(handle) || RESERVED_HANDLES.has(normalized)) {
+        throw new ActionError({
+          code: 'BAD_REQUEST',
+          message: 'Pick a handle of 2 to 32 letters, numbers, dots, or dashes.',
+        });
+      }
+      const current = await env.DB.prepare('SELECT handle_locked FROM "user" WHERE id = ?')
+        .bind(userId)
+        .first<{ handle_locked: number }>();
+      if (current?.handle_locked) {
+        throw new ActionError({ code: 'FORBIDDEN', message: 'Your handle is already set.' });
+      }
+      try {
+        const now = new Date().toISOString();
+        const setUser = env.DB
+          .prepare('UPDATE "user" SET handle = ?, handle_locked = 1, "updatedAt" = ? WHERE id = ? AND handle_locked = 0')
+          .bind(normalized, now, userId);
+        const setFonts = env.DB.prepare('UPDATE fonts SET maker_handle = ? WHERE owner_id = ?').bind(normalized, userId);
+        const results = await env.DB.batch([setUser, setFonts]);
+        const changed = results[0]?.meta?.changes ?? 0;
+        if (!changed) {
+          throw new ActionError({ code: 'CONFLICT', message: 'Your handle is already set.' });
+        }
+      } catch (e) {
+        if (e instanceof ActionError) throw e;
+        throw new ActionError({ code: 'CONFLICT', message: 'That handle was just taken. Pick another.' });
+      }
+      return { handle: normalized };
     },
   }),
 };
