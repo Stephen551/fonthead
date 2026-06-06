@@ -34,7 +34,7 @@ if (session) return Astro.redirect('/account');
         <input id="password" name="password" type="password" class="fh-input" autocomplete="new-password" required minlength="8" placeholder="at least 8 characters" />
 
         <div style="margin-top:18px;">
-          <button type="button" id="create" class="fh-btn" style="width:100%;justify-content:center;">create account</button>
+          <button type="submit" id="create" class="fh-btn" style="width:100%;justify-content:center;">create account</button>
         </div>
         <p id="msg" role="status" aria-live="polite" class="fh-mono" style="font-size:11.5px;color:var(--signal);min-height:16px;margin:8px 0 0;"></p>
         <p class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);margin:4px 0 0;">
@@ -102,5 +102,8 @@ if (session) return Astro.redirect('/account');
     window.location.href = '/account';
   }
 
-  document.getElementById('create')?.addEventListener('click', create);
+  document.getElementById('authform')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    create();
+  });
 </script>
