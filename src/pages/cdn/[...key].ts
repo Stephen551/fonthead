@@ -8,11 +8,33 @@ export const prerender = false;
 
 export const GET: APIRoute = async ({ params, locals, request }) => {
   const key = params.key;
+  const env = locals.runtime.env;
+
+  // Avatars: public profile images, served without a font-row lookup (they have
+  // none). Validated to the avatars/ prefix and image extensions only, and never
+  // marked immutable since the key is reused when a maker changes their avatar.
+  if (key && /^avatars\/[\w-]+\.(png|jpg|webp)$/.test(key)) {
+    const object = await env.FONTS.get(key);
+    if (!object) return new Response('Not found', { status: 404 });
+    const ext = key.slice(key.lastIndexOf('.') + 1);
+    const type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    const headers = new Headers({
+      'content-type': type,
+      etag: object.httpEtag,
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'DENY',
+      'cache-control': 'public, max-age=86400',
+      'access-control-allow-origin': '*',
+    });
+    if (request.headers.get('if-none-match') === object.httpEtag) {
+      return new Response(null, { status: 304, headers });
+    }
+    return new Response(object.body, { headers });
+  }
+
   if (!key || !/^fonts\/[\w.-]+\.(otf|ttf|woff2)$/.test(key)) {
     return new Response('Not found', { status: 404 });
   }
-
-  const env = locals.runtime.env;
   const id = key.replace(/^fonts\//, '').replace(/\.(otf|ttf|woff2)$/, '');
 
   // visibility gate: only private fonts incur the auth check
