@@ -34,6 +34,34 @@ export function slugify(s: string): string {
   );
 }
 
+/** Normalize a user-typed handle to its canonical url-safe slug. Unlike slugify
+ *  there is no 'untitled' fallback: an unusable input returns '' so the caller
+ *  can reject it. Keeps [a-z0-9.-], collapses runs, trims edges, caps at 32. */
+export function normalizeHandle(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^\w.\s-]/g, '')
+    .trim()
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, 32);
+}
+
+/** A handle is acceptable if its normalized form is 2 to 32 characters. */
+export function isValidHandle(s: string): boolean {
+  const h = normalizeHandle(s);
+  return h.length >= 2 && h.length <= 32;
+}
+
+/** Handles that would impersonate the site or a system area. Compared against
+ *  the normalized form. */
+export const RESERVED_HANDLES = new Set([
+  'admin', 'administrator', 'root', 'support', 'help', 'about', 'fonthead',
+  'staff', 'team', 'mod', 'moderator', 'official', 'api', 'cdn', 'www', 'account',
+]);
+
 const rand = (n: number) =>
   Array.from({ length: n }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('');
 
