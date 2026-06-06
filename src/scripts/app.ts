@@ -298,10 +298,11 @@ function wireTypeInto() {
   });
 }
 
-// Support nudge: shown once per session after a font is made (the maker fires a
-// 'fh:coffee' event) or downloaded (a click on a font page's .fh-dl link). The
-// card only exists when COFFEE_URL is set in Base.astro, so this is inert until
-// then. sessionStorage so it returns on a fresh visit, but not twice in a session.
+// Support nudge: shown once per session after a font is downloaded (a click on a
+// font page's .fh-dl link). The card only exists when COFFEE_URL is set in
+// Base.astro, so this is inert until then. sessionStorage so it returns on a fresh
+// visit, but not twice in a session. Deliberately NOT triggered on the maker page:
+// a floating card there overlaps the publish/download controls and blocks them.
 function wireCoffeeOnce() {
   const SEEN = 'fh-coffee-seen';
   const seen = () => {
@@ -341,7 +342,6 @@ function wireCoffeeOnce() {
     if (t.closest('#fh-coffee-link')) return mark(); // clicked through; do not nag again
     if (t.closest('.fh-dl')) setTimeout(show, 500); // a font page download
   });
-  window.addEventListener('fh:coffee', () => setTimeout(show, 400)); // a font was just made
 }
 
 function init() {

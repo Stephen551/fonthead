@@ -240,8 +240,6 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         ttf: res.ttf?.length ?? 0,
         woff2: res.woff2?.length ?? 0,
       };
-      // a font was just made: let app.ts offer the support nudge (once per browser)
-      window.dispatchEvent(new Event('fh:coffee'));
       // live preview from the built woff2 (fall back to otf); COLR renders in colour
       const previewBytes = res.woff2 || res.otf;
       if (previewBytes) {
