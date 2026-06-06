@@ -54,4 +54,6 @@ mk-grid.png
 judge-panel-runs/
 judge-*.png
 nav-*.png
+font-*.png
 .judge-panel.mjs
+check_pages.cjs
