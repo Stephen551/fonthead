@@ -116,6 +116,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [fineDetail, setFineDetail] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
+  // the build readout / result column, scrolled into view on a phone when a build
+  // starts so the most important feedback is not stranded below the input column
+  const readoutRef = useRef<HTMLDivElement>(null);
   const lastImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
   // the live preview face + its blob URL, so each new build/edit tears down the last
   const previewRef = useRef<{ face: FontFace; url: string } | null>(null);
@@ -169,6 +172,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     charLinesOverride?: string[],
   ) {
     setPhase('working');
+    // on a phone the result column stacks below the whole input column, so the
+    // live readout is off-screen exactly when it updates: pull it into view.
+    if (typeof window !== 'undefined' && window.innerWidth <= 920) {
+      requestAnimationFrame(() => readoutRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
     setResult(null);
     setStageIdx(-1);
     setError('');
@@ -613,7 +621,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       </div>
 
       {/* right: build readout + result */}
-      <div style={{ padding: '26px 32px 30px', background: 'var(--paper-2)' }}>
+      <div ref={readoutRef} style={{ padding: '26px 32px 30px', background: 'var(--paper-2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <span className="fh-eyebrow">02 · the build</span>
           <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>honest readout · real work</span>
@@ -625,22 +633,22 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             <span style={{ fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,.62)' }}>
               build · fonthead maker
             </span>
-            <span style={{ fontSize: 11, color: phase === 'done' ? '#6fcf97' : phase === 'error' ? 'var(--signal)' : 'rgba(255,255,255,.55)' }}>
+            <span style={{ fontSize: 11, color: phase === 'done' ? '#6fcf97' : phase === 'error' ? 'var(--signal-on-dark)' : 'rgba(255,255,255,.55)' }}>
               {phase === 'done' ? `done · ${elapsed.toFixed(1)}s` : phase === 'working' ? 'running' : phase === 'error' ? 'failed' : 'idle'}
             </span>
           </div>
           {stages.map((s, i) => {
             const st = stageStateOf(i);
             return (
-              <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', fontSize: 12.5, opacity: st === 'queued' ? 0.55 : 1, transition: 'opacity .3s var(--ease)' }}>
-                <span style={{ width: 13, color: st === 'done' ? '#6fcf97' : st === 'active' ? 'var(--signal)' : 'rgba(255,255,255,.62)' }}>
+              <div key={s.key} className="fh-build-row" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', fontSize: 12.5, opacity: st === 'queued' ? 0.55 : 1, transition: 'opacity .3s var(--ease)' }}>
+                <span style={{ width: 13, color: st === 'done' ? '#6fcf97' : st === 'active' ? 'var(--signal-on-dark)' : 'rgba(255,255,255,.62)' }}>
                   {st === 'done' ? '✓' : st === 'active' ? '●' : '·'}
                 </span>
                 <span style={{ width: 74, color: '#fff' }}>{s.label}</span>
-                <span style={{ flex: 1, minWidth: 0, color: 'rgba(255,255,255,.66)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <span className="fh-build-desc" style={{ flex: 1, minWidth: 0, color: 'rgba(255,255,255,.66)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {st === 'active' && log ? log : s.desc}
                 </span>
-                <span style={{ color: 'rgba(255,255,255,.62)', width: 30, textAlign: 'right' }}>
+                <span className="fh-build-tick" style={{ color: 'rgba(255,255,255,.62)', width: 30, textAlign: 'right' }}>
                   {st === 'done' ? '✓' : st === 'active' ? '···' : '–'}
                 </span>
               </div>
