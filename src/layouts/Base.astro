@@ -11,6 +11,11 @@ interface Props {
   active?: 'library' | 'make';
   ogImage?: string;
   schema?: Record<string, unknown> | Record<string, unknown>[];
+  // override the self-referential canonical (used to collapse home facets like
+  // ?sort / ?page / ?q onto the clean home URL) and set a robots directive
+  // (e.g. noindex,follow on thin search-result pages).
+  canonical?: string;
+  robots?: string;
 }
 
 const {
@@ -19,10 +24,12 @@ const {
   active = 'library',
   ogImage = '/og.png',
   schema,
+  canonical: canonicalProp,
+  robots,
 } = Astro.props;
 
 // Absolute URLs for canonical + social cards, from the request origin.
-const canonical = Astro.url.href;
+const canonical = canonicalProp ?? Astro.url.href;
 const origin = Astro.url.origin;
 const ogImageAbs = new URL(ogImage, origin).href;
 
@@ -80,6 +87,7 @@ const coffeeOn = COFFEE_URL.startsWith('https://');
     <meta name="description" content={description} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="canonical" href={canonical} />
+    {robots && <meta name="robots" content={robots} />}
     <title>{title}</title>
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="fonthead.dev" />
@@ -105,7 +113,7 @@ const coffeeOn = COFFEE_URL.startsWith('https://');
     {/* polite live region for transient status (vote/favourite/report results) */}
     <div id="fh-status" class="sr-only" role="status" aria-live="polite"></div>
     {coffeeOn && (
-      <div id="fh-coffee" class="fh-coffee" hidden role="dialog" aria-label="Support fonthead">
+      <div id="fh-coffee" class="fh-coffee" hidden role="complementary" aria-label="Support fonthead">
         <button id="fh-coffee-x" class="fh-coffee-x" type="button" aria-label="Dismiss">&times;</button>
         <p class="fh-coffee-msg">fonthead is free to use. if it saved you some time, a coffee helps me keep building it.</p>
         <a id="fh-coffee-link" class="fh-btn" href={COFFEE_URL} target="_blank" rel="noopener noreferrer">buy me a coffee</a>

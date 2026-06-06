@@ -78,13 +78,18 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
 }
 ---
 
-<Base active="library" title={isSearch ? `${q} · fonthead.dev` : 'Make, share, and browse community fonts · fonthead.dev'}>
+<Base
+  active="library"
+  title={isSearch ? `${q} · fonthead.dev` : 'Make, share, and browse community fonts · fonthead.dev'}
+  canonical={url.origin + '/'}
+  robots={isSearch ? 'noindex,follow' : undefined}
+>
   <style slot="head" is:inline set:html={faceCss}></style>
 
   <div style="min-height:100vh;background:var(--paper);">
     <h1 class="sr-only">fonthead.dev, a community font library and maker</h1>
     {showHero && (
-      <header style="padding:56px 40px 30px;border-bottom:1px solid var(--line);position:relative;">
+      <header class="fh-pad" style="padding:56px 0 30px;border-bottom:1px solid var(--line);position:relative;">
         <div class="fh-eyebrow fh-hide-narrow" style="position:absolute;top:24px;left:40px;">fonthead.dev</div>
         <div class="fh-eyebrow fh-hide-narrow" style="position:absolute;top:24px;right:40px;color:var(--ink-soft);">featuring · {isFeatured ? "yesterday's most-liked" : 'the starter set'}</div>
         <CyclingWordmark faces={heroFaces} />
@@ -96,7 +101,7 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
     )}
 
     <!-- sort + search bar -->
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:20px 40px;border-bottom:1px solid var(--line);">
+    <div class="fh-pad" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:20px 0;border-bottom:1px solid var(--line);">
       <div style="display:flex;gap:4px;">
         {(['popular', 'new'] as const).map((s) => (
           <a
@@ -139,7 +144,7 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
             {showHero && (
               <FeatureCard font={fonts[0]} voted={inter.voted.has(fonts[0].id)} favorited={inter.favorited.has(fonts[0].id)} />
             )}
-            <div style="padding:28px 40px 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:20px;">
+            <div class="fh-pad" style="padding:28px 0 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:20px;">
               {gridFonts.map((f, i) => (
                 <>
                   <FontCard font={f} voted={inter.voted.has(f.id)} favorited={inter.favorited.has(f.id)} />
@@ -171,7 +176,7 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
     )}
 
     <!-- footer -->
-    <footer style="margin-top:40px;padding:26px 40px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;">
+    <footer class="fh-pad" style="margin-top:40px;padding:26px 0;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px;">
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.04em;">
         fonthead.dev · a community font library + maker
       </div>
