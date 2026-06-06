@@ -94,24 +94,95 @@ async function onVote(btn: HTMLElement) {
   }
 }
 
-async function onReport(btn: HTMLElement) {
+// Report uses a styled, focus-managed dialog (never window.prompt, which breaks
+// the visual language and blocks the thread). The dialog markup lives on the
+// font page; this opens it, traps focus, and submits the reason to the action.
+let reportBtn: HTMLElement | null = null;
+let reportReturn: HTMLElement | null = null;
+
+function onReport(btn: HTMLElement) {
   if (!signedIn()) {
     toSignIn();
     return;
   }
-  const id = btn.dataset.fontId!;
-  const reason = window.prompt('What looks wrong with this font? A short reason helps.');
-  if (!reason || !reason.trim()) return;
-  btn.setAttribute('disabled', 'true');
-  const { data, error } = await actions.reportFont({ fontId: id, reason: reason.trim() });
+  const dlg = document.getElementById('fh-report');
+  if (!dlg) return;
+  reportBtn = btn;
+  reportReturn = document.activeElement as HTMLElement | null;
+  const ta = document.getElementById('fh-report-text') as HTMLTextAreaElement | null;
+  const msg = document.getElementById('fh-report-msg');
+  if (ta) ta.value = '';
+  if (msg) msg.textContent = '';
+  dlg.hidden = false;
+  requestAnimationFrame(() => ta?.focus());
+}
+
+function closeReport() {
+  const dlg = document.getElementById('fh-report');
+  if (dlg) dlg.hidden = true;
+  reportReturn?.focus?.();
+  reportReturn = null;
+}
+
+async function submitReport() {
+  const ta = document.getElementById('fh-report-text') as HTMLTextAreaElement | null;
+  const msg = document.getElementById('fh-report-msg');
+  const send = document.getElementById('fh-report-send') as HTMLButtonElement | null;
+  const reason = (ta?.value || '').trim();
+  if (!reason) {
+    if (msg) msg.textContent = 'add a short reason';
+    ta?.focus();
+    return;
+  }
+  const id = reportBtn?.dataset.fontId;
+  if (!id) return;
+  if (send) send.disabled = true;
+  const { data, error } = await actions.reportFont({ fontId: id, reason });
+  if (send) send.disabled = false;
   if (error || !data) {
-    btn.removeAttribute('disabled');
-    btn.textContent = 'report failed, try again';
+    if (msg) msg.textContent = 'report failed, try again';
     announce('Report failed, try again.');
     return;
   }
-  btn.textContent = 'reported, thank you';
+  if (reportBtn) reportBtn.textContent = 'reported, thank you';
   announce('Reported, thank you.');
+  closeReport();
+}
+
+// Wire the report dialog once: send, cancel, close, Escape, backdrop, Tab-trap.
+function wireReportOnce() {
+  if ((window as Window & { __fhReport?: boolean }).__fhReport) return;
+  (window as Window & { __fhReport?: boolean }).__fhReport = true;
+  document.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('#fh-report-send')) return submitReport();
+    if (t.closest('#fh-report-x') || t.closest('#fh-report-cancel')) return closeReport();
+    const dlg = document.getElementById('fh-report');
+    if (dlg && !dlg.hidden && t === dlg) closeReport(); // click the backdrop, not the card
+  });
+  document.addEventListener('keydown', (e) => {
+    const dlg = document.getElementById('fh-report');
+    if (!dlg || dlg.hidden) return;
+    if (e.key === 'Escape') {
+      closeReport();
+      return;
+    }
+    if (e.key === 'Tab') {
+      const f = Array.from(dlg.querySelectorAll<HTMLElement>('button, textarea, a[href]')).filter(
+        (el) => !(el as HTMLButtonElement).disabled,
+      );
+      if (!f.length) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  });
 }
 
 function wireSocialOnce() {
@@ -188,7 +259,6 @@ interface Face {
   italic?: boolean;
 }
 let heroTimer: ReturnType<typeof setInterval> | null = null;
-let heroPaused = false;
 
 // Paint one face onto the masthead, leaving the (possibly user-typed) text alone.
 // The caption credits the face and links to its page (built with textContent, so
@@ -229,15 +299,11 @@ function wireHero() {
   }
 
   // Type-into: the visitor types their own word and watches it render in every
-  // live face. Wired regardless of reduced-motion (typing is not motion); the
-  // cycling pauses while the field is focused so it never fights the typist.
+  // live face. The cycling keeps running while the field is focused, so the typed
+  // word morphs across every face as you type (that is the whole promise).
   if (!spec.dataset.typeWired) {
     spec.dataset.typeWired = '1';
-    spec.addEventListener('focus', () => {
-      heroPaused = true;
-    });
     spec.addEventListener('blur', () => {
-      heroPaused = false;
       if (!spec.textContent || !spec.textContent.trim()) spec.textContent = 'fonthead';
     });
     spec.addEventListener('keydown', (e) => {
@@ -259,11 +325,17 @@ function wireHero() {
   if (faces.length < 2) return;
   let i = 0;
   heroTimer = setInterval(() => {
-    if (heroPaused || document.activeElement === spec) return;
+    i = (i + 1) % faces.length;
+    // While the visitor is typing, swap the face instantly: the crossfade would
+    // blink their word out for a moment, so keep the text steady and just change
+    // the face under it. When idle, use the soft crossfade.
+    if (document.activeElement === spec) {
+      applyFace(spec, cap, faces[i]);
+      return;
+    }
     spec.style.opacity = '0';
     if (cap) cap.style.opacity = '0';
     setTimeout(() => {
-      i = (i + 1) % faces.length;
       applyFace(spec, cap, faces[i]);
       spec.style.opacity = '1';
       if (cap) cap.style.opacity = '1';
@@ -362,3 +434,4 @@ function init() {
 document.addEventListener('astro:page-load', init);
 wireSocialOnce();
 wireCoffeeOnce();
+wireReportOnce();
