@@ -52,3 +52,6 @@ mk-grid.png
 
 # judge-panel run output (screenshots, lighthouse, verdicts) — regenerable
 judge-panel-runs/
+judge-*.png
+nav-*.png
+.judge-panel.mjs
