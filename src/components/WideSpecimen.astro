@@ -12,13 +12,19 @@ const { font: f, label = 'in color' } = Astro.props;
 const m = f.meta;
 ---
 
-<a href={`/f/${f.id}`} class="fh-wide" aria-label={`${f.specimen_word}, open ${f.name}`}>
+<div class="fh-wide">
   <div class="fh-eyebrow fh-wide-label">{label}</div>
   <div
     class={specClass(m)}
-    style={`font-family:'${familyOf(f.id)}',var(--sans);${specTreat(m)};font-size:min(240px,19vw);line-height:.86;white-space:nowrap;max-width:100%;`}
+    data-typeinto
+    contenteditable="true"
+    spellcheck="false"
+    role="textbox"
+    aria-multiline="false"
+    aria-label={`Type to preview ${f.name}`}
+    style={`font-family:'${familyOf(f.id)}',var(--sans);${specTreat(m)};font-size:min(240px,19vw);line-height:.86;white-space:normal;overflow-wrap:anywhere;max-width:100%;caret-color:var(--signal);cursor:text;`}
   >
     {f.specimen_word}
   </div>
-  <div class="fh-mono fh-wide-credit">{f.name} · by {f.maker_handle}&nbsp;&nbsp;&rarr;</div>
-</a>
+  <a href={`/f/${f.id}`} class="fh-mono fh-wide-credit">{f.name} · by {f.maker_handle}&nbsp;&nbsp;&rarr;</a>
+</div>
