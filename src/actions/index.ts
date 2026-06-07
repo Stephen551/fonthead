@@ -6,6 +6,14 @@ import { verifySfntChecksums } from '../lib/sfnt';
 import { isOtf, isTtf, isWoff2 } from '../lib/fontsig';
 import { imageExt, MIN_AVATAR_BYTES, MAX_AVATAR_BYTES, AVATAR_CONTENT_TYPE } from '../lib/imagesig';
 import { rateLimit } from '../lib/ratelimit';
+import { containsBannedWord } from '../lib/banned-words';
+
+// Soft ban: a suspended account can still sign in and browse, but every mutation
+// runs through here, so this one check makes the whole account read-only.
+async function assertNotBanned(env: Env, userId: string) {
+  const row = await env.DB.prepare('SELECT banned FROM "user" WHERE id = ?').bind(userId).first<{ banned: number }>();
+  if (row?.banned) throw new ActionError({ code: 'FORBIDDEN', message: 'Your account is suspended.' });
+}
 
 // Mutations live here as Astro Actions (per the build brief).
 async function requireUser(ctx: { locals: App.Locals; request: Request }) {
@@ -13,6 +21,7 @@ async function requireUser(ctx: { locals: App.Locals; request: Request }) {
   const auth = createAuth(env);
   const session = await auth.api.getSession({ headers: ctx.request.headers });
   if (!session) throw new ActionError({ code: 'UNAUTHORIZED', message: 'Sign in first.' });
+  await assertNotBanned(env, session.user.id);
   return { env, userId: session.user.id, email: session.user.email };
 }
 
@@ -133,7 +142,11 @@ export const server = {
         throw new ActionError({ code: 'UNAUTHORIZED', message: 'Sign in to publish.' });
       }
       const userId = session.user.id;
+      await assertNotBanned(env, userId);
       await limit(env, userId, 'publish', 20, 3600);
+      if (containsBannedWord(input.name) || (input.specimenWord && containsBannedWord(input.specimenWord))) {
+        throw new ActionError({ code: 'BAD_REQUEST', message: "That name isn't allowed." });
+      }
       const handle = await ensureHandle(env.DB, userId, session.user.name, session.user.email);
 
       const id = await uniqueFontId(env.DB, input.name);
@@ -237,8 +250,28 @@ export const server = {
       const { env, userId } = await requireUser(ctx);
       await limit(env, userId, 'report', 15, 3600);
       await assertInteractable(env, fontId, userId);
-      await env.DB.prepare('INSERT INTO reports (id, font_id, reporter_id, reason) VALUES (?,?,?,?)')
+      await env.DB.prepare("INSERT INTO reports (id, target_type, font_id, reporter_id, reason) VALUES (?,'font',?,?,?)")
         .bind(crypto.randomUUID(), fontId, userId, reason.trim())
+        .run();
+      return { ok: true };
+    },
+  }),
+
+  // Report a maker (a griefed handle or profile). Lands in the same admin queue
+  // as font reports, tagged target_type='maker'. Resolves the public handle to a
+  // user id server-side; you cannot report yourself.
+  reportMaker: defineAction({
+    input: z.object({ handle: z.string().min(1).max(40), reason: z.string().min(1, 'Add a reason').max(500) }),
+    handler: async ({ handle, reason }, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      await limit(env, userId, 'report', 15, 3600);
+      const target = await env.DB.prepare('SELECT id FROM "user" WHERE handle = ?')
+        .bind(normalizeHandle(handle))
+        .first<{ id: string }>();
+      if (!target) throw new ActionError({ code: 'NOT_FOUND', message: 'No such maker.' });
+      if (target.id === userId) throw new ActionError({ code: 'BAD_REQUEST', message: 'You cannot report yourself.' });
+      await env.DB.prepare("INSERT INTO reports (id, target_type, reported_user_id, reporter_id, reason) VALUES (?,'maker',?,?,?)")
+        .bind(crypto.randomUUID(), target.id, userId, reason.trim())
         .run();
       return { ok: true };
     },
@@ -258,6 +291,50 @@ export const server = {
       await env.DB.prepare('DELETE FROM fonts WHERE id = ?').bind(fontId).run();
       const keys = [row.otf_key, row.ttf_key, row.woff2_key].filter((k): k is string => !!k);
       await Promise.allSettled(keys.map((k) => env.FONTS.delete(k)));
+      return { ok: true };
+    },
+  }),
+
+  // Admin: soft-ban a user (read-only). Refuses to ban yourself or another admin
+  // so you can never lock the team out.
+  banUser: defineAction({
+    input: z.object({ userId: z.string().min(1), reason: z.string().max(500).optional() }),
+    handler: async ({ userId: targetId, reason }, ctx) => {
+      const { env, userId, email } = await requireUser(ctx);
+      if (!isAdmin(env, email)) throw new ActionError({ code: 'FORBIDDEN', message: 'Not allowed.' });
+      if (targetId === userId) throw new ActionError({ code: 'BAD_REQUEST', message: 'You cannot ban yourself.' });
+      const target = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?')
+        .bind(targetId)
+        .first<{ email: string }>();
+      if (!target) throw new ActionError({ code: 'NOT_FOUND', message: 'No such user.' });
+      if (isAdmin(env, target.email)) throw new ActionError({ code: 'FORBIDDEN', message: 'Cannot ban an admin.' });
+      await env.DB.prepare('UPDATE "user" SET banned = 1, banned_at = ?, ban_reason = ? WHERE id = ?')
+        .bind(new Date().toISOString(), (reason || '').trim() || null, targetId)
+        .run();
+      return { ok: true };
+    },
+  }),
+
+  // Admin: lift a ban.
+  unbanUser: defineAction({
+    input: z.object({ userId: z.string().min(1) }),
+    handler: async ({ userId: targetId }, ctx) => {
+      const { env, email } = await requireUser(ctx);
+      if (!isAdmin(env, email)) throw new ActionError({ code: 'FORBIDDEN', message: 'Not allowed.' });
+      await env.DB.prepare('UPDATE "user" SET banned = 0, banned_at = NULL, ban_reason = NULL WHERE id = ?')
+        .bind(targetId)
+        .run();
+      return { ok: true };
+    },
+  }),
+
+  // Admin: mark a report handled so it leaves the queue (reviewed, or actioned).
+  resolveReport: defineAction({
+    input: z.object({ reportId: z.string().min(1) }),
+    handler: async ({ reportId }, ctx) => {
+      const { env, email } = await requireUser(ctx);
+      if (!isAdmin(env, email)) throw new ActionError({ code: 'FORBIDDEN', message: 'Not allowed.' });
+      await env.DB.prepare("UPDATE reports SET status = 'resolved' WHERE id = ?").bind(reportId).run();
       return { ok: true };
     },
   }),
@@ -304,6 +381,9 @@ export const server = {
           code: 'BAD_REQUEST',
           message: 'Pick a handle of 2 to 32 letters, numbers, dots, or dashes.',
         });
+      }
+      if (containsBannedWord(normalized)) {
+        throw new ActionError({ code: 'BAD_REQUEST', message: "That handle isn't allowed." });
       }
       const current = await env.DB.prepare('SELECT handle_locked FROM "user" WHERE id = ?')
         .bind(userId)
