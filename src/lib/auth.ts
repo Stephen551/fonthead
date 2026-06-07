@@ -31,6 +31,18 @@ export function createAuth(env: Env) {
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
     emailAndPassword: { enabled: true },
+    // Google sign-in, enabled only when both credentials are present, so the app
+    // boots fine without them (local dev, or before the secrets are set).
+    ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+      ? {
+          socialProviders: {
+            google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
+          },
+        }
+      : {}),
+    // Link a Google sign-in to an existing email/password account that shares the
+    // same verified email, instead of creating a duplicate account.
+    account: { accountLinking: { enabled: true, trustedProviders: ['google'] } },
     trustedOrigins,
     advanced: {
       // single-origin app: Lax is the right default, and Secure everywhere but

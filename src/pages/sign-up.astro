@@ -5,9 +5,13 @@ import { createAuth } from '../lib/auth';
 export const prerender = false;
 
 // If already signed in, go straight to the account page.
-const auth = createAuth(Astro.locals.runtime.env);
+const env = Astro.locals.runtime.env;
+const auth = createAuth(env);
 const session = await auth.api.getSession({ headers: Astro.request.headers });
 if (session) return Astro.redirect('/account');
+
+// Google sign-in shows only when it is configured.
+const googleEnabled = !!env.GOOGLE_CLIENT_ID;
 ---
 
 <Base title="Create an account · fonthead.dev">
@@ -18,6 +22,13 @@ if (session) return Astro.redirect('/account');
       <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 26px;line-height:1.5;">
         Your handle is the name on your maker page and your fonts. You pick it once, so choose one you like.
       </p>
+
+      {googleEnabled && (
+        <>
+          <button type="button" id="google-signin" class="fh-btn fh-btn--ghost" style="width:100%;justify-content:center;">continue with google</button>
+          <div class="fh-mono" style="text-align:center;font-size:11px;color:var(--ink-faint);letter-spacing:.08em;margin:16px 0;">or</div>
+        </>
+      )}
 
       <form id="authform" style="display:flex;flex-direction:column;gap:12px;">
         <label for="name" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;">NAME</label>
@@ -105,5 +116,11 @@ if (session) return Astro.redirect('/account');
   document.getElementById('authform')?.addEventListener('submit', (e) => {
     e.preventDefault();
     create();
+  });
+
+  // Google: hand off to the provider; the new user lands on /account where a
+  // handle is auto-assigned (changeable once).
+  document.getElementById('google-signin')?.addEventListener('click', () => {
+    authClient.signIn.social({ provider: 'google', callbackURL: '/account' });
   });
 </script>

@@ -11,9 +11,13 @@ const nextParam = Astro.url.searchParams.get('next');
 const safeNext = nextParam && /^\/(?![/\\])/.test(nextParam) ? nextParam : '/account';
 
 // If already signed in, go straight on.
-const auth = createAuth(Astro.locals.runtime.env);
+const env = Astro.locals.runtime.env;
+const auth = createAuth(env);
 const session = await auth.api.getSession({ headers: Astro.request.headers });
 if (session) return Astro.redirect(safeNext);
+
+// Google sign-in shows only when it is configured.
+const googleEnabled = !!env.GOOGLE_CLIENT_ID;
 ---
 
 <Base title="Sign in · fonthead.dev">
@@ -24,6 +28,13 @@ if (session) return Astro.redirect(safeNext);
       <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 26px;line-height:1.5;">
         Welcome back. Sign in to publish, vote, and keep your favorites.
       </p>
+
+      {googleEnabled && (
+        <>
+          <button type="button" id="google-signin" class="fh-btn fh-btn--ghost" style="width:100%;justify-content:center;">continue with google</button>
+          <div class="fh-mono" style="text-align:center;font-size:11px;color:var(--ink-faint);letter-spacing:.08em;margin:16px 0;">or</div>
+        </>
+      )}
 
       <form id="authform" style="display:flex;flex-direction:column;gap:12px;">
         <label for="email" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;">EMAIL</label>
@@ -74,5 +85,12 @@ if (session) return Astro.redirect(safeNext);
   document.getElementById('authform')?.addEventListener('submit', (e) => {
     e.preventDefault();
     signIn();
+  });
+
+  // Google: hand off to the provider, returning to ?next= (or /account).
+  document.getElementById('google-signin')?.addEventListener('click', () => {
+    const n = new URLSearchParams(location.search).get('next');
+    const callbackURL = n && /^\/(?![/\\])/.test(n) ? n : '/account';
+    authClient.signIn.social({ provider: 'google', callbackURL });
   });
 </script>

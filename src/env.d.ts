@@ -7,6 +7,9 @@
 // action) so it survives a `wrangler types` regen of worker-configuration.d.ts.
 interface __BaseEnv_Env {
   ADMIN_EMAILS?: string;
+  // Google OAuth (optional: social sign-in is enabled only when both are set).
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }
 type Runtime = import('@astrojs/cloudflare').Runtime<Env>;
 
