@@ -1,0 +1,72 @@
+---
+import Base from '../layouts/Base.astro';
+
+export const prerender = false;
+
+// Plain-language explainer for the three licenses a maker can pick at publish.
+// Kept in sync with the publish selector (Maker.tsx) and the font-page row.
+const licenses = [
+  {
+    h: 'OFL (SIL Open Font License)',
+    body: [
+      'The default, and the usual pick for a font you want shared. People can use your font anywhere, including commercial work and embedded in apps and documents. They can study it, change it, and pass it on.',
+      'The one catch: the font file cannot be sold on its own, and any changed version stays under the same license. Good when you want your font used widely and kept open.',
+    ],
+  },
+  {
+    h: 'CC0 (public domain)',
+    body: [
+      'The most open option. CC0 is the Creative Commons public-domain dedication. You give up your rights and place the font in the public domain. Anyone can use it for anything, with no conditions and no need to credit you.',
+      'Pick this if you want zero strings attached.',
+    ],
+  },
+  {
+    h: 'Personal use only',
+    body: [
+      'Free for people to use in their own personal, non-commercial projects. Using it commercially needs your say-so.',
+      'fonthead does not handle that arrangement. It is between you and whoever wants the commercial use. Pick this if you want to keep commercial rights.',
+    ],
+  },
+  {
+    h: 'What you are responsible for',
+    body: [
+      'You can only publish a font you have the right to publish. Trace your own lettering, or letters you have permission to use. Do not trace an existing commercial typeface and republish it as your own.',
+      'The license you pick covers your work. It does not hand you rights to anyone else. You are responsible for what you publish, and fonts that infringe get removed.',
+    ],
+  },
+];
+---
+
+<Base
+  title="Licenses · fonthead.dev"
+  description="What each license (OFL, CC0, personal use) lets people do with a font you publish on fonthead.dev, and what you agree to when you publish."
+  active="library"
+>
+  <div style="background:var(--paper);min-height:100vh;">
+    <header class="fh-pad" style="padding:48px 0 28px;border-bottom:1px solid var(--line);">
+      <p class="fh-eyebrow">fonthead.dev</p>
+      <h1 class="fh-mono" style="font-size:34px;font-weight:700;letter-spacing:-.01em;margin:10px 0 6px;">Licenses</h1>
+      <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);max-width:60ch;">What each license lets people do with a font you publish, and what you agree to when you publish one. This explains the choices, it is not legal advice.</p>
+    </header>
+
+    <div class="fh-pad" style="max-width:760px;padding:8px 0 48px;">
+      {licenses.map((s) => (
+        <section style="padding:26px 0;border-bottom:1px solid var(--line);">
+          <h2 style="font-size:16px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px;">{s.h}</h2>
+          {s.body.map((p) => (
+            <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;margin:0 0 10px;max-width:62ch;">{p}</p>
+          ))}
+        </section>
+      ))}
+    </div>
+
+    <footer class="fh-pad" style="padding:26px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);display:flex;gap:14px;flex-wrap:wrap;">
+        <a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a>
+        <a href="/terms" style="color:inherit;">terms</a>
+        <a href="/privacy" style="color:inherit;">privacy</a>
+      </div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
+    </footer>
+  </div>
+</Base>

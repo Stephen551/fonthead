@@ -176,9 +176,15 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
     )}
 
     <!-- footer -->
-    <footer class="fh-pad" style="margin-top:40px;padding:26px 0;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px;">
+    <footer class="fh-pad" style="margin-top:40px;padding:26px 0;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.04em;">
         fonthead.dev · a community font library + maker
+      </div>
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);display:flex;gap:14px;flex-wrap:wrap;">
+        <a href="/faq" style="color:inherit;">faq</a>
+        <a href="/licenses" style="color:inherit;">licenses</a>
+        <a href="/terms" style="color:inherit;">terms</a>
+        <a href="/privacy" style="color:inherit;">privacy</a>
       </div>
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
     </footer>

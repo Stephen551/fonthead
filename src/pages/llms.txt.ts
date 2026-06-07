@@ -14,6 +14,9 @@ export const GET: APIRoute = ({ url }) => {
 - [Library](${o}/): browse and vote on fonts the community has made
 - [Maker](${o}/make): trace an alphabet sheet into an OTF, TTF, or WOFF2 font, monochrome or color
 - [Sign in](${o}/sign-in): an account holds your fonts, favorites, and what you publish
+- [Licenses](${o}/licenses): what OFL, CC0, and personal-use mean for a published font
+- [Terms](${o}/terms): acceptable use, what you agree to when you publish, moderation
+- [Privacy](${o}/privacy): what stays in your browser, what is stored, how to delete your data
 
 ## About
 fonthead.dev is built by A&C Meridian. The maker runs entirely client-side. Tracing, font assembly, and woff2 compression all happen in your browser, so your source images and fonts are not uploaded while you build.
