@@ -4,7 +4,7 @@ import { createAuth } from '../lib/auth';
 import { ensureHandle, uniqueFontId, isAdminEmail, normalizeHandle, isValidHandle, RESERVED_HANDLES } from '../lib/util';
 import { verifySfntChecksums } from '../lib/sfnt';
 import { isOtf, isTtf, isWoff2 } from '../lib/fontsig';
-import { imageExt, MIN_AVATAR_BYTES, MAX_AVATAR_BYTES, AVATAR_CONTENT_TYPE } from '../lib/imagesig';
+import { imageExt, isPng, MIN_AVATAR_BYTES, MAX_AVATAR_BYTES, AVATAR_CONTENT_TYPE } from '../lib/imagesig';
 import { rateLimit } from '../lib/ratelimit';
 import { containsBannedWord } from '../lib/banned-words';
 
@@ -133,6 +133,8 @@ export const server = {
       otf: z.instanceof(File),
       woff2: z.instanceof(File),
       ttf: z.instanceof(File).optional(),
+      // optional per-font social card (PNG), rendered client-side from the font
+      ogImage: z.instanceof(File).optional(),
     }),
     handler: async (input, ctx) => {
       const env = ctx.locals.runtime.env;
@@ -155,6 +157,10 @@ export const server = {
       const otf = new Uint8Array(await input.otf.arrayBuffer());
       const woff2 = new Uint8Array(await input.woff2.arrayBuffer());
       const ttf = input.ttf ? new Uint8Array(await input.ttf.arrayBuffer()) : null;
+      // optional share card: accept only a real PNG within the image size cap
+      const ogBytes =
+        input.ogImage && input.ogImage.size > 0 ? new Uint8Array(await input.ogImage.arrayBuffer()) : null;
+      const hasOg = !!ogBytes && ogBytes.length <= MAX_AVATAR_BYTES && isPng(ogBytes);
 
       // size floor (must have built) + ceiling (no unbounded R2 writes)
       if (otf.length < 256 || woff2.length < 256 || (ttf && ttf.length < 256)) {
@@ -192,6 +198,7 @@ export const server = {
         ofl: '',
         standIn: false,
         builtWith: 'fonthead maker',
+        og: hasOg,
         ...(isColor ? { colorMode: input.treat } : {}),
       };
       const word = (input.specimenWord || '').trim() || input.name;
@@ -208,6 +215,10 @@ export const server = {
         if (ttf) {
           await env.FONTS.put(keys.ttf, ttf, { httpMetadata: { contentType: 'font/ttf' } });
           written.push(keys.ttf);
+        }
+        if (hasOg && ogBytes) {
+          await env.FONTS.put(`og/${id}.png`, ogBytes, { httpMetadata: { contentType: 'image/png' } });
+          written.push(`og/${id}.png`);
         }
         await env.DB.prepare(
           `INSERT INTO fonts

@@ -14,6 +14,8 @@ export interface FontMeta {
   ofl: string;
   standIn?: boolean;
   builtWith?: string;
+  // true once a per-font social card (og/<id>.png) has been generated + stored
+  og?: boolean;
 }
 
 export interface FontRow {

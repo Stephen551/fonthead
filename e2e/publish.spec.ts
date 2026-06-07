@@ -50,6 +50,15 @@ test('sign up, build, publish, and see it on the wall', async ({ page }) => {
   await page.goto(href!);
   await expect(page.getByRole('heading', { name: fontName })).toBeVisible();
 
+  // the font carries a per-font social card, rendered from its own face at
+  // publish, not the generic site og image
+  const id = href!.replace(/^\/f\//, '');
+  const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content');
+  expect(ogImage).toContain(`/cdn/og/${id}.png`);
+  const card = await page.request.get(ogImage!);
+  expect(card.status()).toBe(200);
+  expect(card.headers()['content-type']).toContain('image/png');
+
   // and it shows on the public wall (newest first)
   await page.goto('/?sort=new');
   await expect(page.getByRole('link', { name: fontName }).first()).toBeVisible({ timeout: 15_000 });

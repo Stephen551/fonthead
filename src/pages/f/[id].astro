@@ -52,6 +52,10 @@ const specInline = specStyle(f.id, m);
 // and maker are user-controlled, but Base escapes the JSON-LD before set:html.
 const origin = Astro.url.origin;
 const canonicalUrl = Astro.url.href;
+// per-font social card if one was generated, else the generic site card
+const ogImg = m.og ? `/cdn/og/${f.id}.png` : '/og.png';
+const shareText = `${f.name} on fonthead.dev`;
+const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(canonicalUrl)}`;
 const kind = m.badge === 'color' ? 'color font' : 'font';
 const fontDescription = `${f.name}, a ${kind} by ${f.maker_handle} on fonthead.dev. Preview every glyph and download it, or trace your own from an alphabet sheet.`;
 // Stand-in faces credit their original designer's full name (spaces and all) and
@@ -77,6 +81,7 @@ const fontSchema = {
 <Base
   title={`${f.name} · fonthead.dev`}
   description={fontDescription}
+  ogImage={ogImg}
   schema={fontSchema}
   active="library"
 >
@@ -110,6 +115,7 @@ const fontSchema = {
             <svg viewBox="0 0 24 24" style="width:17px;height:17px;"><path d="M12 20s-7-4.4-9.2-8.3C1.3 8.9 2.6 5.5 5.8 5.5c2 0 3.3 1.4 3.9 2.4 0 0 .1.2.3.2s.3-.2.3-.2c.6-1 1.9-2.4 3.9-2.4 3.2 0 4.5 3.4 3 6.2C19 15.6 12 20 12 20z"/></svg>
           </button>
           <button class={`fh-vote${voted ? ' on' : ''}`} data-vote data-font-id={f.id} aria-pressed={voted} aria-label={`Upvote ${f.name}`}><span class="caret" aria-hidden="true"><svg viewBox="0 0 9 9"><path d="M1.5 5.5L4.5 2.5L7.5 5.5"/></svg></span><span class="fh-count" data-count>{f.votes_count.toLocaleString()}</span></button>
+          <button data-share data-share-url={canonicalUrl} data-share-title={shareText} class="fh-btn fh-btn--ghost" style="font-size:12px;">share</button>
         </div>
       </div>
 
@@ -211,6 +217,7 @@ const fontSchema = {
       ) : (
         <a href={`/u/${f.maker_handle}`} class="fh-mono" style="font-size:11px;color:var(--ink-faint);text-decoration:none;">more from @{f.maker_handle}&nbsp;&rarr;</a>
       )}
+      <a href={tweetUrl} target="_blank" rel="noopener noreferrer" class="fh-mono" style="font-size:11px;color:var(--ink-faint);text-decoration:underline;text-underline-offset:3px;">share on X</a>
       {!m.standIn && (
         <button data-report data-report-target="font" data-report-id={f.id} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--ink-faint);padding:0;text-decoration:underline;text-underline-offset:3px;">report this font</button>
       )}

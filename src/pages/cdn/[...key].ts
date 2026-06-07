@@ -59,6 +59,26 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     );
   }
 
+  // Per-font social cards: public images, but gated by the font's visibility so a
+  // private font's card never leaks its name. Checked live, then edge-cached.
+  if (key && /^og\/[\w.-]+\.png$/.test(key)) {
+    const ogId = key.replace(/^og\//, '').replace(/\.png$/, '');
+    const ogRow = await env.DB.prepare('SELECT visibility FROM fonts WHERE id = ?')
+      .bind(ogId)
+      .first<{ visibility: string }>();
+    if (!ogRow || ogRow.visibility === 'private') return new Response('Not found', { status: 404 });
+    return servePublic(
+      key,
+      new Headers({
+        'content-type': 'image/png',
+        'x-content-type-options': 'nosniff',
+        'x-frame-options': 'DENY',
+        'cache-control': 'public, max-age=86400',
+        'access-control-allow-origin': '*',
+      }),
+    );
+  }
+
   if (!key || !/^fonts\/[\w.-]+\.(otf|ttf|woff2)$/.test(key)) {
     return new Response('Not found', { status: 404 });
   }

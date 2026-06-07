@@ -191,6 +191,34 @@ function wireReportOnce() {
   });
 }
 
+// Share a font: native share sheet where available (mobile), else copy the link
+// with a brief confirmation. The footer "share on X" link covers the explicit
+// tweet intent on desktop.
+async function onShare(btn: HTMLElement) {
+  const url = btn.dataset.shareUrl || location.href;
+  const title = btn.dataset.shareTitle || document.title;
+  const nav = navigator as Navigator & { share?: (d: { title?: string; url?: string }) => Promise<void> };
+  if (nav.share) {
+    try {
+      await nav.share({ title, url });
+    } catch {
+      /* the user dismissed the share sheet */
+    }
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    const prev = btn.textContent;
+    btn.textContent = 'link copied';
+    announce('Link copied.');
+    setTimeout(() => {
+      btn.textContent = prev || 'share';
+    }, 1500);
+  } catch {
+    /* clipboard blocked; nothing to do */
+  }
+}
+
 function wireSocialOnce() {
   if ((window as Window & { __fhSocial?: boolean }).__fhSocial) return;
   (window as Window & { __fhSocial?: boolean }).__fhSocial = true;
@@ -199,6 +227,7 @@ function wireSocialOnce() {
     const fav = t.closest('[data-fav]') as HTMLElement | null;
     const vote = t.closest('[data-vote]') as HTMLElement | null;
     const report = t.closest('[data-report]') as HTMLElement | null;
+    const share = t.closest('[data-share]') as HTMLElement | null;
     if (fav) {
       e.preventDefault();
       onFav(fav);
@@ -208,6 +237,9 @@ function wireSocialOnce() {
     } else if (report) {
       e.preventDefault();
       onReport(report);
+    } else if (share) {
+      e.preventDefault();
+      onShare(share);
     }
   });
 }

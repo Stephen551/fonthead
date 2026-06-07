@@ -283,6 +283,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       fd.set('otf', new File([result.otf as BlobPart], 'font.otf', { type: 'font/otf' }));
       fd.set('woff2', new File([result.woff2 as BlobPart], 'font.woff2', { type: 'font/woff2' }));
       if (result.ttf) fd.set('ttf', new File([result.ttf as BlobPart], 'font.ttf', { type: 'font/ttf' }));
+      // a per-font share card, rendered from the built font (best-effort)
+      const cardText = specimenWord.trim() || family.trim() || 'Handmade';
+      const card = previewFam ? await renderOgCard(cardText, previewFam) : null;
+      if (card) fd.set('ogImage', new File([card], 'card.png', { type: 'image/png' }));
       const { data, error } = await actions.publishFont(fd);
       if (error) {
         setPublishErr(error.message || 'publish failed');
@@ -313,6 +317,53 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     (document as any).fonts.add(face);
     previewRef.current = { face, url };
     return pf;
+  }
+
+  // Render a 1200x630 social card from the built font: the specimen word big in
+  // its own face on the paper background, with fonthead chrome. Best-effort; a
+  // failure just falls back to the generic og image. (A color COLR font renders
+  // as its monochrome silhouette here, since a 2D canvas ignores COLR layers.)
+  async function renderOgCard(text: string, fam: string): Promise<Blob | null> {
+    try {
+      const W = 1200;
+      const H = 630;
+      const c = document.createElement('canvas');
+      c.width = W;
+      c.height = H;
+      const ctx = c.getContext('2d');
+      if (!ctx) return null;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+      // the specimen word, shrunk to fit a safe width
+      ctx.fillStyle = '#15140f';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const maxW = W - 180;
+      let size = 240;
+      const widthAt = (s: number) => {
+        ctx.font = `${s}px '${fam}', sans-serif`;
+        return ctx.measureText(text).width;
+      };
+      while (size > 56 && widthAt(size) > maxW) size -= 6;
+      ctx.font = `${size}px '${fam}', sans-serif`;
+      ctx.fillText(text, W / 2, H / 2);
+      // chrome: the wordmark top-left
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = "700 30px 'JetBrains Mono', ui-monospace, monospace";
+      ctx.fillStyle = '#15140f';
+      ctx.fillText('fonthead', 64, 88);
+      ctx.fillStyle = '#d4342a';
+      ctx.fillText('.dev', 64 + ctx.measureText('fonthead').width, 88);
+      // footer note, centered
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#75726a';
+      ctx.font = "22px 'JetBrains Mono', ui-monospace, monospace";
+      ctx.fillText('made on fonthead.dev', W / 2, H - 56);
+      return await new Promise<Blob | null>((res) => c.toBlob((b) => res(b), 'image/png'));
+    } catch {
+      return null;
+    }
   }
 
   function openEditor(i: number) {
