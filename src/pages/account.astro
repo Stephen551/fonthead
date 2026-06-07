@@ -121,6 +121,23 @@ const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;'
       )}
 
       <button id="signout" class="fh-btn fh-btn--ghost" style="margin-top:28px;">sign out</button>
+
+      <section style="margin-top:44px;padding-top:24px;border-top:1px solid var(--line);">
+        <div class="fh-eyebrow" style="margin-bottom:10px;">Delete account</div>
+        <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);line-height:1.6;margin:0 0 14px;max-width:54ch;">
+          This removes your account and everything tied to it: your profile, your published fonts, and your votes and favorites. It cannot be undone.
+        </p>
+        <button type="button" id="del-open" class="fh-btn fh-btn--ghost" style="color:var(--signal);border-color:var(--signal);">delete account</button>
+        <div id="del-confirm" hidden style="margin-top:14px;max-width:320px;">
+          <label for="del-input" class="fh-mono" style="font-size:11px;color:var(--ink-faint);">Type DELETE to confirm</label>
+          <input id="del-input" type="text" class="fh-input" autocomplete="off" placeholder="DELETE" aria-describedby="del-msg" style="margin-top:8px;" />
+          <div style="display:flex;gap:10px;align-items:center;margin-top:10px;">
+            <button type="button" id="del-go" class="fh-btn" style="background:var(--signal);border-color:var(--signal);color:var(--paper);" disabled>permanently delete</button>
+            <button type="button" id="del-cancel" class="fh-btn fh-btn--ghost">cancel</button>
+          </div>
+          <p id="del-msg" role="status" aria-live="polite" class="fh-mono" style="font-size:11px;min-height:14px;margin:8px 0 0;color:var(--signal);"></p>
+        </div>
+      </section>
     </div>
 
     <footer class="fh-pad" style="padding:26px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;">
@@ -200,6 +217,44 @@ const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;'
 
   byId('signout')?.addEventListener('click', async () => {
     await authClient.signOut();
+    window.location.href = '/';
+  });
+
+  // delete account: reveal a typed-confirmation step, then wipe and sign out
+  const delConfirm = byId('del-confirm');
+  const delInput = byId('del-input') as HTMLInputElement | null;
+  const delGo = byId('del-go') as HTMLButtonElement | null;
+  const delMsg = byId('del-msg');
+  byId('del-open')?.addEventListener('click', () => {
+    delConfirm?.removeAttribute('hidden');
+    delInput?.focus();
+  });
+  byId('del-cancel')?.addEventListener('click', () => {
+    delConfirm?.setAttribute('hidden', '');
+    if (delInput) delInput.value = '';
+    if (delGo) delGo.disabled = true;
+    if (delMsg) delMsg.textContent = '';
+  });
+  delInput?.addEventListener('input', () => {
+    if (delGo) delGo.disabled = delInput.value.trim().toLowerCase() !== 'delete';
+  });
+  delGo?.addEventListener('click', async () => {
+    if (!delInput) return;
+    delGo.disabled = true;
+    if (delMsg) {
+      delMsg.style.color = 'var(--ink-soft)';
+      delMsg.textContent = 'deleting…';
+    }
+    const { error } = await actions.deleteAccount({ confirm: delInput.value.trim() });
+    if (error) {
+      if (delMsg) {
+        delMsg.style.color = 'var(--signal)';
+        delMsg.textContent = error.message || 'could not delete your account';
+      }
+      delGo.disabled = false;
+      return;
+    }
+    await authClient.signOut().catch(() => {});
     window.location.href = '/';
   });
 </script>

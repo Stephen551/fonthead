@@ -489,4 +489,81 @@ export const server = {
       return { ok: true, image: newKey ?? prevKey };
     },
   }),
+
+  // Self-service account deletion: removes the account and everything tied to it,
+  // the published fonts plus their R2 binaries and social cards, the avatar, and
+  // every vote, favorite, and report. Deletes are explicit and ordered rather
+  // than leaning on FK cascade, and other makers' fonts are recounted so the wall
+  // ranking does not drift after the account's votes are removed. Irreversible.
+  deleteAccount: defineAction({
+    input: z.object({ confirm: z.string() }),
+    handler: async ({ confirm }, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      if (confirm.trim().toLowerCase() !== 'delete') {
+        throw new ActionError({ code: 'BAD_REQUEST', message: 'Type DELETE to confirm.' });
+      }
+      await limit(env, userId, 'delete-account', 5, 3600);
+
+      // chunk IN-lists to stay under D1's bound-parameter limit
+      const chunk = <T>(arr: T[], n: number): T[][] => {
+        const out: T[][] = [];
+        for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+        return out;
+      };
+
+      // the user's fonts: rows to drop, plus R2 keys (binaries + social card) to purge
+      const { results: myFonts } = await env.DB.prepare(
+        'SELECT id, otf_key, ttf_key, woff2_key FROM fonts WHERE owner_id = ?',
+      )
+        .bind(userId)
+        .all<{ id: string; otf_key: string | null; ttf_key: string | null; woff2_key: string | null }>();
+      const fontIds = (myFonts ?? []).map((f) => f.id);
+      const r2keys: string[] = [];
+      for (const f of myFonts ?? []) {
+        for (const k of [f.otf_key, f.ttf_key, f.woff2_key]) if (k) r2keys.push(k);
+        r2keys.push(`og/${f.id}.png`);
+      }
+      const urow = await env.DB.prepare('SELECT image FROM "user" WHERE id = ?')
+        .bind(userId)
+        .first<{ image: string | null }>();
+      if (urow?.image) r2keys.push(urow.image);
+
+      // purge R2 first, best-effort: a stray object is harmless, a kept account is not
+      await Promise.allSettled(r2keys.map((k) => env.FONTS.delete(k)));
+
+      // drop the user's fonts and everything that hangs off them
+      for (const ids of chunk(fontIds, 50)) {
+        const ph = ids.map(() => '?').join(',');
+        await env.DB.prepare(`DELETE FROM votes WHERE font_id IN (${ph})`).bind(...ids).run();
+        await env.DB.prepare(`DELETE FROM favorites WHERE font_id IN (${ph})`).bind(...ids).run();
+        await env.DB.prepare(`DELETE FROM reports WHERE font_id IN (${ph})`).bind(...ids).run();
+        await env.DB.prepare(`DELETE FROM fonts WHERE id IN (${ph})`).bind(...ids).run();
+      }
+
+      // the user's votes on other makers' fonts: remove, then recount those fonts
+      const { results: voted } = await env.DB.prepare('SELECT font_id FROM votes WHERE user_id = ?')
+        .bind(userId)
+        .all<{ font_id: string }>();
+      await env.DB.prepare('DELETE FROM votes WHERE user_id = ?').bind(userId).run();
+      for (const ids of chunk((voted ?? []).map((v) => v.font_id), 50)) {
+        const ph = ids.map(() => '?').join(',');
+        await env.DB
+          .prepare(`UPDATE fonts SET votes_count = (SELECT COUNT(*) FROM votes WHERE font_id = fonts.id) WHERE id IN (${ph})`)
+          .bind(...ids)
+          .run();
+      }
+
+      // the user's favorites, reports against them, and anonymize reports they filed
+      await env.DB.prepare('DELETE FROM favorites WHERE user_id = ?').bind(userId).run();
+      await env.DB.prepare('DELETE FROM reports WHERE reported_user_id = ?').bind(userId).run();
+      await env.DB.prepare('UPDATE reports SET reporter_id = NULL WHERE reporter_id = ?').bind(userId).run();
+
+      // auth records last, then the account itself
+      await env.DB.prepare('DELETE FROM session WHERE "userId" = ?').bind(userId).run();
+      await env.DB.prepare('DELETE FROM account WHERE "userId" = ?').bind(userId).run();
+      await env.DB.prepare('DELETE FROM "user" WHERE id = ?').bind(userId).run();
+
+      return { ok: true };
+    },
+  }),
 };
