@@ -4,8 +4,9 @@
 interface Props {
   active?: 'library' | 'make';
   user?: { name: string } | null;
+  isAdmin?: boolean;
 }
-const { active = 'library', user = null } = Astro.props;
+const { active = 'library', user = null, isAdmin = false } = Astro.props;
 const initials = user
   ? user.name
       .split(/[\s@.]+/)
@@ -22,6 +23,7 @@ const initials = user
     <a href="/" class="fh-navlink" style={active === 'library' ? 'color:var(--ink);font-weight:600;' : undefined}>library</a>
     <a href="/make" data-astro-reload class="fh-navlink" style={active === 'make' ? 'color:var(--ink);font-weight:600;' : undefined}>make</a>
     <a href="/faq" class="fh-navlink">faq</a>
+    {isAdmin && <a href="/admin" class="fh-navlink" style="color:var(--signal);">admin</a>}
   </div>
   <div class="fh-nav-spacer"></div>
   <a href="/make" data-astro-reload class="fh-btn">make a font&nbsp;&nbsp;&rarr;</a>

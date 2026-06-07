@@ -1,0 +1,213 @@
+---
+import Base from '../layouts/Base.astro';
+import { createAuth } from '../lib/auth';
+import { isAdminEmail } from '../lib/util';
+
+export const prerender = false;
+
+// Admin-only. Anyone who is not on the ADMIN_EMAILS allowlist gets a 404, so the
+// route's existence is not even advertised.
+const env = Astro.locals.runtime.env;
+const auth = createAuth(env);
+const session = await auth.api.getSession({ headers: Astro.request.headers });
+if (!session || !isAdminEmail(env.ADMIN_EMAILS, session.user.email)) {
+  return Astro.rewrite('/404');
+}
+
+type ReportRow = {
+  id: string;
+  target_type: string;
+  font_id: string | null;
+  reported_user_id: string | null;
+  reason: string;
+  created_at: string;
+  font_name: string | null;
+  maker_handle: string | null;
+  maker_banned: number | null;
+  reporter_handle: string | null;
+  reporter_email: string | null;
+};
+const { results: reports } = await env.DB.prepare(
+  `SELECT r.id, r.target_type, r.font_id, r.reported_user_id, r.reason, r.created_at,
+          f.name AS font_name,
+          mu.handle AS maker_handle, mu.banned AS maker_banned,
+          ru.handle AS reporter_handle, ru.email AS reporter_email
+     FROM reports r
+     LEFT JOIN fonts f ON f.id = r.font_id
+     LEFT JOIN "user" mu ON mu.id = r.reported_user_id
+     LEFT JOIN "user" ru ON ru.id = r.reporter_id
+    WHERE r.status = 'open'
+    ORDER BY r.created_at DESC
+    LIMIT 200`,
+).all<ReportRow>();
+
+type UserRow = {
+  id: string;
+  name: string;
+  email: string;
+  handle: string | null;
+  createdAt: string;
+  banned: number;
+  font_count: number;
+  votes: number;
+};
+const { results: users } = await env.DB.prepare(
+  `SELECT u.id, u.name, u.email, u.handle, u.createdAt, u.banned,
+          (SELECT COUNT(*) FROM fonts WHERE owner_id = u.id) AS font_count,
+          (SELECT COALESCE(SUM(votes_count), 0) FROM fonts WHERE owner_id = u.id) AS votes
+     FROM "user" u
+    ORDER BY u.createdAt DESC
+    LIMIT 500`,
+).all<UserRow>();
+
+const day = (s: string | null) => (s ? s.slice(0, 10) : '–');
+const th = 'text-align:left;font-size:10.5px;letter-spacing:.06em;color:var(--ink-faint);text-transform:uppercase;padding:0 12px 8px 0;font-weight:500;';
+const td = 'font-size:12.5px;color:var(--ink);padding:9px 12px 9px 0;border-top:1px solid var(--line);vertical-align:top;';
+---
+
+<Base title="Admin · fonthead.dev">
+  <div style="background:var(--paper);min-height:100vh;">
+    <header class="fh-pad" style="padding:40px 0 22px;border-bottom:1px solid var(--line);">
+      <p class="fh-eyebrow">fonthead.dev · admin</p>
+      <h1 class="fh-mono" style="font-size:30px;font-weight:700;letter-spacing:-.01em;margin:10px 0 0;">Moderation</h1>
+      <p id="admin-msg" role="status" aria-live="polite" class="fh-mono" style="font-size:12px;color:var(--ink-soft);min-height:16px;margin:8px 0 0;"></p>
+    </header>
+
+    <section class="fh-pad" style="padding:28px 0;border-bottom:1px solid var(--line);">
+      <div class="fh-eyebrow" style="margin-bottom:14px;">Reports · {reports?.length ?? 0} open</div>
+      {reports && reports.length > 0 ? (
+        <div style="overflow-x:auto;">
+          <table style="border-collapse:collapse;width:100%;min-width:680px;">
+            <thead>
+              <tr>
+                <th style={th}>target</th>
+                <th style={th}>reason</th>
+                <th style={th}>reporter</th>
+                <th style={th}>when</th>
+                <th style={th}>actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reports.map((r) => (
+                <tr>
+                  <td style={td}>
+                    {r.target_type === 'maker' ? (
+                      <span>
+                        maker{' '}
+                        {r.maker_handle ? (
+                          <a href={`/u/${r.maker_handle}`} style="color:var(--ink);">@{r.maker_handle}</a>
+                        ) : (
+                          <span style="color:var(--ink-faint);">(gone)</span>
+                        )}
+                        {r.maker_banned ? <span class="fh-mono" style="color:var(--signal);font-size:11px;"> · banned</span> : null}
+                      </span>
+                    ) : (
+                      <span>
+                        font{' '}
+                        {r.font_id ? (
+                          <a href={`/f/${r.font_id}`} style="color:var(--ink);">{r.font_name ?? r.font_id}</a>
+                        ) : (
+                          <span style="color:var(--ink-faint);">(removed)</span>
+                        )}
+                      </span>
+                    )}
+                  </td>
+                  <td style={`${td}max-width:280px;`}>{r.reason}</td>
+                  <td style={td} class="fh-mono">{r.reporter_handle ?? r.reporter_email ?? '–'}</td>
+                  <td style={td} class="fh-mono">{day(r.created_at)}</td>
+                  <td style={td}>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                      {r.target_type === 'font' && r.font_id && (
+                        <button class="fh-btn fh-btn--ghost" data-admin="remove-font" data-font-id={r.font_id} data-confirm="Remove this font for good?" style="font-size:11px;padding:5px 9px;">remove font</button>
+                      )}
+                      {r.target_type === 'maker' && r.reported_user_id && !r.maker_banned && (
+                        <button class="fh-btn fh-btn--ghost" data-admin="ban" data-user-id={r.reported_user_id} data-confirm="Ban this maker (read-only)?" style="font-size:11px;padding:5px 9px;">ban maker</button>
+                      )}
+                      <button class="fh-btn fh-btn--ghost" data-admin="resolve" data-report-id={r.id} style="font-size:11px;padding:5px 9px;">dismiss</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p class="fh-mono" style="font-size:12.5px;color:var(--ink-faint);">No open reports.</p>
+      )}
+    </section>
+
+    <section class="fh-pad" style="padding:28px 0 48px;">
+      <div class="fh-eyebrow" style="margin-bottom:14px;">Users · {users?.length ?? 0}</div>
+      <div style="overflow-x:auto;">
+        <table style="border-collapse:collapse;width:100%;min-width:760px;">
+          <thead>
+            <tr>
+              <th style={th}>name</th>
+              <th style={th}>email</th>
+              <th style={th}>handle</th>
+              <th style={th}>joined</th>
+              <th style={th}>fonts</th>
+              <th style={th}>votes</th>
+              <th style={th}>state</th>
+              <th style={th}>action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(users ?? []).map((u) => (
+              <tr>
+                <td style={td}>{u.name}</td>
+                <td style={td} class="fh-mono">{u.email}</td>
+                <td style={td} class="fh-mono">{u.handle ? `@${u.handle}` : '–'}</td>
+                <td style={td} class="fh-mono">{day(u.createdAt)}</td>
+                <td style={td} class="fh-mono">{u.font_count}</td>
+                <td style={td} class="fh-mono">{u.votes}</td>
+                <td style={td} class="fh-mono">
+                  {u.banned ? <span style="color:var(--signal);">banned</span> : <span style="color:var(--ink-faint);">active</span>}
+                </td>
+                <td style={td}>
+                  {u.banned ? (
+                    <button class="fh-btn fh-btn--ghost" data-admin="unban" data-user-id={u.id} style="font-size:11px;padding:5px 9px;">unban</button>
+                  ) : (
+                    <button class="fh-btn fh-btn--ghost" data-admin="ban" data-user-id={u.id} data-confirm="Ban this account (read-only)?" style="font-size:11px;padding:5px 9px;">ban</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    import { actions } from 'astro:actions';
+    const msg = document.getElementById('admin-msg');
+    const say = (t: string) => {
+      if (msg) msg.textContent = t;
+    };
+    document.addEventListener('click', async (e) => {
+      const b = (e.target as HTMLElement).closest('[data-admin]') as HTMLButtonElement | null;
+      if (!b) return;
+      const confirmMsg = b.dataset.confirm;
+      if (confirmMsg && !confirm(confirmMsg)) return;
+      b.disabled = true;
+      say('working…');
+      const kind = b.dataset.admin;
+      let error = null;
+      if (kind === 'ban') ({ error } = await actions.banUser({ userId: b.dataset.userId! }));
+      else if (kind === 'unban') ({ error } = await actions.unbanUser({ userId: b.dataset.userId! }));
+      else if (kind === 'resolve') ({ error } = await actions.resolveReport({ reportId: b.dataset.reportId! }));
+      else if (kind === 'remove-font') ({ error } = await actions.removeFont({ fontId: b.dataset.fontId! }));
+      else {
+        b.disabled = false;
+        return;
+      }
+      if (error) {
+        b.disabled = false;
+        say(error.message || 'that did not work');
+        return;
+      }
+      location.reload();
+    });
+  </script>
+</Base>
