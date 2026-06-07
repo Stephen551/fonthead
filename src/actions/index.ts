@@ -135,6 +135,8 @@ export const server = {
       ttf: z.instanceof(File).optional(),
       // optional per-font social card (PNG), rendered client-side from the font
       ogImage: z.instanceof(File).optional(),
+      // the license the maker grants downloaders; defaults to OFL for older clients
+      license: z.enum(['ofl', 'cc0', 'personal']).default('ofl'),
     }),
     handler: async (input, ctx) => {
       const env = ctx.locals.runtime.env;
@@ -198,6 +200,7 @@ export const server = {
         ofl: '',
         standIn: false,
         builtWith: 'fonthead maker',
+        license: input.license,
         og: hasOg,
         ...(isColor ? { colorMode: input.treat } : {}),
       };

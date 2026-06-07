@@ -56,6 +56,9 @@ const canonicalUrl = Astro.url.href;
 const ogImg = m.og ? `/cdn/og/${f.id}.png` : '/og.png';
 const shareText = `${f.name} on fonthead.dev`;
 const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(canonicalUrl)}`;
+// the maker's chosen license; older fonts predate the picker and read as OFL
+const licenseKey = m.license ?? 'ofl';
+const licenseLabel = licenseKey === 'cc0' ? 'CC0' : licenseKey === 'personal' ? 'personal use' : 'OFL';
 const kind = m.badge === 'color' ? 'color font' : 'font';
 const fontDescription = `${f.name}, a ${kind} by ${f.maker_handle} on fonthead.dev. Preview every glyph and download it, or trace your own from an alphabet sheet.`;
 // Stand-in faces credit their original designer's full name (spaces and all) and
@@ -188,7 +191,7 @@ const fontSchema = {
         </div>
         <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
           <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">license</span>
-          <span class="fh-mono" style="font-size:12.5px;color:var(--ink);text-align:right;">OFL</span>
+          <a class="fh-mono" href="/licenses" style="font-size:12.5px;color:var(--ink);text-align:right;text-decoration:underline;text-underline-offset:3px;">{licenseLabel}</a>
         </div>
         <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
           <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">visibility</span>

@@ -16,6 +16,8 @@ export interface FontMeta {
   builtWith?: string;
   // true once a per-font social card (og/<id>.png) has been generated + stored
   og?: boolean;
+  // the license the maker chose at publish; older fonts without it read as OFL
+  license?: 'ofl' | 'cc0' | 'personal';
 }
 
 export interface FontRow {

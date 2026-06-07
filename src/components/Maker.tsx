@@ -88,6 +88,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [family, setFamily] = useState('Handmade');
   const [specimenWord, setSpecimenWord] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  const [license, setLicense] = useState<'ofl' | 'cc0' | 'personal'>('ofl');
   const [publishing, setPublishing] = useState(false);
   const [publishedId, setPublishedId] = useState<string | null>(null);
   const [publishErr, setPublishErr] = useState('');
@@ -278,6 +279,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       fd.set('name', family.trim() || 'Handmade');
       fd.set('specimenWord', specimenWord.trim());
       fd.set('visibility', visibility);
+      fd.set('license', license);
       fd.set('glyphCount', String(glyphCount));
       fd.set('treat', kind === 'mono' ? 'normal' : kind);
       fd.set('otf', new File([result.otf as BlobPart], 'font.otf', { type: 'font/otf' }));
@@ -972,7 +974,25 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                           </button>
                         ))}
                       </div>
-                      <button className="fh-btn" onClick={publish} disabled={publishing}>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+                      <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', letterSpacing: '.04em' }}>license</span>
+                      <div role="group" aria-label="License" style={{ display: 'flex', border: '1px solid var(--line-2)', borderRadius: 2, overflow: 'hidden' }}>
+                        {([['ofl', 'OFL'], ['cc0', 'CC0'], ['personal', 'personal']] as const).map(([v, label]) => (
+                          <button
+                            key={v}
+                            type="button"
+                            aria-pressed={license === v}
+                            onClick={() => setLicense(v)}
+                            className="fh-mono"
+                            style={{ fontSize: 12, padding: '9px 14px', border: 'none', cursor: 'pointer', background: license === v ? 'var(--ink)' : 'var(--paper)', color: license === v ? 'var(--paper)' : 'var(--ink-soft)', transition: 'all var(--dur) var(--ease)' }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <a href="/licenses" target="_blank" rel="noopener" className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', textDecoration: 'underline', textUnderlineOffset: 3 }}>what these mean</a>
+                      <button className="fh-btn" onClick={publish} disabled={publishing} style={{ marginLeft: 'auto' }}>
                         {publishing ? 'publishing…' : 'publish  →'}
                       </button>
                     </div>
