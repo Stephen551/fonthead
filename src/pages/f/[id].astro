@@ -167,7 +167,7 @@ const fontSchema = {
             { label: 'WOFF2', key: f.woff2_key, size: f.woff2_size, ext: 'woff2' },
           ].map((file) =>
             file.key ? (
-              <a class="fh-dl" href={`/cdn/${file.key}`} download={`${slug}.${file.ext}`}>
+              <a class="fh-dl" href={`/cdn/${file.key}`} download={`${slug}.${file.ext}`} data-font-id={f.id}>
                 <span class="fh-mono fmt">{file.label}</span><span class="fh-mono sz">{kb(file.size)}</span>
                 <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M7 1.5v8M3.5 6L7 9.5L10.5 6M2 12.5h10"/></svg>
               </a>
@@ -188,6 +188,10 @@ const fontSchema = {
         <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
           <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">format</span>
           <span class="fh-mono" style="font-size:12.5px;color:var(--ink);">{fmt}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
+          <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">downloads</span>
+          <span class="fh-mono" style="font-size:12.5px;color:var(--ink);">{f.downloads_count.toLocaleString()}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:16px;">
           <span class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em;">license</span>

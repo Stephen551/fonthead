@@ -36,6 +36,7 @@ export interface FontRow {
   ttf_size: number | null;
   woff2_size: number | null;
   votes_count: number;
+  downloads_count: number;
   created_at: string;
 }
 

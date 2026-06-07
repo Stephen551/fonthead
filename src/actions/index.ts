@@ -97,6 +97,28 @@ export const server = {
     },
   }),
 
+  // Best-effort download counter, fired from the font page when a visitor clicks a
+  // download link. Public (downloads need no account), so no requireUser. Deduped
+  // per IP + font for an hour so reloads and clicking more than one format do not
+  // inflate it, and only public fonts count. Never throws: the download proceeds
+  // client-side regardless.
+  countDownload: defineAction({
+    input: z.object({ fontId: z.string().min(1) }),
+    handler: async ({ fontId }, ctx) => {
+      const env = ctx.locals.runtime.env;
+      const ip = ctx.request.headers.get('cf-connecting-ip') || 'anon';
+      const fresh = await rateLimit(env.SESSION, `dl:${ip}:${fontId}`, 1, 3600);
+      if (fresh) {
+        await env.DB.prepare(
+          "UPDATE fonts SET downloads_count = downloads_count + 1 WHERE id = ? AND visibility = 'public'",
+        )
+          .bind(fontId)
+          .run();
+      }
+      return { ok: true };
+    },
+  }),
+
   setVisibility: defineAction({
     input: z.object({ fontId: z.string().min(1), visibility: z.enum(['public', 'private']) }),
     handler: async ({ fontId, visibility }, ctx) => {

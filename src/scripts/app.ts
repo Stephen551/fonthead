@@ -228,6 +228,9 @@ function wireSocialOnce() {
     const vote = t.closest('[data-vote]') as HTMLElement | null;
     const report = t.closest('[data-report]') as HTMLElement | null;
     const share = t.closest('[data-share]') as HTMLElement | null;
+    // a font-page download: count it best-effort and let the download proceed
+    const dl = t.closest('.fh-dl[data-font-id]') as HTMLElement | null;
+    if (dl?.dataset.fontId) actions.countDownload({ fontId: dl.dataset.fontId }).catch(() => {});
     if (fav) {
       e.preventDefault();
       onFav(fav);
