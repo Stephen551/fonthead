@@ -109,6 +109,9 @@ function onReport(btn: HTMLElement) {
   if (!dlg) return;
   reportBtn = btn;
   reportReturn = document.activeElement as HTMLElement | null;
+  const maker = btn.dataset.reportTarget === 'maker';
+  const eyebrow = document.getElementById('fh-report-eyebrow');
+  if (eyebrow) eyebrow.textContent = maker ? 'report this maker' : 'report this font';
   const ta = document.getElementById('fh-report-text') as HTMLTextAreaElement | null;
   const msg = document.getElementById('fh-report-msg');
   if (ta) ta.value = '';
@@ -134,10 +137,13 @@ async function submitReport() {
     ta?.focus();
     return;
   }
-  const id = reportBtn?.dataset.fontId;
+  const id = reportBtn?.dataset.reportId;
   if (!id) return;
   if (send) send.disabled = true;
-  const { data, error } = await actions.reportFont({ fontId: id, reason });
+  const { data, error } =
+    reportBtn?.dataset.reportTarget === 'maker'
+      ? await actions.reportMaker({ handle: id, reason })
+      : await actions.reportFont({ fontId: id, reason });
   if (send) send.disabled = false;
   if (error || !data) {
     if (msg) msg.textContent = 'report failed, try again';

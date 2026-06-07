@@ -3,7 +3,7 @@ import '../styles/global.css';
 import { ClientRouter } from 'astro:transitions';
 import FHNav from '../components/FHNav.astro';
 import { createAuth } from '../lib/auth';
-import { escapeJsonForScript } from '../lib/util';
+import { escapeJsonForScript, isAdminEmail } from '../lib/util';
 
 interface Props {
   title?: string;
@@ -63,10 +63,15 @@ const siteLd = {
 // Auth state for the nav. getSession returns null cheaply when there is no
 // session cookie, so anonymous page loads do not hit the database.
 let navUser: { name: string } | null = null;
+let navAdmin = false;
 try {
-  const auth = createAuth(Astro.locals.runtime.env);
+  const env = Astro.locals.runtime.env;
+  const auth = createAuth(env);
   const session = await auth.api.getSession({ headers: Astro.request.headers });
-  if (session) navUser = { name: session.user.name };
+  if (session) {
+    navUser = { name: session.user.name };
+    navAdmin = isAdminEmail(env.ADMIN_EMAILS, session.user.email);
+  }
 } catch {
   /* nav stays anonymous on any auth error */
 }
@@ -106,7 +111,7 @@ const coffeeOn = COFFEE_URL.startsWith('https://');
   </head>
   <body data-signed-in={navUser ? 'true' : 'false'}>
     <a href="#main" class="skip-link">Skip to content</a>
-    <FHNav active={active} user={navUser} />
+    <FHNav active={active} user={navUser} isAdmin={navAdmin} />
     <main id="main">
       <slot />
     </main>
@@ -119,6 +124,21 @@ const coffeeOn = COFFEE_URL.startsWith('https://');
         <a id="fh-coffee-link" class="fh-btn" href={COFFEE_URL} target="_blank" rel="noopener noreferrer">buy me a coffee</a>
       </div>
     )}
+    {/* shared report dialog: opened from a font page or a maker profile via a
+        [data-report] trigger. Hidden until then; app.ts manages focus + submit. */}
+    <div id="fh-report" class="fh-tour" hidden role="dialog" aria-modal="true" aria-label="Report">
+      <div class="fh-tour-card">
+        <button id="fh-report-x" type="button" class="fh-tour-x" aria-label="Close">&times;</button>
+        <p class="fh-eyebrow" id="fh-report-eyebrow">report</p>
+        <h2 class="fh-tour-title" style="font-size:16px;margin:8px 0 12px;">What looks wrong?</h2>
+        <textarea id="fh-report-text" class="fh-input" rows="3" maxlength="300" placeholder="a short reason helps" style="width:100%;resize:vertical;font-family:var(--sans);"></textarea>
+        <p id="fh-report-msg" role="status" aria-live="polite" class="fh-mono" style="font-size:11.5px;color:var(--ink-soft);min-height:14px;margin:8px 0 0;"></p>
+        <div class="fh-tour-actions" style="margin-top:12px;">
+          <button id="fh-report-send" type="button" class="fh-btn">send report</button>
+          <button id="fh-report-cancel" type="button" class="fh-btn fh-btn--ghost">cancel</button>
+        </div>
+      </div>
+    </div>
     <script>
       import '../scripts/app';
     </script>
