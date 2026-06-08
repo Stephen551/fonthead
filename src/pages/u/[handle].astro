@@ -80,8 +80,6 @@ const makerInitials = (maker.name || handle || '@')
       <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);"><a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a></div>
       {session && !isOwner && (
         <button data-report data-report-target="maker" data-report-id={handle} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--ink-faint);padding:0;text-decoration:underline;text-underline-offset:3px;">report this maker</button>
-      )}
-      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);">made, not generated</div>
-    </footer>
+      )}    </footer>
   </div>
 </Base>
