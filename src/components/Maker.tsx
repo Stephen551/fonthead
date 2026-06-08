@@ -1006,7 +1006,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           )}
           {phase === 'idle' && (
             <p className="fh-mono" style={{ fontSize: 11.5, color: 'var(--ink-faint)', lineHeight: 1.6 }}>
-              Drop a sheet or try the sample. Everything builds in your browser, nothing is uploaded.
+              Drop a sheet or try the sample. Everything builds in your browser.
               Monochrome gives otf, ttf, and woff2; color gives a COLR/CPAL otf and woff2.
             </p>
           )}
