@@ -65,6 +65,21 @@ function assertValidFont(otf: Uint8Array, glyphCount: number) {
   expect(check.ok, `sfnt checksums valid: ${check.errors.join('; ')}`).toBe(true);
 }
 
+// Read the italic bit (0x02) of head.macStyle straight from the sfnt bytes, so
+// the italic test proves the metadata reached the file, not just that it built.
+function isItalicFont(b: Uint8Array): boolean {
+  const u16 = (o: number) => (b[o] << 8) | b[o + 1];
+  const u32 = (o: number) => b[o] * 0x1000000 + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3];
+  const n = u16(4);
+  for (let i = 0; i < n; i++) {
+    const rec = 12 + i * 16;
+    if (String.fromCharCode(b[rec], b[rec + 1], b[rec + 2], b[rec + 3]) === 'head') {
+      return (u16(u32(rec + 8) + 44) & 0x02) === 0x02; // head.macStyle bit 1 = italic
+    }
+  }
+  return false;
+}
+
 const clickButton = (page: Page, label: string) =>
   page.getByRole('button', { name: label, exact: true }).click();
 
@@ -120,6 +135,28 @@ test.describe('maker builds valid fonts', () => {
     expect(on.glyphCount).toBe(off.glyphCount); // no glyphs lost
     expect(on.otf).toBeGreaterThan(off.otf); // more captured detail
     assertValidFont(await captureOtf(page), on.glyphCount);
+  });
+
+  test('italic toggle produces a valid, slanted italic font', async ({ page }) => {
+    await page.goto('/make');
+    await clickButton(page, 'try a sample sheet');
+    await buildDone(page);
+    const upright = await captureOtf(page);
+    const off = await lastBuild(page);
+    assertValidFont(upright, off.glyphCount);
+    expect(isItalicFont(upright), 'upright build is not italic').toBe(false);
+
+    // turn on italic in the advanced panel, then rebuild
+    await page.getByRole('button', { name: /advanced/ }).click();
+    await page.getByRole('button', { name: /^italic/ }).click();
+    await clickButton(page, 'rebuild with these settings');
+    await buildDone(page);
+    const on = await lastBuild(page);
+    const slanted = await captureOtf(page);
+
+    assertValidFont(slanted, on.glyphCount);
+    expect(on.glyphCount).toBe(off.glyphCount); // no glyphs lost to the slant
+    expect(isItalicFont(slanted), 'italic metadata reached the font').toBe(true);
   });
 
   test('a mono per-row re-slice rebuilds a valid font', async ({ page }) => {

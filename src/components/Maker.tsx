@@ -115,6 +115,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [preset, setPreset] = useState<'glyph' | 'logo' | 'sketch'>('glyph');
   const [colorOpts, setColorOpts] = useState<ColorOpts>(DEFAULT_COLOR_OPTS);
   const [fineDetail, setFineDetail] = useState(false);
+  // synthetic italic: the engine shears -14° and writes the italic metadata when
+  // the build style says "Italic". Mono only for now (the color path is separate).
+  const [italic, setItalic] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
   // the build readout / result column, scrolled into view on a phone when a build
@@ -237,8 +240,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         warn = trace.rowWarning;
         rep = trace.report;
         setMonoRows(trace.rows);
-        res = await buildFont(trace.glyphs, { family: fam, formats: ['otf', 'ttf', 'woff2'] }, (step, message) =>
-          setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
+        res = await buildFont(
+          trace.glyphs,
+          { family: fam, style: italic ? 'Italic' : 'Regular', formats: ['otf', 'ttf', 'woff2'] },
+          (step, message) => setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
       }
       if (warn) setWarning(warn);
@@ -669,6 +674,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                   resample each letter at higher resolution before tracing, so serifs and sharp corners survive. Slower.
                 </p>
+                {!isColor && (
+                  <div style={{ marginTop: 11 }}>
+                    <ToggleRow label="italic" on={italic} onChange={setItalic} />
+                    <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
+                      slant it into an italic. Build again with this off for the upright.
+                    </p>
+                  </div>
+                )}
               </div>
               {lastImgRef.current && (
                 <button className="fh-btn fh-btn--ghost" disabled={phase === 'working'} onClick={rebuild} style={{ marginTop: 12 }}>
