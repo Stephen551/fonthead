@@ -10,6 +10,9 @@ interface __BaseEnv_Env {
   // Google OAuth (optional: social sign-in is enabled only when both are set).
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  // Resend API key for transactional email (password reset). Optional: without
+  // it, reset emails no-op (the rest of auth still works).
+  RESEND_API_KEY?: string;
 }
 type Runtime = import('@astrojs/cloudflare').Runtime<Env>;
 

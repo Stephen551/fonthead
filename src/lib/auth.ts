@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth';
+import { sendResetEmail } from './email';
 
 // Per-request Better Auth factory. On Workers the D1 binding only exists at
 // request time (Astro.locals.runtime.env), so the instance must be built per
@@ -30,7 +31,16 @@ export function createAuth(env: Env) {
     database: env.DB,
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
-    emailAndPassword: { enabled: true },
+    emailAndPassword: {
+      enabled: true,
+      // Self-service reset: Better Auth builds the reset link, this sends it. The
+      // link lands on /reset-password (via Better Auth's token-check endpoint).
+      // sendResetEmail no-ops without RESEND_API_KEY, so the app still boots.
+      resetPasswordTokenExpiresIn: 3600,
+      sendResetPassword: async ({ user, url }) => {
+        await sendResetEmail(env, user.email, url);
+      },
+    },
     // Google sign-in, enabled only when both credentials are present, so the app
     // boots fine without them (local dev, or before the secrets are set).
     ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
