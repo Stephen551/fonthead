@@ -91,6 +91,95 @@
     return rows;
   }
 
+  // Count-agnostic row detector by local-prominence valleys. Two failure modes it
+  // handles that a single threshold cannot: (1) a colored drop shadow's tail
+  // leaves a little ink in the inter-row gap, so the zero-ink gap detector merges
+  // the rows; (2) a row far fainter than the rest (a sparse punctuation row) sits
+  // below any global fraction-of-peak line and gets dropped. Each row is a hump in
+  // the row-ink profile and a gap is a valley; a valley is a real boundary when it
+  // dips well below BOTH neighboring humps. Judging each valley against its OWN
+  // neighbors (not a global level) cuts a bridged gap and keeps a faint row, while
+  // never splitting inside a row (a row is one smooth hump). Returns tight ink
+  // bands; no expected count needed.
+  function detectRowsByValleys(union, w, h) {
+    const rowInk = new Float64Array(h);
+    let peak = 0, Y0 = -1, Y1 = -1;
+    for (let y = 0; y < h; y++) {
+      let c = 0; const b = y * w * 4;
+      for (let x = 0; x < w; x++) if (union[b + x * 4] === 0) c++;
+      rowInk[y] = c; if (c > peak) peak = c;
+      if (c > 0) { if (Y0 < 0) Y0 = y; Y1 = y; }
+    }
+    if (Y0 < 0 || peak === 0) return [];
+    const span = Y1 - Y0 + 1;
+    const win = Math.max(1, Math.round(span / 150));
+    const sm = new Float64Array(h);
+    for (let y = Y0; y <= Y1; y++) {
+      let s = 0, n = 0;
+      for (let k = -win; k <= win; k++) { const yy = y + k; if (yy >= Y0 && yy <= Y1) { s += rowInk[yy]; n++; } }
+      sm[y] = s / n;
+    }
+    // Row-center peaks: local maxima above a small floor (ignores noise bumps in
+    // near-empty bands). A faint real row still clears the floor.
+    const floor = peak * 0.04;
+    const peaks = [];
+    for (let y = Y0; y <= Y1; y++) {
+      if (sm[y] < floor) continue;
+      let isMax = true;
+      for (let k = 1; k <= win + 1; k++) {
+        if ((y - k >= Y0 && sm[y - k] > sm[y]) || (y + k <= Y1 && sm[y + k] > sm[y])) { isMax = false; break; }
+      }
+      if (!isMax) continue;
+      if (peaks.length && y - peaks[peaks.length - 1].y <= win + 1) {
+        if (sm[y] > peaks[peaks.length - 1].hgt) peaks[peaks.length - 1] = { y: y, hgt: sm[y] };
+      } else {
+        peaks.push({ y: y, hgt: sm[y] });
+      }
+    }
+    if (peaks.length <= 1) return [[Y0, Y1 + 1]];
+    // Cut between two peaks when the valley between them drops below half the
+    // SMALLER of the two (so a faint row, judged against itself, still separates).
+    const cutFrac = 0.5, cuts = [];
+    for (let i = 1; i < peaks.length; i++) {
+      let v = Infinity, vy = peaks[i - 1].y;
+      for (let y = peaks[i - 1].y; y <= peaks[i].y; y++) if (sm[y] < v) { v = sm[y]; vy = y; }
+      if (v <= cutFrac * Math.min(peaks[i - 1].hgt, peaks[i].hgt)) cuts.push(vy);
+    }
+    const bounds = [Y0].concat(cuts, [Y1 + 1]);
+    let bands = [];
+    for (let i = 0; i < bounds.length - 1; i++) {
+      let a = -1, b2 = -1;
+      for (let y = bounds[i]; y < bounds[i + 1]; y++) if (rowInk[y] > 0) { a = y; break; }
+      for (let y = bounds[i + 1] - 1; y >= bounds[i]; y--) if (rowInk[y] > 0) { b2 = y + 1; break; }
+      if (a >= 0) bands.push([a, b2]);
+    }
+    // Even-spacing guard. Alphabet sheets put one row per pitch, but a row of
+    // vertically-uneven content (a punctuation line mixing tall !? with low .,)
+    // reads as two humps and can split in two. Merge bands whose centers sit far
+    // closer than the typical row pitch, so one row is never read as two. Real
+    // rows sit a full pitch apart and are untouched.
+    if (bands.length > 2) {
+      const centers = bands.map(function (b) { return (b[0] + b[1]) / 2; });
+      const gaps = [];
+      for (let i = 1; i < centers.length; i++) gaps.push(centers[i] - centers[i - 1]);
+      const pitch = gaps.slice().sort(function (a, b) { return a - b; })[gaps.length >> 1];
+      if (pitch > 0) {
+        // A real row sits ~1.0 pitch from its neighbour; an over-split fragment
+        // sits well under that. 0.75 splits the two cleanly (real gaps measured
+        // ~0.95-1.15 pitch, fragment gaps ~0.67) without merging true rows.
+        const merged = [bands[0].slice()];
+        for (let i = 1; i < bands.length; i++) {
+          const prev = merged[merged.length - 1];
+          const cPrev = (prev[0] + prev[1]) / 2, cCur = (bands[i][0] + bands[i][1]) / 2;
+          if (cCur - cPrev < 0.75 * pitch) prev[1] = bands[i][1];
+          else merged.push(bands[i].slice());
+        }
+        bands = merged;
+      }
+    }
+    return bands;
+  }
+
   // [color-builder.html:601] extractColorCell
   // Per-cell color sub-rect. ownerFn/cellIdx (from ownership-based slicing)
   // erase ink that sits in this cell's rectangle but belongs to an ADJACENT
@@ -619,32 +708,15 @@
       expectedRows: 0, // unknown count: the gap detector on the shadow-free union
     });
     // The zero-ink gap detector (ana.rows) merges rows that a colored drop shadow
-    // or a thick outline bridges with a little ink, so a 6-row graffiti sheet can
-    // read as 2-3 rows and the charset guess then maps the whole alphabet onto one
-    // A-M row. Re-estimate the count by splitting at low-ink VALLEYS, not only at
-    // zero: sweep a fraction-of-peak threshold and take the count that holds over
-    // the sweep. Alphabet rows are evenly spaced, so the true count is stable
-    // across a band of thresholds while a too-low one under-counts and a too-high
-    // one would over-split. Then snap tight, even bands with the same count-aware
-    // detector the build uses.
+    // or thick outline bridges with a little ink, so a 6-row graffiti sheet reads
+    // as 2-3 rows and the charset guess maps the whole alphabet onto one A-M row.
+    // The local-prominence valley detector handles both that and a faint row a
+    // global threshold would drop. Never do worse than the zero-ink detector, and
+    // ignore an implausible over-split.
     const union = ana.union;
-    const rowInk = new Uint32Array(h); let peak = 0;
-    for (let y = 0; y < h; y++) { let c = 0; const base = y * w * 4; for (let x = 0; x < w; x++) if (union[base + x * 4] === 0) c++; rowInk[y] = c; if (c > peak) peak = c; }
-    function countAt(frac) {
-      const thr = peak * frac; let n = 0, on = false, s = 0;
-      for (let y = 0; y < h; y++) { const a = rowInk[y] > thr; if (a && !on) { on = true; s = y; } else if (!a && on) { on = false; if (y - s > 3) n++; } }
-      if (on && h - s > 3) n++;
-      return n;
-    }
-    const tally = {};
-    [0.15, 0.20, 0.25, 0.30, 0.35].forEach(function (f) { const n = countAt(f); tally[n] = (tally[n] || 0) + 1; });
-    let nRows = ana.rows.length, bestVotes = -1;
-    Object.keys(tally).forEach(function (k) {
-      const n = +k;
-      if (n >= 2 && (tally[n] > bestVotes || (tally[n] === bestVotes && n > nRows))) { bestVotes = tally[n]; nRows = n; }
-    });
-    let bands = (nRows >= 2 && nRows !== ana.rows.length) ? detectRowsByProfile(union, w, h, nRows) : null;
-    if (!bands || !bands.length) bands = ana.rows;
+    let bands = detectRowsByValleys(union, w, h);
+    if (!bands || !bands.length || bands.length > 10) bands = ana.rows;
+    else if (bands.length < ana.rows.length) bands = ana.rows;
     const rows = bands.map(function (b) {
       const y0 = b[0], y1 = b[1];
       let cells = [];
