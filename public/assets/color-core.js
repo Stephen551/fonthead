@@ -402,6 +402,36 @@
    * shape, so a second disconnected blob there is junk. */
   const MULTI_PART = new Set(['i', 'j', '!', '?', ':', ';', '"', '=', '%']);
 
+  /* detectEdgeBleed(width, h) -> { top, bot }  (scanline window to KEEP)
+   * Neighbour-row bleed sits as a short ink strip fused to the very top or bottom
+   * edge of a cell — the bottom edge or drop shadow of the row above, or a top
+   * edge from the row below — when rows are packed close. `width` is the per-
+   * scanline ink count. The signature: a local width-MAX right at the edge that
+   * dips to a valley, with the real glyph body beyond the valley much wider. A
+   * glyph's OWN top/bottom is not like that — a stem or ascender rises into the
+   * body with no edge max, and a top-heavy cap (T, F, P) has a wider top but a
+   * NARROWER body below, not a wider one — so those are left intact. Returns the
+   * [top, bot) rows to keep; rows outside are bleed to clear. */
+  function detectEdgeBleed(width, h) {
+    let top = 0, bot = h;
+    const maxRun = h * 0.18; // a bleed strip is short; a real glyph part is not
+    // top edge: descend from the first inked row to the first valley
+    let a = 0; while (a < h && width[a] === 0) a++;
+    if (a < h) {
+      let v = a; while (v + 1 < h && width[v + 1] <= width[v]) v++;
+      let bodyMax = 0; for (let y = v; y < h; y++) if (width[y] > bodyMax) bodyMax = width[y];
+      if (v > a && v - a <= maxRun && width[v] <= width[a] * 0.8 && bodyMax >= width[a] * 1.6) top = v;
+    }
+    // bottom edge: mirror, ascending from the last inked row
+    let b = h - 1; while (b >= 0 && width[b] === 0) b--;
+    if (b >= 0) {
+      let v = b; while (v - 1 >= 0 && width[v - 1] <= width[v]) v--;
+      let bodyMax = 0; for (let y = v; y >= 0; y--) if (width[y] > bodyMax) bodyMax = width[y];
+      if (v < b && b - v <= maxRun && width[v] <= width[b] * 0.8 && bodyMax >= width[b] * 1.6) bot = v + 1;
+    }
+    return { top, bot };
+  }
+
   /* separateGlyph(data, w, h, palette, char) ->
    *   { totalInk, union, layers: [{ paletteIndex, mask }], strayDropped }
    * union + each layer mask are RGBA (ink = black). Each non-bg pixel is
@@ -438,6 +468,26 @@
       if (palette.colors[best] && palette.colors[best].ignore) continue;
       union[p] = 1; totalInk++;
       perColor[best][p] = 1; counts[best]++;
+    }
+
+    // Neighbour-row bleed trim: clear a foreign ink strip fused to the top or
+    // bottom edge of the cell (the row above's bottom/shadow, or the row below's
+    // top), which the island cull can't catch because it's joined to the glyph.
+    // Skipped for glyphs that legitimately carry a detached top/bottom mark.
+    if (char && !MULTI_PART.has(char)) {
+      const width = new Int32Array(h);
+      for (let y = 0; y < h; y++) { let c = 0; const off = y * w; for (let x = 0; x < w; x++) if (union[off + x]) c++; width[y] = c; }
+      const edge = detectEdgeBleed(width, h);
+      if (edge.top > 0 || edge.bot < h) {
+        for (let y = 0; y < h; y++) {
+          if (y >= edge.top && y < edge.bot) continue;
+          const off = y * w;
+          for (let x = 0; x < w; x++) {
+            const p = off + x;
+            if (union[p]) { union[p] = 0; totalInk--; for (let k = 0; k < K; k++) if (perColor[k][p]) { perColor[k][p] = 0; counts[k]--; } }
+          }
+        }
+      }
     }
 
     // Despeckle: drop tiny disconnected components (noise, slicing crumbs,
