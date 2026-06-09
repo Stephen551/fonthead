@@ -753,7 +753,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         </div>
 
         {/* dark terminal readout */}
-        <div role="status" aria-live="polite" aria-label="Build progress" style={{ background: 'var(--ink)', borderRadius: 3, padding: '16px 18px', fontFamily: 'var(--mono)' }}>
+        <div role="status" aria-live="polite" aria-label="Build progress" style={{ background: 'var(--term)', borderRadius: 3, padding: '16px 18px', fontFamily: 'var(--mono)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <span style={{ fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,.62)' }}>
               build · fonthead maker
@@ -793,9 +793,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
               marginTop: 16,
               padding: '11px 13px',
               borderRadius: 2,
-              background: '#fbf0db',
-              border: '1px solid #e6c27e',
-              color: '#7a5b18',
+              background: 'var(--warn-bg)',
+              border: '1px solid var(--warn-line)',
+              color: 'var(--warn-ink)',
               fontSize: 11.5,
               lineHeight: 1.5,
               display: 'flex',
@@ -858,13 +858,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 <div style={{ margin: '0 0 16px' }}>
                   <div className="fh-mono" style={{ fontSize: 10.5, letterSpacing: '.06em', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: 'var(--ink-faint)' }}>GLYPHS</span>
-                    <span style={{ color: flaggedCount ? '#9a6a12' : '#2f6f5e' }}>{flaggedCount ? `${flaggedCount} flagged` : 'all clean'}</span>
+                    <span style={{ color: flaggedCount ? 'var(--flag-ink)' : 'var(--ok)' }}>{flaggedCount ? `${flaggedCount} flagged` : 'all clean'}</span>
                   </div>
                   <div className="fh-glyph-grid" style={{ display: 'grid', gap: 5 }}>
                     {report.map((g, i) => {
                       const flagged = g.flags.length > 0;
                       const dropped = g.status !== 'ok';
-                      const border = dropped ? 'var(--line-2)' : flagged ? '#e6c27e' : 'var(--line)';
+                      const border = dropped ? 'var(--line-2)' : flagged ? 'var(--flag-line)' : 'var(--line)';
                       const tip = `${g.char}${g.flags.length ? ' · ' + g.flags.join(', ') : dropped ? ' · ' + g.status : ''}`;
                       return (
                         <div
@@ -888,7 +888,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                         >
                           <span style={{ fontFamily: previewFam ? `'${previewFam}', var(--sans)` : 'var(--sans)', fontSize: 24, lineHeight: 1 }}>{g.char}</span>
                           {(flagged || dropped) && (
-                            <span style={{ position: 'absolute', top: 2, right: 3, width: 5, height: 5, borderRadius: '50%', background: dropped ? 'var(--ink-faint)' : '#d8a45a' }} />
+                            <span style={{ position: 'absolute', top: 2, right: 3, width: 5, height: 5, borderRadius: '50%', background: dropped ? 'var(--ink-faint)' : 'var(--flag-dot)' }} />
                           )}
                         </div>
                       );
@@ -955,10 +955,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                           const sel = rowSlicerSel[r.index] ?? 'auto';
                           const busy = rowBusy === r.index;
                           return (
-                            <div key={r.index} style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '7px 9px', border: `1px solid ${off ? '#e6c27e' : 'var(--line)'}`, borderRadius: 2, background: 'var(--paper)' }}>
+                            <div key={r.index} style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '7px 9px', border: `1px solid ${off ? 'var(--flag-line)' : 'var(--line)'}`, borderRadius: 2, background: 'var(--paper)' }}>
                               <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink)', minWidth: 38 }}>row {r.index + 1}</span>
                               <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', flex: 1, minWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.chars}</span>
-                              <span className="fh-mono" style={{ fontSize: 10.5, color: off ? '#9a6a12' : '#2f6f5e' }}>
+                              <span className="fh-mono" style={{ fontSize: 10.5, color: off ? 'var(--flag-ink)' : 'var(--ok)' }}>
                                 {r.cellCount}/{r.expected} · {r.slicer}{r.forced ? ' (forced)' : ''}
                               </span>
                               <select
@@ -1012,7 +1012,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 <span className="fh-eyebrow" style={{ display: 'block', marginBottom: 12 }}>03 · publish to the library</span>
                 {publishedId ? (
                   <div>
-                    <p className="fh-mono" style={{ fontSize: 12.5, color: '#2f6f5e', margin: '0 0 12px' }}>
+                    <p className="fh-mono" style={{ fontSize: 12.5, color: 'var(--ok)', margin: '0 0 12px' }}>
                       published as {visibility}. live on your maker page{visibility === 'public' ? ' and the wall' : ''}.
                     </p>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

@@ -598,6 +598,25 @@ function wireCoffeeOnce() {
   });
 }
 
+// The theme toggle flips the resolved theme on <html> and saves the choice;
+// the inline script in Base.astro replays it pre-paint on every load/swap.
+function wireThemeOnce() {
+  if ((window as Window & { __fhTheme?: boolean }).__fhTheme) return;
+  (window as Window & { __fhTheme?: boolean }).__fhTheme = true;
+  document.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest('[data-theme-toggle]');
+    if (!t) return;
+    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem('fh-theme', next);
+    } catch {
+      /* private mode: the flip still applies for this page */
+    }
+    announce(next === 'dark' ? 'Dark theme on.' : 'Light theme on.');
+  });
+}
+
 function init() {
   lazyFonts();
   wireSlider();
@@ -611,3 +630,4 @@ wireSocialOnce();
 wireCoffeeOnce();
 wireReportOnce();
 wireEditOnce();
+wireThemeOnce();

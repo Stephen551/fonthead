@@ -26,6 +26,10 @@ const initials = user
     {isAdmin && <a href="/admin" class="fh-navlink" style="color:var(--signal);">admin</a>}
   </div>
   <div class="fh-nav-spacer"></div>
+  <button type="button" data-theme-toggle class="fh-navlink" style="background:none;border:none;cursor:pointer;" aria-label="Switch between light and dark">
+    <span class="fh-when-light">dark</span>
+    <span class="fh-when-dark">light</span>
+  </button>
   <a href="/make" data-astro-reload class="fh-btn">make a font&nbsp;&nbsp;&rarr;</a>
   {
     user ? (

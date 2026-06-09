@@ -22,6 +22,8 @@
 }
 
 :root {
+  color-scheme: light;
+
   /* paper / ink */
   --paper:    #ffffff;
   --paper-2:  #faf9f6;   /* sunken / hover */
@@ -44,6 +46,23 @@
      3.8:1; this clears 4.5:1 (AA) on the near-black readout. */
   --signal-on-dark: #ff6f63;
 
+  /* surfaces that keep their identity in both themes */
+  --term: #15140f;                    /* the build readout terminal, always dark */
+  --backdrop: rgba(21, 20, 15, .38);  /* dialog backdrops */
+  --tint: rgba(0, 0, 0, .02);         /* the faintest panel wash */
+
+  /* category + status hues (brightened in dark mode to hold AA contrast) */
+  --badge-color:    #c0392b;
+  --badge-line:     #2f6f5e;
+  --badge-variable: #6b5bd2;
+  --ok:        #2f6f5e;   /* clean / success notes */
+  --flag-ink:  #9a6a12;   /* flagged-glyph text */
+  --flag-line: #e6c27e;   /* flagged-glyph borders */
+  --flag-dot:  #d8a45a;   /* flagged-glyph indicator dot */
+  --warn-bg:   #fbf0db;   /* the maker's warning box */
+  --warn-line: #e6c27e;
+  --warn-ink:  #7a5b18;
+
   /* type */
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --sans: "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
@@ -53,6 +72,50 @@
   --dur:  .32s;
   --dur-2:.5s;
 }
+
+/* ---- dark mode ----
+   The resolved theme always lives on <html data-theme>: an inline script in
+   Base.astro sets it pre-paint from the visitor's saved choice or the OS
+   preference, so this block needs no media query and the page cannot flash
+   the wrong theme. Same warm room with the lights off: paper and ink swap,
+   hairlines deepen, and the signal red brightens to its AA-on-dark tuning.
+   The build terminal (--term), the og card, and the sheet canvases keep
+   their light-mode identity on purpose. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper:    #161511;
+  --paper-2:  #1c1a15;
+  --paper-3:  #232119;
+  --ink:      #ece9e1;
+  --ink-soft: #a9a599;
+  --ink-faint:#94907f;
+  --line:     #2a2820;
+  --line-2:   #383528;
+  --line-3:   #4e4a3c;
+
+  --signal:      #ff6f63;
+  --signal-soft: #3d201b;
+
+  /* sink the terminal below the dark paper so the panel keeps its identity */
+  --term: #0d0c09;
+  --backdrop: rgba(0, 0, 0, .55);
+  --tint: rgba(255, 255, 255, .03);
+
+  --badge-color:    #e0705f;
+  --badge-line:     #5cb497;
+  --badge-variable: #a99af5;
+  --ok:        #5cb497;
+  --flag-ink:  #d8a45a;
+  --flag-line: #6b5527;
+  --flag-dot:  #d8a45a;
+  --warn-bg:   #2a2315;
+  --warn-line: #5c4a23;
+  --warn-ink:  #dbb86e;
+}
+
+/* the theme toggle's two labels: each shows only in the opposite theme */
+html[data-theme='dark'] .fh-when-light { display: none; }
+html:not([data-theme='dark']) .fh-when-dark { display: none; }
 
 html, body { margin: 0; min-height: 100%; background: var(--paper); }
 body {
@@ -128,9 +191,9 @@ body {
   border-radius: 2px; color: var(--ink-soft); background: var(--paper);
   display: inline-flex; align-items: center; gap: 5px; line-height: 1; }
 .fh-badge .tick { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.fh-badge--color   { color: #c0392b; }
-.fh-badge--line    { color: #2f6f5e; }
-.fh-badge--variable{ color: #6b5bd2; }
+.fh-badge--color   { color: var(--badge-color); }
+.fh-badge--line    { color: var(--badge-line); }
+.fh-badge--variable{ color: var(--badge-variable); }
 .fh-badge--private { color: var(--ink-faint); }
 
 /* search field in nav */
@@ -407,7 +470,7 @@ body {
 }
 
 /* onboarding walkthrough card (first run + retriggerable) */
-.fh-tour { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px; background: rgba(21, 20, 15, 0.38); }
+.fh-tour { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px; background: var(--backdrop); }
 .fh-tour-card {
   position: relative; width: min(440px, 100%); background: var(--paper); border: 1px solid var(--line-2);
   border-radius: 6px; box-shadow: 0 18px 50px rgba(21, 20, 15, 0.25); padding: 26px 26px 22px;
