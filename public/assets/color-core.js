@@ -395,15 +395,23 @@
     return { minX, maxX };
   }
 
-  /* separateGlyph(data, w, h, palette) ->
-   *   { totalInk, union, layers: [{ paletteIndex, mask }] }
+  /* Glyphs that legitimately split into more than one ink blob: dotted letters
+   * and stacked punctuation. The stray-island cull below is SKIPPED for these so
+   * an i/j dot, the two marks of a colon, the dot over a "!" etc. are never
+   * mistaken for neighbour-row bleed. Everything else is normally one connected
+   * shape, so a second disconnected blob there is junk. */
+  const MULTI_PART = new Set(['i', 'j', '!', '?', ':', ';', '"', '=', '%']);
+
+  /* separateGlyph(data, w, h, palette, char) ->
+   *   { totalInk, union, layers: [{ paletteIndex, mask }], strayDropped }
    * union + each layer mask are RGBA (ink = black). Each non-bg pixel is
    * assigned to its nearest palette colour; a colour with no ink in this
    * glyph emits no layer (a 2-colour glyph on a 3-colour sheet -> 2 layers,
    * no empties). Per-colour masks are dilated 1px so back-to-front
    * compositing leaves no hairline seam. The union is the tight (un-dilated)
-   * outline of all ink -> the cmap-mapped fallback base glyph. */
-  function separateGlyph(data, w, h, palette) {
+   * outline of all ink -> the cmap-mapped fallback base glyph.
+   * `char` (optional) enables the single-shape stray-island cull. */
+  function separateGlyph(data, w, h, palette, char) {
     const bg = palette.bg || { r: 255, g: 255, b: 255 };
     const bgLab = rgbToLab(bg.r, bg.g, bg.b);
     const bgD2 = (palette.bgDist || 20) * (palette.bgDist || 20);
@@ -443,6 +451,45 @@
       for (let k = 0; k < K; k++) if (perColor[k][p]) { perColor[k][p] = 0; counts[k]--; }
     }
 
+    // Stray-island cull. keepLargeComponents above keeps any blob that's a real
+    // fraction of the body (so i/j dots and punctuation survive), but a piece of
+    // a neighbouring row caught by a slightly tall row band is a real fraction
+    // too, and it traces as a phantom island floating off the letter (the classic
+    // case: the 9's cell grabbing a descender tail from the row above). For a
+    // glyph that is normally a single connected shape, drop a clearly-minor
+    // disconnected blob (< half the body). Skipped for MULTI_PART glyphs, and it
+    // never fires when the glyph split into two big halves — that is a mis-slice
+    // to flag, not bleed to silently delete.
+    let strayDropped = false;
+    if (char && !MULTI_PART.has(char)) {
+      const lab = new Int32Array(N).fill(-1), area = [], st = [];
+      let nl = 0;
+      for (let s = 0; s < N; s++) {
+        if (!union[s] || lab[s] >= 0) continue;
+        const id = nl++; lab[s] = id; st.length = 0; st.push(s); let sz = 0;
+        while (st.length) {
+          const p = st.pop(); sz++;
+          const x = p % w, y = (p / w) | 0;
+          if (x > 0 && union[p - 1] && lab[p - 1] < 0) { lab[p - 1] = id; st.push(p - 1); }
+          if (x < w - 1 && union[p + 1] && lab[p + 1] < 0) { lab[p + 1] = id; st.push(p + 1); }
+          if (y > 0 && union[p - w] && lab[p - w] < 0) { lab[p - w] = id; st.push(p - w); }
+          if (y < h - 1 && union[p + w] && lab[p + w] < 0) { lab[p + w] = id; st.push(p + w); }
+        }
+        area[id] = sz;
+      }
+      if (nl > 1) {
+        let big = 0, bigA = -1; for (let id = 0; id < nl; id++) if (area[id] > bigA) { bigA = area[id]; big = id; }
+        for (let p = 0; p < N; p++) {
+          if (!union[p]) continue;
+          const id = lab[p];
+          if (id !== big && area[id] < 0.5 * bigA) {
+            union[p] = 0; totalInk--; strayDropped = true;
+            for (let k = 0; k < K; k++) if (perColor[k][p]) { perColor[k][p] = 0; counts[k]--; }
+          }
+        }
+      }
+    }
+
     const layers = [];
     for (let k = 0; k < K; k++) {
       if (counts[k] === 0) continue;                 // skip colours with no ink here
@@ -459,7 +506,7 @@
     // the margins), giving an even BODY rhythm instead of a wisp-driven one.
     const bb = bodyBoundsX(union, w, h);
 
-    return { totalInk, union: toRGBA(union, w, h), layers, bodyMinX: bb.minX, bodyMaxX: bb.maxX };
+    return { totalInk, union: toRGBA(union, w, h), layers, bodyMinX: bb.minX, bodyMaxX: bb.maxX, strayDropped };
   }
 
   /* sampleFireGradient(data, w, h, rows, opts) ->

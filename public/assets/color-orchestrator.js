@@ -310,7 +310,11 @@
       dScale = detailScale(cell.h);
       if (dScale > 1) { cell = supersampleColorCell(cell, dScale); outScale = 1 / dScale; }
     }
-    const sep = ColorCore.separateGlyph(cell.data, cell.w, cell.h, pal);
+    const sep = ColorCore.separateGlyph(cell.data, cell.w, cell.h, pal, rec.char);
+    // Did the single-shape stray-island cull drop a phantom blob? Stored on the
+    // record (not flags, which computeConfidence rebuilds) so it surfaces as a
+    // 'stray' review flag and survives a re-trace.
+    rec.stray = !!sep.strayDropped;
     if (sep.totalInk === 0) { rec.status = 'empty'; rec.flags = ['empty']; rec.baseD = null; rec.layers = []; return; }
     const baseD = await traceMask(sep.union, cell.w, cell.h, rec.turd, outScale);
     if (!baseD) { rec.status = 'empty'; rec.flags = ['empty']; rec.baseD = null; rec.layers = []; return; }
@@ -360,6 +364,9 @@
   // Returns the glowWarning boolean (the source stored it on state.glowWarning).
   function computeConfidence(records, mode) {
     records.forEach(r => { if (r.status !== 'excluded') r.flags = r.status === 'empty' ? ['empty'] : []; });
+    // A phantom island was culled from this glyph (see separateGlyph's stray cull):
+    // surface it for review, same as the other suspect-glyph flags.
+    records.forEach(r => { if (r.status === 'ok' && r.stray) r.flags.push('stray'); });
     const ws = records.filter(r => r.status === 'ok' && r.bodyW > 0).map(r => r.bodyW).sort((a, b) => a - b);
     let glowWarning = false;
     if (!ws.length) return glowWarning;
