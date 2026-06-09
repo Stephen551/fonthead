@@ -376,12 +376,17 @@
       if (r.bodyW > med * 1.9) r.flags.push('wide');
       else if (r.bodyW < med * 0.34) r.flags.push('narrow');
     });
-    // Glow / halo detection: counter-letters whose enclosed hole has filled in.
+    // Glow / halo detection: counter-letters whose enclosed hole has bloated
+    // shut. The trip point is a counter that is essentially GONE, not just small.
+    // Bubble / heavy graffiti faces draw tiny counters that the thick outline
+    // nearly fills on the sheet itself — they still hold a real open hole around
+    // 1-2% of the fill area, which is correct, not glow. Flag only a near-total
+    // collapse (< 0.6%) so those legitimate small counters are not cried wolf on.
     let counters = 0, filled = 0;
     records.forEach(r => {
       if (r.status !== 'ok' || !COUNTER_CHARS.has(r.char) || !r.inkArea) return;
       counters++;
-      if (r.holeArea < 0.02 * r.inkArea) { filled++; r.flags.push('filled'); }
+      if (r.holeArea < 0.006 * r.inkArea) { filled++; r.flags.push('filled'); }
     });
     glowWarning = (counters >= 6 && filled / counters >= 0.5);
     return glowWarning;
