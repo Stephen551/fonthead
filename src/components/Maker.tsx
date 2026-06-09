@@ -461,20 +461,35 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     if (img) run(() => Promise.resolve(img));
   }
 
+  // The charset stashed by the generate block (make.astro) when a preset prompt
+  // was used: the exact characters that preset told the AI to draw.
+  function readArmedCharset(): string[] | null {
+    try {
+      const raw = localStorage.getItem('fh-gen-charset');
+      if (!raw) return null;
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) && arr.length > 0 && arr.every((r) => typeof r === 'string') ? arr : null;
+    } catch {
+      return null;
+    }
+  }
+
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     try {
-      // Read the per-row cell geometry and build the charset from it, so the row
-      // count always matches and letters + digits land exactly (a 4-row split, a
-      // 6-row sheet with digits + punctuation, or a 7-row sheet all map right).
       if (isColor) await waitForColorEngine();
       else await waitForEngine();
       const img = await fileToImage(file);
       const geom = detectGeometry(img);
       const cellsPerRow = geom.rows.map((r) => r.cells.length);
-      const guessed = guessCharsetFromRows(cellsPerRow);
-      setCharsetText(guessed.join('\n'));
-      await run(() => Promise.resolve(img), guessed);
+      // If this sheet came from a generate preset, trace it against that preset's
+      // exact charset (what the AI was asked to draw) instead of guessing the
+      // characters from shapes. Only when the row count matches, so a deviated or
+      // hand-dropped sheet still falls back to the geometry guess.
+      const armed = readArmedCharset();
+      const charLines = armed && armed.length === cellsPerRow.length ? armed : guessCharsetFromRows(cellsPerRow);
+      setCharsetText(charLines.join('\n'));
+      await run(() => Promise.resolve(img), charLines);
       setDetectedRows(geom.rows.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not read that image');

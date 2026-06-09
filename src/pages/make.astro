@@ -260,6 +260,25 @@ Other requirements:
       gradient: { build: GRADIENT, chips: false, label: 'COLOR FAMILY', placeholder: 'name one color family' },
     };
 
+    // The exact charset each preset's prompt tells the AI to draw, one row per
+    // line, in the same order as the rows in the prompt above. Stashed when a
+    // preset is used so the tracer can map a generated sheet against the
+    // characters it actually contains instead of re-guessing them from shapes.
+    const ALPHA = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789'];
+    const PRESET_CHARSETS: Record<Preset, string[]> = {
+      standard: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
+      monoline: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
+      flat: [...ALPHA, '.,!?:;\'"-&@#'],
+      gradient: [...ALPHA, '.,!?:;\'"-&@#'],
+    };
+    const armCharset = (p: Preset) => {
+      try {
+        localStorage.setItem('fh-gen-charset', JSON.stringify(PRESET_CHARSETS[p]));
+      } catch {
+        /* storage blocked: the tracer just falls back to guessing the charset */
+      }
+    };
+
     let activePreset: Preset = 'standard';
     const extra = document.getElementById('gen-extra') as HTMLInputElement | null;
     const extraLabel = document.getElementById('gen-extra-label');
@@ -286,7 +305,11 @@ Other requirements:
     };
 
     document.querySelectorAll<HTMLElement>('.fh-preset').forEach((b) =>
-      b.addEventListener('click', () => applyPreset((b.dataset.preset as Preset) || 'standard')),
+      b.addEventListener('click', () => {
+        const p = (b.dataset.preset as Preset) || 'standard';
+        applyPreset(p);
+        armCharset(p); // remember this preset's charset for the sheet they generate
+      }),
     );
     extra?.addEventListener('input', renderPrompt);
     document.querySelectorAll<HTMLElement>('#gen-stylechips .fh-chip').forEach((chip) =>
@@ -300,6 +323,7 @@ Other requirements:
     applyPreset('standard');
     const copyBtn = document.getElementById('gen-copy');
     copyBtn?.addEventListener('click', async () => {
+      armCharset(activePreset); // copying the prompt means they are about to generate this layout
       try {
         await navigator.clipboard.writeText(promptEl?.textContent || '');
         copyBtn.textContent = 'copied';
