@@ -1,7 +1,8 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Badge from '../../components/Badge.astro';
-import { getFont, fontFaceCss, specClass, specStyle, familyOf, kb } from '../../lib/fonts';
+import FontCard from '../../components/FontCard.astro';
+import { getFont, getUserInteractions, listFontsByOwner, listPublicFonts, fontFaceCss, specClass, specStyle, familyOf, kb, type Font } from '../../lib/fonts';
 import { createAuth } from '../../lib/auth';
 
 export const prerender = false;
@@ -26,15 +27,30 @@ if (f.visibility === 'private' && userId !== f.owner_id) {
 // the signed-in author looking at their own font gets a delete control
 const isOwner = !!userId && userId === f.owner_id;
 
-let voted = false;
-let favorited = false;
-if (userId) {
-  voted = !!(await env.DB.prepare('SELECT 1 FROM votes WHERE user_id = ? AND font_id = ?').bind(userId, f.id).first());
-  favorited = !!(await env.DB.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND font_id = ?').bind(userId, f.id).first());
+// One interactions fetch covers this font's buttons and the rail cards below.
+const inter = userId
+  ? await getUserInteractions(env.DB, userId)
+  : { voted: new Set<string>(), favorited: new Set<string>() };
+const voted = inter.voted.has(f.id);
+const favorited = inter.favorited.has(f.id);
+
+// The discovery rail: the maker's other public fonts, else the library's
+// popular faces, so a font page is never a dead end.
+let railFonts: Font[] = [];
+let railLabel = '';
+if (f.owner_id) {
+  railFonts = (await listFontsByOwner(env.DB, f.owner_id, false)).filter((r) => r.id !== f.id).slice(0, 4);
+  if (railFonts.length) railLabel = `more from @${f.maker_handle}`;
+}
+if (!railFonts.length) {
+  railFonts = (await listPublicFonts(env.DB, 'popular', { limit: 5 })).items
+    .filter((r) => r.id !== f.id)
+    .slice(0, 4);
+  railLabel = 'more from the library';
 }
 
 const m = f.meta;
-const faceCss = fontFaceCss([f]);
+const faceCss = fontFaceCss([f, ...railFonts]);
 const family = familyOf(f.id);
 const fmt = m.treat === 'variable' ? 'variable' : 'static';
 const published = (() => {
@@ -220,6 +236,17 @@ const fontSchema = {
         )}
       </aside>
     </div>
+
+    {railFonts.length > 0 && (
+      <section class="fh-pad" aria-label="Related fonts" style="padding:30px 0 34px;border-top:1px solid var(--line);">
+        <div class="fh-eyebrow" style="margin-bottom:18px;">{railLabel}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:20px;">
+          {railFonts.map((r) => (
+            <FontCard font={r} voted={inter.voted.has(r.id)} favorited={inter.favorited.has(r.id)} />
+          ))}
+        </div>
+      </section>
+    )}
 
     <footer class="fh-pad" style="padding:22px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;">
       {m.standIn ? (
