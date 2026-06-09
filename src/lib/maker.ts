@@ -548,13 +548,21 @@ export function guessCharsetFromRows(cellsPerRow: number[]): string[] {
   const lines: string[] = [];
   let i = 0;
   const split = cellsPerRow[0] <= 16; // ~13 cells per row is the split alphabet
+  // Place the alphabet and digit rows by POSITION, not by matching each row's
+  // exact cell count. A colored drop shadow or a touching glyph pair makes the
+  // trace over- or under-read a row by a glyph or two, and on a real sheet the
+  // digit row (~10) overlaps the letter/punctuation rows (~12-13) in count, so a
+  // hard count window mislabels the digit row as punctuation and the digits never
+  // build. Every generate prompt and preset uses this fixed layout; a
+  // non-standard sheet stays correctable in the charset box.
   if (split) {
-    for (let h = 0; h < 4 && i < n && cellsPerRow[i] >= 11; h++, i++) lines.push(HALVES[h]);
+    for (let h = 0; h < 4 && i < n; h++, i++) lines.push(HALVES[h]);
   } else {
-    for (let h = 0; h < 2 && i < n && cellsPerRow[i] >= 18; h++, i++) lines.push(FULLS[h]);
+    for (let h = 0; h < 2 && i < n; h++, i++) lines.push(FULLS[h]);
   }
-  // a ~10-cell row right after the alphabet is the digit row
-  if (i < n && cellsPerRow[i] >= 8 && cellsPerRow[i] <= 11) {
+  // the row right after the alphabet is the digit row, unless it is clearly a
+  // large punctuation row (a sheet with no digits is rare and box-correctable)
+  if (i < n && cellsPerRow[i] <= 15) {
     lines.push(DIGITS);
     i++;
   }

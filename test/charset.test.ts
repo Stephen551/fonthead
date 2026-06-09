@@ -93,6 +93,20 @@ describe('guessCharsetFromRows (per-row cell counts)', () => {
       '0123456789',
     ]);
   });
+
+  it('labels the digit row by position even when the trace over-reads it', () => {
+    // a real shadowed sheet reads the digit row at 11-12 cells (10 digits plus a
+    // shadow-split), overlapping the 12-13 of the letter/punctuation rows. The
+    // digit row must still be the digit row, not mislabeled as punctuation.
+    for (const cells of [
+      [12, 12, 13, 13, 12, 12],
+      [12, 12, 13, 13, 11, 13],
+    ]) {
+      const r = guessCharsetFromRows(cells);
+      expect(r.slice(0, 5)).toEqual(['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789']);
+      expect(r).toHaveLength(6);
+    }
+  });
 });
 
 describe('mergeNarrowRuns (slicer over-count fix)', () => {
