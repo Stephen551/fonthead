@@ -29,6 +29,16 @@ const googleEnabled = !!env.GOOGLE_CLIENT_ID;
         Welcome back. Sign in to publish, vote, and keep your favorites.
       </p>
 
+      <div id="linkhelp" role="region" aria-label="Connect Google" hidden style="border:1px solid var(--line);border-radius:2px;padding:14px 16px;margin:0 0 22px;background:rgba(0,0,0,.02);">
+        <p style="font-size:13px;color:var(--ink-soft);margin:0 0 10px;line-height:1.5;">
+          You already have an account with this email and a password. Confirm your email to connect Google, then try again. Enter your email below first.
+        </p>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <button type="button" id="linkhelp-send" class="fh-btn fh-btn--ghost">send confirmation link</button>
+          <span id="linkhelp-msg" role="status" aria-live="polite" class="fh-mono" style="font-size:11px;color:var(--ink-faint);"></span>
+        </div>
+      </div>
+
       {googleEnabled && (
         <>
           <button type="button" id="google-signin" class="fh-btn fh-btn--ghost" style="width:100%;justify-content:center;">continue with google</button>
@@ -64,8 +74,41 @@ const googleEnabled = !!env.GOOGLE_CLIENT_ID;
   import { authClient } from '../lib/auth-client';
 
   const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
+  const byId = (id: string) => document.getElementById(id);
   const msg = document.getElementById('msg') as HTMLElement;
   const setMsg = (t: string) => (msg.textContent = t);
+
+  // A failed Google sign-in lands back here with ?error=. The common case is
+  // account_not_linked: an existing password account on this email whose email
+  // isn't confirmed, so Google can't be linked to it yet. Guide them to confirm.
+  const errCode = new URLSearchParams(location.search).get('error');
+  if (errCode === 'account_not_linked') {
+    byId('linkhelp')?.removeAttribute('hidden');
+  } else if (errCode) {
+    setMsg('that sign-in did not go through. try again.');
+  }
+
+  const helpSend = byId('linkhelp-send') as HTMLButtonElement | null;
+  helpSend?.addEventListener('click', async () => {
+    const hmsg = byId('linkhelp-msg');
+    const email = $('email').value.trim();
+    if (!email) {
+      if (hmsg) hmsg.textContent = 'enter your email below first.';
+      return;
+    }
+    helpSend.disabled = true;
+    if (hmsg) hmsg.textContent = 'sending…';
+    const res = await authClient
+      .sendVerificationEmail({ email, callbackURL: '/account?verified=1' })
+      .catch(() => ({ error: true }));
+    if (hmsg) {
+      hmsg.textContent =
+        res && 'error' in res && res.error
+          ? 'could not send just now. try again.'
+          : 'sent. confirm from your inbox, then use google again.';
+    }
+    helpSend.disabled = false;
+  });
 
   async function signIn() {
     const email = $('email').value.trim();
@@ -91,6 +134,8 @@ const googleEnabled = !!env.GOOGLE_CLIENT_ID;
   document.getElementById('google-signin')?.addEventListener('click', () => {
     const n = new URLSearchParams(location.search).get('next');
     const callbackURL = n && /^\/(?![/\\])/.test(n) ? n : '/account';
-    authClient.signIn.social({ provider: 'google', callbackURL });
+    // errorCallbackURL brings a failed link (account_not_linked and friends) back
+    // here with ?error=, instead of the default /error page that doesn't exist.
+    authClient.signIn.social({ provider: 'google', callbackURL, errorCallbackURL: '/sign-in' });
   });
 </script>

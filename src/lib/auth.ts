@@ -1,5 +1,5 @@
 import { betterAuth } from 'better-auth';
-import { sendResetEmail } from './email';
+import { sendResetEmail, sendVerificationEmail } from './email';
 
 // Per-request Better Auth factory. On Workers the D1 binding only exists at
 // request time (Astro.locals.runtime.env), so the instance must be built per
@@ -39,6 +39,20 @@ export function createAuth(env: Env) {
       resetPasswordTokenExpiresIn: 3600,
       sendResetPassword: async ({ user, url }) => {
         await sendResetEmail(env, user.email, url);
+      },
+    },
+    // Soft email confirmation. A confirm link goes out on every email/password
+    // signup, but sign-in is never blocked on it (no requireEmailVerification),
+    // so cold-start signups are not gated behind an inbox round trip. Confirming
+    // sets emailVerified, which is what lets a Google sign-in link onto the same
+    // email account: Better Auth refuses to link Google onto an unverified local
+    // row (an anti-takeover gate), so without this the link always fails.
+    emailVerification: {
+      sendOnSignUp: true,
+      autoSignInAfterVerification: true,
+      expiresIn: 3600,
+      sendVerificationEmail: async ({ user, url }) => {
+        await sendVerificationEmail(env, user.email, url);
       },
     },
     // Google sign-in, enabled only when both credentials are present, so the app

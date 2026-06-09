@@ -98,7 +98,10 @@ const googleEnabled = !!env.GOOGLE_CLIENT_ID;
     if (!handle) return setMsg('pick a handle');
     setMsg('creating account…');
 
-    const res = await authClient.signUp.email({ email, password, name });
+    // callbackURL is where the confirmation link in the signup email lands once
+    // clicked. sendOnSignUp emails it automatically; the /account banner nudges
+    // anyone who doesn't confirm right away.
+    const res = await authClient.signUp.email({ email, password, name, callbackURL: '/account?verified=1' });
     if (res.error) return setMsg(res.error.message || 'that did not work');
 
     // Now signed in: claim the handle. If it was taken in the gap, the account is
@@ -120,6 +123,7 @@ const googleEnabled = !!env.GOOGLE_CLIENT_ID;
   // Google: hand off to the provider; the new user lands on /account where a
   // handle is auto-assigned (changeable once).
   document.getElementById('google-signin')?.addEventListener('click', () => {
-    authClient.signIn.social({ provider: 'google', callbackURL: '/account' });
+    // A failed link routes to /sign-in, where the confirm-your-email help lives.
+    authClient.signIn.social({ provider: 'google', callbackURL: '/account', errorCallbackURL: '/sign-in' });
   });
 </script>

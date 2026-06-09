@@ -17,14 +17,26 @@ const { user } = session;
 // the maker can still choose their own here once).
 const handle = await ensureHandle(env.DB, user.id, user.name, user.email);
 // bio, image, and handle_locked are non-core columns: read them straight from D1.
-const row = await env.DB.prepare('SELECT name, email, image, bio, handle_locked FROM "user" WHERE id = ?')
+const row = await env.DB.prepare('SELECT name, email, image, bio, handle_locked, emailVerified FROM "user" WHERE id = ?')
   .bind(user.id)
-  .first<{ name: string; email: string; image: string | null; bio: string | null; handle_locked: number }>();
+  .first<{
+    name: string;
+    email: string;
+    image: string | null;
+    bio: string | null;
+    handle_locked: number;
+    emailVerified: number;
+  }>();
 const name = row?.name ?? user.name;
 const email = row?.email ?? user.email;
 const bio = row?.bio ?? '';
 const image = row?.image ?? null;
 const handleLocked = !!row?.handle_locked;
+// emailVerified gates Google account linking (an unverified row can't have a
+// Google sign-in attached to it). Read it straight from D1 so it can't lag the
+// session cookie cache after a fresh confirmation.
+const emailVerified = !!row?.emailVerified;
+const justVerified = Astro.url.searchParams.get('verified') === '1';
 const avatarUrl = image ? `/cdn/${image}?v=${Date.now()}` : null;
 
 const { results: myFonts } = await env.DB.prepare(
@@ -48,6 +60,21 @@ const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;'
       <p class="fh-eyebrow">fonthead.dev · account</p>
       <h1 style="font-size:20px;font-weight:600;letter-spacing:-.01em;margin:14px 0 4px;">Your profile</h1>
       <div class="fh-mono" style="font-size:12.5px;color:var(--ink-soft);margin-bottom:24px;">{email}</div>
+
+      {!emailVerified && (
+        <div id="verifybanner" role="region" aria-label="Email confirmation" style="border:1px solid var(--line);border-radius:2px;padding:14px 16px;margin-bottom:22px;background:rgba(0,0,0,.02);">
+          <p style="font-size:13px;color:var(--ink-soft);margin:0 0 10px;line-height:1.5;">
+            Your email isn't confirmed yet. Confirm it to sign in with Google using this address.
+          </p>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <button type="button" id="verifysend" class="fh-btn fh-btn--ghost" data-email={email}>send confirmation link</button>
+            <span id="verifymsg" role="status" aria-live="polite" class="fh-mono" style="font-size:11px;color:var(--ink-faint);"></span>
+          </div>
+        </div>
+      )}
+      {justVerified && emailVerified && (
+        <p id="verifyok" role="status" class="fh-mono" style="font-size:12px;color:var(--ink-soft);margin:0 0 22px;">Email confirmed.</p>
+      )}
 
       <form id="profileform" style="display:flex;flex-direction:column;gap:12px;">
         <div style="display:flex;align-items:center;gap:16px;margin-bottom:4px;">
@@ -213,6 +240,26 @@ const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;'
   }
 
   byId('save')?.addEventListener('click', save);
+
+  // resend the email confirmation link (shown only while the email is unconfirmed)
+  const verifyBtn = byId('verifysend') as HTMLButtonElement | null;
+  verifyBtn?.addEventListener('click', async () => {
+    const vmsg = byId('verifymsg');
+    const vemail = verifyBtn.dataset.email;
+    if (!vemail) return;
+    verifyBtn.disabled = true;
+    if (vmsg) vmsg.textContent = 'sending…';
+    const res = await authClient
+      .sendVerificationEmail({ email: vemail, callbackURL: '/account?verified=1' })
+      .catch(() => ({ error: true }));
+    if (vmsg) {
+      vmsg.textContent =
+        res && 'error' in res && res.error
+          ? 'could not send just now. try again in a moment.'
+          : 'sent. check your inbox for the link.';
+    }
+    verifyBtn.disabled = false;
+  });
 
   byId('signout')?.addEventListener('click', async () => {
     await authClient.signOut();

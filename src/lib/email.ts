@@ -47,6 +47,27 @@ export async function sendResetEmail(env: Env, to: string, url: string): Promise
   return resendSend(env, { to, subject: 'Reset your fonthead password', text, html });
 }
 
+export async function sendVerificationEmail(env: Env, to: string, url: string): Promise<boolean> {
+  const text = [
+    'Confirm your email to finish setting up your fonthead.dev account.',
+    '',
+    'Open this link to confirm:',
+    url,
+    '',
+    'Confirming lets you sign in with Google using this same email later. The link',
+    'expires in an hour. If you did not create this account, you can ignore this email.',
+  ].join('\n');
+
+  const html = `<div style="font-family:ui-sans-serif,system-ui,sans-serif;font-size:15px;line-height:1.6;color:#15140f;max-width:520px;">
+  <p>Confirm your email to finish setting up your fonthead.dev account.</p>
+  <p><a href="${url}" style="display:inline-block;background:#15140f;color:#fff;text-decoration:none;padding:11px 18px;border-radius:2px;">Confirm your email</a></p>
+  <p style="font-size:13px;color:#75726a;">Or paste this link into your browser:<br><a href="${url}" style="color:#75726a;">${url}</a></p>
+  <p style="font-size:13px;color:#75726a;">Confirming lets you sign in with Google using this same email later. The link expires in an hour. If you did not create this account, you can ignore it.</p>
+</div>`;
+
+  return resendSend(env, { to, subject: 'Confirm your fonthead email', text, html });
+}
+
 // A support / bug report from the /support form. Goes to the support inbox with
 // the reporter's email as reply-to, so a reply from Gmail reaches them.
 export async function sendFeedbackEmail(
