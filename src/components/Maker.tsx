@@ -810,7 +810,19 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         {/* result / preview */}
         <div style={{ marginTop: 16, minHeight: 92 }}>
           {phase === 'error' && (
-            <p role="alert" className="fh-mono" style={{ fontSize: 12, color: 'var(--signal)', lineHeight: 1.5 }}>{error}</p>
+            <div>
+              <p role="alert" className="fh-mono" style={{ fontSize: 12, color: 'var(--signal)', lineHeight: 1.5 }}>{error}</p>
+              {/engine did not load/i.test(error) && (
+                <div style={{ marginTop: 10 }}>
+                  <button className="fh-btn fh-btn--ghost" onClick={() => window.location.reload()}>
+                    reload and try again
+                  </button>
+                  <p className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
+                    usually a network blip. Reloading refetches the engine.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
           {phase === 'done' && result && (
             <div>
