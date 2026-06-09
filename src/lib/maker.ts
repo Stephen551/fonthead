@@ -811,6 +811,95 @@ export function makeSampleSheet(family = 'Anton, system-ui, sans-serif'): HTMLCa
   return c;
 }
 
+// The exact rows guessCharset assumes for a 6-row split sheet, so a sheet
+// drawn into the printed grid auto-fills the charset box with no edits.
+const TEMPLATE_CHAR_LINES = [
+  'ABCDEFGHIJKLM',
+  'NOPQRSTUVWXYZ',
+  'abcdefghijklm',
+  'nopqrstuvwxyz',
+  '0123456789',
+  ".,!?:;'-&@#",
+];
+
+/** Render a blank, printable alphabet grid in US-letter landscape proportions.
+ *  Every guide (cell walls, baselines, hint letters, instructions) is a light
+ *  gray that sits far above the tracer's hard 128 luminance threshold, so on
+ *  the photographed sheet only the pen ink survives binarization. The 6x13
+ *  split layout matches guessCharset's 6-row template. */
+export function makeTemplateSheet(): HTMLCanvasElement {
+  const W = 2200;
+  const H = 1700; // 11in x 8.5in
+  const top = 70;
+  const rowH = 265;
+  const GUIDE = '#c9c9c9';
+  const HINT = '#d4d4d4';
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  // instructions live in the margins, in the same vanishing gray
+  ctx.fillStyle = GUIDE;
+  ctx.font = '600 26px system-ui, sans-serif';
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.fillText('fonthead.dev · draw one character per box with a dark pen', 40, 46);
+  ctx.textAlign = 'right';
+  ctx.fillText('photograph the sheet flat · the gray guides disappear when traced', W - 40, H - 24);
+
+  TEMPLATE_CHAR_LINES.forEach((row, r) => {
+    const y0 = top + r * rowH;
+    const baseline = y0 + rowH * 0.62;
+    const n = row.length;
+    const cellW = W / n;
+
+    ctx.strokeStyle = GUIDE;
+    ctx.lineWidth = 2;
+    // the row band
+    ctx.strokeRect(1, y0 + 4, W - 2, rowH - 8);
+    // cell walls
+    for (let i = 1; i < n; i++) {
+      const x = Math.round(i * cellW);
+      ctx.beginPath();
+      ctx.moveTo(x, y0 + 4);
+      ctx.lineTo(x, y0 + rowH - 4);
+      ctx.stroke();
+    }
+    // the baseline, dashed; descenders hang below it
+    ctx.setLineDash([10, 8]);
+    ctx.beginPath();
+    ctx.moveTo(1, baseline);
+    ctx.lineTo(W - 1, baseline);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // a small hint letter in each cell's top-left corner
+    ctx.fillStyle = HINT;
+    ctx.font = '600 30px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    for (let i = 0; i < n; i++) {
+      ctx.fillText(row[i], i * cellW + 12, y0 + 42);
+    }
+  });
+  return c;
+}
+
+/** Trigger a PNG download of a rendered canvas. */
+export function downloadCanvasPng(c: HTMLCanvasElement, filename: string) {
+  c.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
 export function canvasToImage(c: HTMLCanvasElement): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();

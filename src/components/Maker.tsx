@@ -6,6 +6,8 @@ import {
   buildFont,
   downloadFont,
   makeSampleSheet,
+  makeTemplateSheet,
+  downloadCanvasPng,
   canvasToImage,
   fileToImage,
   detectGeometry,
@@ -590,6 +592,15 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           </button>
           <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
             renders + traces a demo alphabet
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+          <button className="fh-btn fh-btn--ghost" onClick={() => downloadCanvasPng(makeTemplateSheet(), 'fonthead-grid.png')}>
+            print a blank grid
+          </button>
+          <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
+            draw into it, photograph it, drop it here
           </span>
         </div>
 
