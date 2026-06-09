@@ -43,6 +43,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
     { loc: `${origin}/licenses`, lastmod: null },
     { loc: `${origin}/terms`, lastmod: null },
     { loc: `${origin}/privacy`, lastmod: null },
+    { loc: `${origin}/support`, lastmod: null },
     ...fonts.map((f) => ({ loc: `${origin}/f/${f.id}`, lastmod: isoDate(f.created_at) })),
     ...[...handleLastmod.entries()].map(([h, lastmod]) => ({
       loc: `${origin}/u/${encodeURIComponent(h)}`,
