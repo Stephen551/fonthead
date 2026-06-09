@@ -404,11 +404,21 @@ export function mergeNarrowRuns(runs: number[][], frac = 0.35): number[][] {
  *  trusting the build. Same probe the trace uses, run once over the whole sheet.
  *  Cell counts go through mergeNarrowRuns so an ornate glyph's internal gap does
  *  not over-read the row. */
-export function detectGeometry(img: HTMLImageElement | ImageBitmap): SheetGeometry {
+// A color sheet's letters are colored (yellow is luminance ~200), so the mono
+// cutoff (128) reads them as background and they vanish, which breaks the row
+// detection on color sheets (yellow letters drop out, rows go uncounted). For a
+// color sheet, treat anything that is not near-white as ink, so yellow, pink, and
+// black all count as a letter and every row is found. The color build's own pass
+// is already background-aware (bgDist); this only fixes the geometry probe that
+// feeds the layout overlay and the charset row count.
+const COLOR_GEOM_THRESHOLD = 240;
+
+export function detectGeometry(img: HTMLImageElement | ImageBitmap, isColor = false): SheetGeometry {
   const TC = w().TracerCore;
   const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
   const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
-  const bin = TC.binarizeFull(img, iw, ih, DEFAULT_TRACE.threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
+  const threshold = isColor ? COLOR_GEOM_THRESHOLD : DEFAULT_TRACE.threshold;
+  const bin = TC.binarizeFull(img, iw, ih, threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
   const bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
   const rows = bands.map(([y0, y1]) => {
     let cells: [number, number][] = [];

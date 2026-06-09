@@ -171,7 +171,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       if (!cx) return;
       cx.drawImage(img as CanvasImageSource, 0, 0, cw, ch);
       const url = c.toDataURL('image/jpeg', 0.82);
-      const geom = detectGeometry(img);
+      const geom = detectGeometry(img, isColor);
       setSheet({ url, w: iw, h: ih, geom });
     } catch {
       /* overlay is a nicety, not a gate */
@@ -480,7 +480,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       if (isColor) await waitForColorEngine();
       else await waitForEngine();
       const img = await fileToImage(file);
-      const geom = detectGeometry(img);
+      const geom = detectGeometry(img, isColor);
       const cellsPerRow = geom.rows.map((r) => r.cells.length);
       // If this sheet came from a generate preset, trace it against that preset's
       // exact charset (what the AI was asked to draw) instead of guessing the

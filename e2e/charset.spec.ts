@@ -25,9 +25,10 @@ const FLAT6 = [
   '.,!?:;\'"-&@#',
 ];
 
-// Render `rows` to a sheet PNG and feed it to the maker's file input.
-async function feedSheet(page: Page, rows: string[]) {
-  await page.evaluate(async (rows) => {
+// Render `rows` to a sheet PNG (in `fill`, default black) and feed it to the
+// maker's file input.
+async function feedSheet(page: Page, rows: string[], fill = '#000') {
+  await page.evaluate(async ({ rows, fill }) => {
     const rowH = 150;
     const pad = 52;
     const cellW = 128;
@@ -38,7 +39,7 @@ async function feedSheet(page: Page, rows: string[]) {
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, c.width, c.height);
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = fill;
     ctx.font = `400 ${Math.round(rowH * 0.74)}px sans-serif`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
@@ -52,7 +53,7 @@ async function feedSheet(page: Page, rows: string[]) {
     dt.items.add(new File([blob], 'sheet.png', { type: 'image/png' }));
     input.files = dt.files;
     input.dispatchEvent(new Event('change', { bubbles: true }));
-  }, rows);
+  }, { rows, fill });
 }
 
 const charsetBox = (page: Page) => page.getByLabel('Charset, one row of characters per line');
@@ -75,6 +76,24 @@ test('a generated sheet traces against the armed preset charset', async ({ page 
   // charset, punctuation row and all, not a geometry guess
   await feedSheet(page, FLAT6);
   await expect(charsetBox(page)).toHaveValue(FLAT6.join('\n'), { timeout: 60_000 });
+});
+
+test('a color sheet detects all its rows (yellow letters no longer vanish)', async ({ page }) => {
+  await page.goto('/make');
+  await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
+  // build as a flat-color font, so the maker treats the drop as a color sheet
+  await page.getByRole('button', { name: 'color · flat', exact: true }).click();
+
+  // a 5-row sheet with YELLOW letters: under the old mono cutoff (128) the yellow
+  // read as background and vanished, so the rows went uncounted. It must now find
+  // all five. (Uniform-height rows avoid the separate punctuation-split quirk.)
+  const FIVE = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789'];
+  await feedSheet(page, FIVE, '#FFD400');
+  await expect
+    .poll(async () => (await charsetBox(page).inputValue()).split('\n').filter((l) => l.length).length, {
+      timeout: 90_000,
+    })
+    .toBe(5);
 });
 
 test('a row-count mismatch falls back to the geometry guess', async ({ page }) => {
