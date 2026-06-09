@@ -4,7 +4,7 @@ import FontCard from '../components/FontCard.astro';
 import FeatureCard from '../components/FeatureCard.astro';
 import WideSpecimen from '../components/WideSpecimen.astro';
 import CyclingWordmark from '../components/CyclingWordmark.astro';
-import { listPublicFonts, getFontsByIds, getUserInteractions, fontFaceCss, familyOf, pageInfo, PAGE_SIZE, type Sort, type HeroFace, type Font } from '../lib/fonts';
+import { listPublicFonts, listBadgesInUse, parseBadge, getFontsByIds, getUserInteractions, fontFaceCss, familyOf, pageInfo, PAGE_SIZE, type Sort, type HeroFace, type Font, type BadgeKind } from '../lib/fonts';
 import { getFeaturedFontIds } from '../lib/featured';
 import { createAuth } from '../lib/auth';
 
@@ -14,18 +14,26 @@ const url = new URL(Astro.request.url);
 const sort: Sort = url.searchParams.get('sort') === 'new' ? 'new' : 'popular';
 const q = (url.searchParams.get('q') ?? '').trim();
 const isSearch = q.length > 0;
+const badge = parseBadge(url.searchParams.get('badge'));
 const reqPage = Math.max(parseInt(url.searchParams.get('page') ?? '1', 10) || 1, 1);
 
 const env = Astro.locals.runtime.env;
 const { items: fonts, total } = await listPublicFonts(env.DB, sort, {
   q,
+  badge,
   limit: PAGE_SIZE,
   offset: (reqPage - 1) * PAGE_SIZE,
 });
 
+// Chips render only for badges that at least one public font carries.
+const badgesInUse = await listBadgesInUse(env.DB);
+const badgeLabel = (b: BadgeKind) => (b === 'line' ? 'single-line' : b);
+
 const info = pageInfo(total, reqPage);
 const page = info.page;
-const showHero = !isSearch && page === 1;
+// A badge filter behaves like a search: the wall is being browsed, so the
+// hero (and its unfiltered featured set) steps aside.
+const showHero = !isSearch && !badge && page === 1;
 
 // The daily feature drives the hero: the featured set if present, else the
 // starter set (the top of the popular wall). Fetched on its own so it stays
@@ -64,13 +72,16 @@ const heroFaces: HeroFace[] = heroFonts.map((f) => ({
   italic: f.meta.italic,
 }));
 
-// Build a wall URL, overriding only the params given (drops page on filter changes).
-function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
+// Build a wall URL, overriding only the params given (drops page on filter
+// changes). badge: undefined inherits the current filter, null clears it.
+function wallUrl(over: { sort?: Sort; q?: string; page?: number; badge?: BadgeKind | null }) {
   const p = new URLSearchParams();
   const s = over.sort ?? sort;
   if (s === 'new') p.set('sort', 'new');
   const term = over.q ?? q;
   if (term) p.set('q', term);
+  const b = over.badge === undefined ? badge : over.badge;
+  if (b) p.set('badge', b);
   const pg = over.page ?? 1;
   if (pg > 1) p.set('page', String(pg));
   const qs = p.toString();
@@ -80,7 +91,7 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
 
 <Base
   active="library"
-  title={isSearch ? `${q} · fonthead.dev` : 'Make, share, and browse community fonts · fonthead.dev'}
+  title={isSearch ? `${q} · fonthead.dev` : badge ? `${badgeLabel(badge)} fonts · fonthead.dev` : 'Make, share, and browse community fonts · fonthead.dev'}
   canonical={url.origin + '/'}
   robots={isSearch ? 'noindex,follow' : undefined}
 >
@@ -102,19 +113,44 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
 
     <!-- sort + search bar -->
     <div class="fh-pad" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:20px 0;border-bottom:1px solid var(--line);">
-      <div style="display:flex;gap:4px;">
-        {(['popular', 'new'] as const).map((s) => (
-          <a
-            href={wallUrl({ sort: s, page: 1 })}
-            class="fh-mono"
-            style={`font-size:12.5px;letter-spacing:.02em;padding:7px 14px;border-radius:2px;text-decoration:none;border:1px solid ${sort === s ? 'var(--ink)' : 'var(--line-2)'};background:${sort === s ? 'var(--ink)' : 'var(--paper)'};color:${sort === s ? 'var(--paper)' : 'var(--ink-soft)'};transition:all var(--dur) var(--ease);`}
-          >
-            {s}
-          </a>
-        ))}
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+        <div style="display:flex;gap:4px;">
+          {(['popular', 'new'] as const).map((s) => (
+            <a
+              href={wallUrl({ sort: s, page: 1 })}
+              class="fh-mono"
+              style={`font-size:12.5px;letter-spacing:.02em;padding:7px 14px;border-radius:2px;text-decoration:none;border:1px solid ${sort === s ? 'var(--ink)' : 'var(--line-2)'};background:${sort === s ? 'var(--ink)' : 'var(--paper)'};color:${sort === s ? 'var(--paper)' : 'var(--ink-soft)'};transition:all var(--dur) var(--ease);`}
+            >
+              {s}
+            </a>
+          ))}
+        </div>
+        {badgesInUse.length > 0 && (
+          <div role="group" aria-label="Filter by kind" style="display:flex;gap:4px;align-items:center;">
+            <a
+              href={wallUrl({ badge: null, page: 1 })}
+              class="fh-mono"
+              aria-current={!badge ? 'true' : undefined}
+              style={`font-size:11px;letter-spacing:.06em;padding:6px 10px 5px;border-radius:2px;text-decoration:none;border:1px solid ${!badge ? 'var(--line-3)' : 'transparent'};color:${!badge ? 'var(--ink)' : 'var(--ink-faint)'};transition:all var(--dur) var(--ease);`}
+            >
+              all
+            </a>
+            {badgesInUse.map((b) => (
+              <a
+                href={wallUrl({ badge: b, page: 1 })}
+                class={`fh-badge fh-badge--${b}`}
+                aria-current={badge === b ? 'true' : undefined}
+                style={`text-decoration:none;padding:6px 10px 5px;${badge === b ? 'border-color:currentColor;' : ''}`}
+              >
+                <span class="tick" aria-hidden="true"></span>{badgeLabel(b)}
+              </a>
+            ))}
+          </div>
+        )}
       </div>
       <form method="get" role="search" style="display:flex;align-items:center;gap:8px;">
         {sort === 'new' && <input type="hidden" name="sort" value="new" />}
+        {badge && <input type="hidden" name="badge" value={badge} />}
         <input
           type="search"
           name="q"
@@ -128,7 +164,11 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
         {isSearch && <a href={wallUrl({ q: '', page: 1 })} class="fh-mono" style="font-size:11.5px;color:var(--ink-soft);text-decoration:none;">clear</a>}
       </form>
       <div class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);">
-        {isSearch ? `${total} ${total === 1 ? 'match' : 'matches'} for "${q}"` : `${total} fonts`}
+        {isSearch
+          ? `${total} ${total === 1 ? 'match' : 'matches'} for "${q}"`
+          : badge
+            ? `${total} ${badgeLabel(badge)} ${total === 1 ? 'font' : 'fonts'}`
+            : `${total} fonts`}
       </div>
     </div>
 
@@ -157,8 +197,10 @@ function wallUrl(over: { sort?: Sort; q?: string; page?: number }) {
       })()
     ) : (
       <div class="fh-mono" style="padding:64px 40px;text-align:center;font-size:13px;color:var(--ink-soft);line-height:1.7;">
-        <p style="margin:0 0 14px;">Nothing matches "{q}" yet.</p>
-        <a href={wallUrl({ q: '', page: 1 })} class="fh-btn fh-btn--ghost">back to all fonts</a>
+        <p style="margin:0 0 14px;">
+          {isSearch ? `Nothing matches "${q}" yet.` : badge ? `No ${badgeLabel(badge)} fonts yet.` : 'Nothing here yet.'}
+        </p>
+        <a href={wallUrl({ q: '', badge: null, page: 1 })} class="fh-btn fh-btn--ghost">back to all fonts</a>
       </div>
     )}
 

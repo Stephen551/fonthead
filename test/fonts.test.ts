@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escapeLike, pageInfo, PAGE_SIZE } from '../src/lib/fonts';
+import { escapeLike, pageInfo, parseBadge, PAGE_SIZE } from '../src/lib/fonts';
 
 describe('escapeLike', () => {
   it('leaves ordinary text untouched', () => {
@@ -18,6 +18,22 @@ describe('escapeLike', () => {
 
   it('handles a term that is all wildcards', () => {
     expect(escapeLike('%_%')).toBe('\\%\\_\\%');
+  });
+});
+
+describe('parseBadge', () => {
+  it('accepts exactly the three badge kinds', () => {
+    expect(parseBadge('color')).toBe('color');
+    expect(parseBadge('line')).toBe('line');
+    expect(parseBadge('variable')).toBe('variable');
+  });
+
+  it('reads anything else as no filter', () => {
+    expect(parseBadge(null)).toBeUndefined();
+    expect(parseBadge('')).toBeUndefined();
+    expect(parseBadge('COLOR')).toBeUndefined();
+    expect(parseBadge('private')).toBeUndefined();
+    expect(parseBadge("color' OR 1=1 --")).toBeUndefined();
   });
 });
 

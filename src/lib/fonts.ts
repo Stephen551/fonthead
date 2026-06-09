@@ -121,8 +121,17 @@ export function escapeLike(term: string): string {
   return term.replace(/[\\%_]/g, (c) => '\\' + c);
 }
 
+/** The badge kinds a wall filter can select (the non-null FontMeta badges). */
+export type BadgeKind = 'color' | 'line' | 'variable';
+
+/** Validate a ?badge= query param; anything unknown reads as no filter. */
+export function parseBadge(v: string | null): BadgeKind | undefined {
+  return v === 'color' || v === 'line' || v === 'variable' ? v : undefined;
+}
+
 export interface ListOpts {
   q?: string;
+  badge?: BadgeKind;
   limit?: number;
   offset?: number;
 }
@@ -162,6 +171,12 @@ export async function listPublicFonts(db: D1Database, sort: Sort, opts: ListOpts
     const like = `%${escapeLike(q)}%`;
     filterBinds.push(like, like);
   }
+  // Badge lives inside the meta JSON; like the LIKE search above this scans the
+  // public rows, which stays cheap at wall scale (no index, no migration).
+  if (opts.badge) {
+    where.push("json_extract(meta, '$.badge') = ?");
+    filterBinds.push(opts.badge);
+  }
   const whereSql = where.join(' AND ');
 
   const countRow = await db
@@ -176,6 +191,17 @@ export async function listPublicFonts(db: D1Database, sort: Sort, opts: ListOpts
     .all<FontRow>();
 
   return { items: (results ?? []).map(parse), total, limit, offset };
+}
+
+/** The badge kinds that exist on at least one public font, in display order.
+ *  Drives the wall's filter chips, so a badge no font carries never renders a
+ *  chip (and the single-line chip appears by itself when that mode ships). */
+export async function listBadgesInUse(db: D1Database): Promise<BadgeKind[]> {
+  const { results } = await db
+    .prepare("SELECT DISTINCT json_extract(meta, '$.badge') AS b FROM fonts WHERE visibility = 'public'")
+    .all<{ b: string | null }>();
+  const present = new Set((results ?? []).map((r) => r.b));
+  return (['color', 'variable', 'line'] as const).filter((b) => present.has(b));
 }
 
 /** Fetch specific public fonts by id, returned in the order of the ids given
