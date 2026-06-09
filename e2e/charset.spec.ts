@@ -134,7 +134,7 @@ test('a row-count mismatch falls back to the geometry guess', async ({ page }) =
   await expect(charsetBox(page)).not.toHaveValue(FLAT6.join('\n'));
 });
 
-test('a shadow-bridged color sheet guesses every alphabet row with no charset armed', async ({ page }) => {
+test('a shadow-bridged color sheet guesses every row with no charset armed', async ({ page }) => {
   await page.goto('/make');
   await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
   await page.getByRole('button', { name: 'color · flat', exact: true }).click();
@@ -143,14 +143,18 @@ test('a shadow-bridged color sheet guesses every alphabet row with no charset ar
   // sheet. A drop shadow leaves a little ink in the inter-row gaps (the `bridge`
   // strip), so the plain zero-ink row detector collapses every row into one and
   // the guess maps the whole alphabet onto a single A-M row, so only A-M builds.
-  // The shadow-aware probe must recover all five rows, with the alphabet halves
-  // and the digit row landing exactly.
-  const FIVE = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789'];
-  await feedSheet(page, FIVE, '#FFD400', { bridge: true });
+  // The shadow-aware probe must recover all six rows, including the lighter
+  // punctuation row (which a global threshold would have dropped), with the
+  // alphabet halves and the digit row landing exactly.
+  const SIX = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789', ".,!?:;'\"-&@#"];
+  await feedSheet(page, SIX, '#FFD400', { bridge: true });
   await expect
     .poll(async () => (await charsetBox(page).inputValue()).split('\n').filter((l) => l.length).length, {
       timeout: 90_000,
     })
-    .toBe(5);
-  await expect(charsetBox(page)).toHaveValue('ABCDEFGHIJKLM\nNOPQRSTUVWXYZ\nabcdefghijklm\nnopqrstuvwxyz\n0123456789');
+    .toBe(6);
+  // the alphabet halves and digits land exactly; the punctuation row is a best guess
+  await expect(charsetBox(page)).toHaveValue(
+    /^ABCDEFGHIJKLM\nNOPQRSTUVWXYZ\nabcdefghijklm\nnopqrstuvwxyz\n0123456789\n.+$/,
+  );
 });
