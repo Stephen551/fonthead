@@ -26,9 +26,14 @@ const FLAT6 = [
 ];
 
 // Render `rows` to a sheet PNG (in `fill`, default black) and feed it to the
-// maker's file input.
-async function feedSheet(page: Page, rows: string[], fill = '#000') {
-  await page.evaluate(async ({ rows, fill }) => {
+// maker's file input. `opts.bridge` draws a thin vertical strip in the left
+// margin spanning every row, in the fill color: it stands in for a drop shadow
+// tail that leaves a little ink in the inter-row gaps, so the zero-ink row
+// detector merges the rows into one. The shadow-aware probe must still recover
+// them. `opts.fill2` (a second color anywhere off the letters) makes the maker
+// treat the drop as a multi-color sheet.
+async function feedSheet(page: Page, rows: string[], fill = '#000', opts: { bridge?: boolean } = {}) {
+  await page.evaluate(async ({ rows, fill, opts }) => {
     const rowH = 150;
     const pad = 52;
     const cellW = 128;
@@ -47,13 +52,19 @@ async function feedSheet(page: Page, rows: string[], fill = '#000') {
       const y = pad + r * rowH + rowH / 2;
       for (let i = 0; i < rows[r].length; i++) ctx.fillText(rows[r][i], pad + i * cellW + cellW / 2, y);
     }
+    if (opts.bridge) {
+      // a few-px column down the left margin, touching every row: nonzero ink in
+      // the gaps so the zero-ink detector can't split them
+      ctx.fillStyle = fill;
+      ctx.fillRect(8, pad, 4, rows.length * rowH);
+    }
     const blob: Blob = await new Promise((res) => c.toBlob((b) => res(b as Blob), 'image/png'));
     const input = document.querySelector('input[type=file]') as HTMLInputElement;
     const dt = new DataTransfer();
     dt.items.add(new File([blob], 'sheet.png', { type: 'image/png' }));
     input.files = dt.files;
     input.dispatchEvent(new Event('change', { bubbles: true }));
-  }, { rows, fill });
+  }, { rows, fill, opts });
 }
 
 const charsetBox = (page: Page) => page.getByLabel('Charset, one row of characters per line');
@@ -121,4 +132,25 @@ test('a row-count mismatch falls back to the geometry guess', async ({ page }) =
   // the box reflects the 4-row sheet (the guess), never the armed 6-row charset
   await expect(charsetBox(page)).toHaveValue(/^[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*$/, { timeout: 60_000 });
   await expect(charsetBox(page)).not.toHaveValue(FLAT6.join('\n'));
+});
+
+test('a shadow-bridged color sheet guesses every alphabet row with no charset armed', async ({ page }) => {
+  await page.goto('/make');
+  await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.getByRole('button', { name: 'color · flat', exact: true }).click();
+
+  // The bug this guards: no preset armed, the maker guesses the charset from the
+  // sheet. A drop shadow leaves a little ink in the inter-row gaps (the `bridge`
+  // strip), so the plain zero-ink row detector collapses every row into one and
+  // the guess maps the whole alphabet onto a single A-M row, so only A-M builds.
+  // The shadow-aware probe must recover all five rows, with the alphabet halves
+  // and the digit row landing exactly.
+  const FIVE = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789'];
+  await feedSheet(page, FIVE, '#FFD400', { bridge: true });
+  await expect
+    .poll(async () => (await charsetBox(page).inputValue()).split('\n').filter((l) => l.length).length, {
+      timeout: 90_000,
+    })
+    .toBe(5);
+  await expect(charsetBox(page)).toHaveValue('ABCDEFGHIJKLM\nNOPQRSTUVWXYZ\nabcdefghijklm\nnopqrstuvwxyz\n0123456789');
 });
