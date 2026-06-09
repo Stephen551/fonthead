@@ -171,7 +171,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       if (!cx) return;
       cx.drawImage(img as CanvasImageSource, 0, 0, cw, ch);
       const url = c.toDataURL('image/jpeg', 0.82);
-      const geom = detectGeometry(img, isColor);
+      const armed = readArmedCharset();
+      const geom = detectGeometry(img, isColor, isColor && armed ? armed.length : 0);
       setSheet({ url, w: iw, h: ih, geom });
     } catch {
       /* overlay is a nicety, not a gate */
@@ -480,14 +481,19 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       if (isColor) await waitForColorEngine();
       else await waitForEngine();
       const img = await fileToImage(file);
-      const geom = detectGeometry(img, isColor);
-      const cellsPerRow = geom.rows.map((r) => r.cells.length);
       // If this sheet came from a generate preset, trace it against that preset's
       // exact charset (what the AI was asked to draw) instead of guessing the
-      // characters from shapes. Only when the row count matches, so a deviated or
-      // hand-dropped sheet still falls back to the geometry guess.
+      // characters from shapes. A mono sheet only uses it when the detected row
+      // count matches; a COLOR sheet uses it regardless, because drop shadows
+      // defeat the geometry probe's row count but the color build recovers the
+      // rows from the expected count (shadow-stripped, profile-based).
       const armed = readArmedCharset();
-      const charLines = armed && armed.length === cellsPerRow.length ? armed : guessCharsetFromRows(cellsPerRow);
+      // a color sheet with a known layout: force that row count so the overlay
+      // shows the right rows too (the gap detector under-counts shadowed rows)
+      const geom = detectGeometry(img, isColor, isColor && armed ? armed.length : 0);
+      const cellsPerRow = geom.rows.map((r) => r.cells.length);
+      const charLines =
+        armed && (isColor || armed.length === cellsPerRow.length) ? armed : guessCharsetFromRows(cellsPerRow);
       setCharsetText(charLines.join('\n'));
       await run(() => Promise.resolve(img), charLines);
       setDetectedRows(geom.rows.length);

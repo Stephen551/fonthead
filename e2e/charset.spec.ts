@@ -96,6 +96,20 @@ test('a color sheet detects all its rows (yellow letters no longer vanish)', asy
     .toBe(5);
 });
 
+test('a color sheet uses its armed preset charset even when the probe disagrees', async ({ page }) => {
+  await page.goto('/make');
+  await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.getByRole('button', { name: 'color · flat', exact: true }).click();
+  // arm the flat 6-row preset charset, as the generate block does
+  const FLAT6 = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789', '.,!?:;\'"-&@#'];
+  await page.evaluate((cs) => localStorage.setItem('fh-gen-charset', JSON.stringify(cs)), FLAT6);
+  // feed a sheet whose free row count differs (5 rows): a color sheet must still
+  // use the armed 6-row charset, because drop shadows make the gap probe
+  // unreliable and the color build recovers the rows from the expected count.
+  await feedSheet(page, ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789'], '#FFD400');
+  await expect(charsetBox(page)).toHaveValue(FLAT6.join('\n'), { timeout: 90_000 });
+});
+
 test('a row-count mismatch falls back to the geometry guess', async ({ page }) => {
   await page.goto('/make');
   await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });

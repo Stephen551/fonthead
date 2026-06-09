@@ -413,13 +413,45 @@ export function mergeNarrowRuns(runs: number[][], frac = 0.35): number[][] {
 // feeds the layout overlay and the charset row count.
 const COLOR_GEOM_THRESHOLD = 240;
 
-export function detectGeometry(img: HTMLImageElement | ImageBitmap, isColor = false): SheetGeometry {
+// Split the ink's vertical extent into n even horizontal bands. Used when the row
+// count is known (a generated preset) but drop shadows bridge the rows and defeat
+// the gap-based detector, so it would otherwise under-count them.
+function evenBands(data: ArrayLike<number>, w: number, h: number, n: number): number[][] {
+  let top = -1;
+  let bot = -1;
+  for (let y = 0; y < h; y++) {
+    let has = false;
+    for (let x = 0; x < w; x++)
+      if (data[y * w + x] === 0) {
+        has = true;
+        break;
+      }
+    if (has) {
+      if (top < 0) top = y;
+      bot = y;
+    }
+  }
+  if (top < 0) return [];
+  const bandH = (bot - top + 1) / n;
+  const out: number[][] = [];
+  for (let r = 0; r < n; r++) out.push([Math.round(top + r * bandH), Math.round(top + (r + 1) * bandH)]);
+  return out;
+}
+
+export function detectGeometry(
+  img: HTMLImageElement | ImageBitmap,
+  isColor = false,
+  forceRows = 0,
+): SheetGeometry {
   const TC = w().TracerCore;
   const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
   const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
   const threshold = isColor ? COLOR_GEOM_THRESHOLD : DEFAULT_TRACE.threshold;
   const bin = TC.binarizeFull(img, iw, ih, threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
-  const bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+  const bands =
+    forceRows >= 2
+      ? evenBands(bin.data, bin.w, bin.h, forceRows)
+      : (TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
   const rows = bands.map(([y0, y1]) => {
     let cells: [number, number][] = [];
     try {
