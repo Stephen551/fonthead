@@ -9,7 +9,11 @@ const auth = createAuth(Astro.locals.runtime.env);
 const session = await auth.api.getSession({ headers: Astro.request.headers });
 const signedIn = !!session;
 
-const V = '0.8.59';
+// Cache-bust token for the engine scripts below. Auto-derived at build from the
+// engine's own bytes (astro.config.mjs), so any engine edit changes the ?v= and
+// browsers refetch instead of running a year-old immutable-cached copy.
+declare const __ENGINE_V__: string;
+const V = __ENGINE_V__;
 // Anton (an R2 face) backs the one-click sample sheet so it traces crisply.
 const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2') format('woff2');font-display:swap;}";
 ---
