@@ -446,6 +446,36 @@ export function detectGeometry(
   const TC = w().TracerCore;
   const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
   const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
+  // A color sheet with no known row count: detect rows on the shadow-stripped
+  // image via the color engine's own pass (palette + drop-shadow strip +
+  // color-distance union), so pink drop shadows can't bridge the rows into one
+  // blob. The mono luminance probe below can't strip a color shadow, so without
+  // this the row count collapses and the charset guess maps the whole alphabet
+  // onto a single A-M row (only A-M builds). Falls back to the mono probe if the
+  // engine isn't loaded or can't read the sheet.
+  if (isColor && forceRows < 2) {
+    const CM = (w() as { ColorMaker?: { detectColorGeometry?: (i: unknown) => SheetGeometry } }).ColorMaker;
+    if (CM && typeof CM.detectColorGeometry === 'function') {
+      try {
+        const g = CM.detectColorGeometry(img);
+        if (g && g.rows && g.rows.length) {
+          // Use the engine's whitespace cells as-is. mergeNarrowRuns is for the
+          // mono probe, where an ornate glyph's internal gap over-reads a row; on
+          // the color union the offset shadow makes inter-letter gaps uneven, so
+          // merging there under-counts a row and the charset guess then mislabels
+          // it (a letter half read as the digit row). The engine's per-row cell
+          // count is already the right granularity for a color sheet.
+          return {
+            w: g.w,
+            h: g.h,
+            rows: g.rows.map((r) => ({ y0: r.y0, y1: r.y1, cells: r.cells as [number, number][] })),
+          };
+        }
+      } catch {
+        /* fall through to the mono luminance probe */
+      }
+    }
+  }
   const threshold = isColor ? COLOR_GEOM_THRESHOLD : DEFAULT_TRACE.threshold;
   const bin = TC.binarizeFull(img, iw, ih, threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
   const bands =

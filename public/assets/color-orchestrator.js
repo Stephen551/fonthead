@@ -597,6 +597,63 @@
     }
   }
 
+  /* detectColorGeometry(img, opts) -> { w, h, rows: [{y0,y1,cells:[[x0,x1]...]}], shadowRemoved }
+   * Shadow-aware layout probe for COLOR sheets, for the overlay + charset-row
+   * guess BEFORE a build. The maker's mono geometry probe binarizes by luminance
+   * and cannot strip a colour drop shadow, so on a graffiti sheet the shadow
+   * bridges the rows and the row count collapses (the charset guess then maps the
+   * whole alphabet onto one A-M row and only A-M builds). This runs the SAME
+   * analyze() the build uses — palette detect, drop-shadow strip, colour-distance
+   * union — then the gap detector on that clean union, so every row is found with
+   * no expected count needed. Cells come from the whitespace slicer; the caller
+   * merges narrow runs. Returns no rows if the engine can't read the sheet. */
+  function detectColorGeometry(img, opts) {
+    opts = opts || {};
+    const TracerCore = TC();
+    const px = imageToRGBA(img);
+    const w = px.w, h = px.h;
+    const ana = analyze(px.data, w, h, {
+      K: opts.K != null ? opts.K : 3,
+      bgDist: opts.bgDist != null ? opts.bgDist : 20,
+      mode: 'flat',
+      expectedRows: 0, // unknown count: the gap detector on the shadow-free union
+    });
+    // The zero-ink gap detector (ana.rows) merges rows that a colored drop shadow
+    // or a thick outline bridges with a little ink, so a 6-row graffiti sheet can
+    // read as 2-3 rows and the charset guess then maps the whole alphabet onto one
+    // A-M row. Re-estimate the count by splitting at low-ink VALLEYS, not only at
+    // zero: sweep a fraction-of-peak threshold and take the count that holds over
+    // the sweep. Alphabet rows are evenly spaced, so the true count is stable
+    // across a band of thresholds while a too-low one under-counts and a too-high
+    // one would over-split. Then snap tight, even bands with the same count-aware
+    // detector the build uses.
+    const union = ana.union;
+    const rowInk = new Uint32Array(h); let peak = 0;
+    for (let y = 0; y < h; y++) { let c = 0; const base = y * w * 4; for (let x = 0; x < w; x++) if (union[base + x * 4] === 0) c++; rowInk[y] = c; if (c > peak) peak = c; }
+    function countAt(frac) {
+      const thr = peak * frac; let n = 0, on = false, s = 0;
+      for (let y = 0; y < h; y++) { const a = rowInk[y] > thr; if (a && !on) { on = true; s = y; } else if (!a && on) { on = false; if (y - s > 3) n++; } }
+      if (on && h - s > 3) n++;
+      return n;
+    }
+    const tally = {};
+    [0.15, 0.20, 0.25, 0.30, 0.35].forEach(function (f) { const n = countAt(f); tally[n] = (tally[n] || 0) + 1; });
+    let nRows = ana.rows.length, bestVotes = -1;
+    Object.keys(tally).forEach(function (k) {
+      const n = +k;
+      if (n >= 2 && (tally[n] > bestVotes || (tally[n] === bestVotes && n > nRows))) { bestVotes = tally[n]; nRows = n; }
+    });
+    let bands = (nRows >= 2 && nRows !== ana.rows.length) ? detectRowsByProfile(union, w, h, nRows) : null;
+    if (!bands || !bands.length) bands = ana.rows;
+    const rows = bands.map(function (b) {
+      const y0 = b[0], y1 = b[1];
+      let cells = [];
+      try { cells = TracerCore.sliceRowByWhitespace(union, w, y0, y1); } catch (e) { cells = []; }
+      return { y0: y0, y1: y1, cells: cells };
+    });
+    return { w: w, h: h, rows: rows, shadowRemoved: ana.shadowRemoved };
+  }
+
   /* buildColorFromImage(img, opts) -> Promise<{
    *   otf: Uint8Array, mode, colrStatus, palette: [{r,g,b}],
    *   stops?: [{offset,r,g,b}], charCount, stats
@@ -721,5 +778,5 @@
     return out;
   }
 
-  global.ColorMaker = { buildColorFromImage, editGlyph };
+  global.ColorMaker = { buildColorFromImage, editGlyph, detectColorGeometry };
 })(typeof self !== 'undefined' ? self : this);
