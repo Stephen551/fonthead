@@ -18,6 +18,7 @@ import { join } from 'node:path';
 function engineVersion() {
   const dir = fileURLToPath(new URL('./public/assets', import.meta.url));
   const h = createHash('sha256');
+  /** @param {string} d */
   const walk = (d) => {
     for (const name of readdirSync(d).sort()) {
       const p = join(d, name);
