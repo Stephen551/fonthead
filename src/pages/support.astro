@@ -1,0 +1,84 @@
+---
+import Base from '../layouts/Base.astro';
+
+export const prerender = false;
+---
+
+<Base
+  title="Support · fonthead.dev"
+  description="Hit a bug or have an idea for fonthead.dev? Send it to the team. Leave an email and we will write back."
+  active="library"
+>
+  <div style="background:var(--paper);min-height:100vh;display:flex;flex-direction:column;">
+    <div style="flex:1;max-width:460px;width:100%;margin:64px auto;padding:0 24px;box-sizing:border-box;">
+      <p class="fh-eyebrow">fonthead.dev</p>
+      <h1 style="font-size:24px;font-weight:600;letter-spacing:-.02em;margin:12px 0 6px;">Support</h1>
+      <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 26px;line-height:1.5;">
+        Hit a bug, or have an idea? Tell us. Leave an email and we will write back.
+      </p>
+
+      <form id="feedbackform" style="display:flex;flex-direction:column;gap:12px;">
+        <label for="kind" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;">WHAT IS IT</label>
+        <select id="kind" name="kind" class="fh-input">
+          <option value="bug">a bug</option>
+          <option value="idea">an idea</option>
+          <option value="other">something else</option>
+        </select>
+
+        <label for="message" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">MESSAGE</label>
+        <textarea id="message" name="message" class="fh-input" rows="5" maxlength="2000" required placeholder="what happened, or what you have in mind" style="resize:vertical;font-family:var(--sans);"></textarea>
+
+        <label for="email" class="fh-mono" style="font-size:11px;color:var(--ink-faint);letter-spacing:.06em;margin-top:6px;">EMAIL (optional)</label>
+        <input id="email" name="email" type="email" class="fh-input" autocomplete="email" maxlength="200" placeholder="so we can write back" />
+
+        <!-- honeypot: hidden from people, tempting to bots; a filled value is dropped -->
+        <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" />
+
+        <div style="margin-top:18px;">
+          <button type="submit" id="send" class="fh-btn" style="width:100%;justify-content:center;">send</button>
+        </div>
+        <p id="msg" role="status" aria-live="polite" class="fh-mono" style="font-size:11.5px;color:var(--signal);min-height:16px;margin:8px 0 0;line-height:1.5;"></p>
+      </form>
+      <p id="done" hidden style="font-size:14px;color:var(--ink-soft);line-height:1.6;margin:6px 0 0;">
+        Thanks, we got it. If you left an email we will write back. <a href="/" style="color:var(--ink);">Back to the library</a>.
+      </p>
+    </div>
+
+    <footer class="fh-pad" style="padding:26px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;">
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);display:flex;gap:14px;flex-wrap:wrap;"><a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a><a href="/terms" style="color:inherit;">terms</a><a href="/privacy" style="color:inherit;">privacy</a></div>
+    </footer>
+  </div>
+</Base>
+
+<script>
+  import { actions } from 'astro:actions';
+
+  const form = document.getElementById('feedbackform') as HTMLFormElement;
+  const msg = document.getElementById('msg') as HTMLElement;
+  const done = document.getElementById('done') as HTMLElement;
+  const send = document.getElementById('send') as HTMLButtonElement;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    fd.set('page', document.referrer || '');
+    const message = ((fd.get('message') as string) || '').trim();
+    if (!message) {
+      msg.style.color = 'var(--signal)';
+      msg.textContent = 'Add a message.';
+      return;
+    }
+    msg.style.color = 'var(--ink-soft)';
+    msg.textContent = 'sending…';
+    send.disabled = true;
+    const { error } = await actions.submitFeedback(fd);
+    if (error) {
+      msg.style.color = 'var(--signal)';
+      msg.textContent = error.message || 'Could not send. Try again in a moment.';
+      send.disabled = false;
+      return;
+    }
+    form.style.display = 'none';
+    done.removeAttribute('hidden');
+  });
+</script>

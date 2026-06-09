@@ -7,6 +7,7 @@ import { isOtf, isTtf, isWoff2 } from '../lib/fontsig';
 import { imageExt, isPng, MIN_AVATAR_BYTES, MAX_AVATAR_BYTES, AVATAR_CONTENT_TYPE } from '../lib/imagesig';
 import { rateLimit } from '../lib/ratelimit';
 import { containsBannedWord } from '../lib/banned-words';
+import { sendFeedbackEmail } from '../lib/email';
 
 // Soft ban: a suspended account can still sign in and browse, but every mutation
 // runs through here, so this one check makes the whole account read-only.
@@ -115,6 +116,47 @@ export const server = {
           .bind(fontId)
           .run();
       }
+      return { ok: true };
+    },
+  }),
+
+  // Support / bug report from the /support form. Public (someone blocked by a bug
+  // can still report it), rate-limited per IP, with a honeypot to drop bots. Sends
+  // to the support inbox via Resend with the reporter's email as reply-to; never
+  // blocks on the send result.
+  submitFeedback: defineAction({
+    accept: 'form',
+    input: z.object({
+      kind: z.enum(['bug', 'idea', 'other']).default('other'),
+      message: z.string().min(1).max(2000),
+      email: z.string().max(200).optional(),
+      page: z.string().max(300).optional(),
+      // honeypot: a hidden field a real user never fills, but a bot will
+      website: z.string().max(200).optional(),
+    }),
+    handler: async (input, ctx) => {
+      // a filled honeypot means a bot: pretend success so it does not retry
+      if (input.website && input.website.trim()) return { ok: true };
+      const env = ctx.locals.runtime.env;
+      const ip = ctx.request.headers.get('cf-connecting-ip') || 'anon';
+      await limit(env, ip, 'feedback', 5, 3600);
+      // account context if signed in (never required: anonymous reports are allowed)
+      let account: string | undefined;
+      try {
+        const auth = createAuth(env);
+        const session = await auth.api.getSession({ headers: ctx.request.headers });
+        if (session) account = session.user.email;
+      } catch {
+        /* stay anonymous on any auth error */
+      }
+      const replyTo = input.email && input.email.includes('@') ? input.email.trim() : undefined;
+      await sendFeedbackEmail(env, {
+        kind: input.kind,
+        message: input.message.trim(),
+        replyTo,
+        page: input.page?.trim() || undefined,
+        account,
+      });
       return { ok: true };
     },
   }),

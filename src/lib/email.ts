@@ -8,10 +8,25 @@
 // (which also avoids leaking whether an address has an account).
 
 const FROM = 'fonthead <support@fonthead.dev>';
+const SUPPORT = 'support@fonthead.dev';
+
+// One place that talks to Resend. Returns false on a missing key or any failure
+// so a caller can never be broken by a send problem.
+async function resendSend(env: Env, payload: Record<string, unknown>): Promise<boolean> {
+  if (!env.RESEND_API_KEY) return false;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: FROM, ...payload }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 export async function sendResetEmail(env: Env, to: string, url: string): Promise<boolean> {
-  if (!env.RESEND_API_KEY) return false;
-
   const text = [
     'Someone asked to reset the password for your fonthead.dev account.',
     '',
@@ -29,17 +44,30 @@ export async function sendResetEmail(env: Env, to: string, url: string): Promise
   <p style="font-size:13px;color:#75726a;">The link expires in an hour. If you did not ask for this, you can ignore this email and your password stays the same.</p>
 </div>`;
 
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ from: FROM, to, subject: 'Reset your fonthead password', text, html }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return resendSend(env, { to, subject: 'Reset your fonthead password', text, html });
+}
+
+// A support / bug report from the /support form. Goes to the support inbox with
+// the reporter's email as reply-to, so a reply from Gmail reaches them.
+export async function sendFeedbackEmail(
+  env: Env,
+  opts: { kind: string; message: string; replyTo?: string; page?: string; account?: string },
+): Promise<boolean> {
+  const text = [
+    `Kind: ${opts.kind}`,
+    opts.page ? `Page: ${opts.page}` : null,
+    opts.account ? `Account: ${opts.account}` : null,
+    `Reply to: ${opts.replyTo || '(not provided)'}`,
+    '',
+    opts.message,
+  ]
+    .filter((l) => l !== null)
+    .join('\n');
+  const snippet = opts.message.replace(/\s+/g, ' ').trim().slice(0, 60);
+  return resendSend(env, {
+    to: SUPPORT,
+    subject: `fonthead ${opts.kind}: ${snippet}`,
+    text,
+    ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
+  });
 }
