@@ -63,6 +63,8 @@ export interface ColorOpts {
   outline?: boolean;
   gloss?: boolean;
   fineDetail?: boolean;
+  /** Letter spacing, percent of UPM per side. 0/unset keeps the engine default. */
+  spacingPct?: number;
 }
 export const DEFAULT_COLOR_OPTS: ColorOpts = { K: 3, stops: 5, bgDist: 20, outline: false, gloss: false, fineDetail: false };
 
@@ -638,6 +640,7 @@ export async function editMonoRow(
   slicer: SlicerKind,
   family: string,
   opts: TraceOpts,
+  spacingPct?: number,
   onProgress?: Progress,
 ): Promise<{ result: FontResult; glyphCount: number; report: GlyphReport[]; rows: MonoRowInfo[] }> {
   const s = _monoSession;
@@ -655,7 +658,7 @@ export async function editMonoRow(
     s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: chars.length, glyphCount: r.glyphs.length };
     const glyphs = s.rowGlyphs.flat();
     if (!glyphs.length) throw new Error('no glyphs left after re-slicing this row');
-    const result = await buildFont(glyphs, { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'] }, onProgress);
+    const result = await buildFont(glyphs, { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'], spacingPct }, onProgress);
     return { result, glyphCount: glyphs.length, report: reportForGlyphs(glyphs), rows: s.rowInfo.slice() };
   } catch (e) {
     s.rowGlyphs[rowIndex] = prevGlyphs;
@@ -702,6 +705,28 @@ export interface BuildOpts {
   style?: string;
   upm?: number;
   formats?: Array<'otf' | 'ttf' | 'woff' | 'woff2'>;
+  /** Letter spacing. 0/unset keeps the sheet's drawn pitch (cell-width
+   *  advance, the historical default); 1-12 switches to tight advance with
+   *  that percent of UPM as the side bearing, which evens out a loosely or
+   *  unevenly drawn sheet. */
+  spacingPct?: number;
+}
+
+/** Map the spacing knob to the engine's advance flags. The engine only reads
+ *  sideBearingPct on the tight-advance path; under cell-width advance the
+ *  sheet's own pitch wins, so auto (0) keeps the historical behavior bit for
+ *  bit. Out-of-range values clamp to the slider's 1-12. */
+export function spacingToBuildFlags(spacingPct?: number): {
+  useCellWidth: boolean;
+  tightAdvance: boolean;
+  sideBearingPct: number;
+} {
+  const tight = typeof spacingPct === 'number' && Number.isFinite(spacingPct) && spacingPct > 0;
+  return {
+    useCellWidth: !tight,
+    tightAdvance: tight,
+    sideBearingPct: tight ? Math.min(Math.max(spacingPct, 1), 12) / 100 : 0.05,
+  };
 }
 
 function rawWorkerBuild(payload: unknown, onProgress?: Progress): Promise<FontResult> {
@@ -729,9 +754,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     family: opts.family,
     style: opts.style ?? 'Regular',
     upm: opts.upm ?? 1000,
-    useCellWidth: true,
-    tightAdvance: false,
-    sideBearingPct: 0.05,
+    ...spacingToBuildFlags(opts.spacingPct),
     formats: opts.formats ?? ['otf', 'ttf', 'woff2'],
     features: null,
     embedHints: false,
@@ -964,6 +987,11 @@ export async function buildColorFontFromImage(
     outline: colorOpts.outline,
     gloss: colorOpts.gloss,
     fineDetail: !!colorOpts.fineDetail,
+    // the orchestrator takes an absolute side bearing in UPM units (its
+    // default is 50, i.e. 5% of 1000); the knob speaks percent
+    ...(colorOpts.spacingPct && colorOpts.spacingPct > 0
+      ? { sideBearing: Math.round(Math.min(Math.max(colorOpts.spacingPct, 1), 12) * 10) }
+      : {}),
   });
   onProgress?.('build', `COLR ${res.colrStatus} · packing`);
   // correct table checksums BEFORE wrapping woff2 (so the woff2 wraps valid otf)

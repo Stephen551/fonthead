@@ -66,12 +66,12 @@ const KINDS: { id: Kind; label: string }[] = [
   { id: 'flat', label: 'color · flat' },
 ];
 
-function RangeRow({ label, min, max, value, onChange }: { label: string; min: number; max: number; value: number; onChange: (v: number) => void }) {
+function RangeRow({ label, min, max, value, onChange, fmt }: { label: string; min: number; max: number; value: number; onChange: (v: number) => void; fmt?: (v: number) => string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', width: 96 }}>{label}</span>
       <input type="range" aria-label={label} className="fh-range" min={min} max={max} value={value} onChange={(e) => onChange(+e.target.value)} style={{ flex: 1 }} />
-      <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-soft)', width: 20, textAlign: 'right' }}>{value}</span>
+      <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-soft)', width: fmt ? 32 : 20, textAlign: 'right' }}>{fmt ? fmt(value) : value}</span>
     </div>
   );
 }
@@ -117,6 +117,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [preset, setPreset] = useState<'glyph' | 'logo' | 'sketch'>('glyph');
   const [colorOpts, setColorOpts] = useState<ColorOpts>(DEFAULT_COLOR_OPTS);
   const [fineDetail, setFineDetail] = useState(false);
+  // letter spacing: 0 = auto (the sheet's own pitch for mono, the engine
+  // default for color); 1-12 = percent of UPM as the side bearing per side
+  const [spacing, setSpacing] = useState(0);
   // synthetic italic: the engine shears -14° and writes the italic metadata when
   // the build style says "Italic". Mono only for now (the color path is separate).
   const [italic, setItalic] = useState(false);
@@ -220,7 +223,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         lastImgRef.current = img;
         captureSheet(img);
         setStage(0, 'reading the sheet');
-        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, { ...colorOpts, fineDetail }, (step, message) =>
+        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, { ...colorOpts, fineDetail, spacingPct: spacing }, (step, message) =>
           setStage(COLOR_STEP_STAGE[step] ?? 1, message),
         );
         res = { otf: cres.otf, woff2: cres.woff2 };
@@ -245,7 +248,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         setMonoRows(trace.rows);
         res = await buildFont(
           trace.glyphs,
-          { family: fam, style: italic ? 'Italic' : 'Regular', formats: ['otf', 'ttf', 'woff2'] },
+          { family: fam, style: italic ? 'Italic' : 'Regular', formats: ['otf', 'ttf', 'woff2'], spacingPct: spacing },
           (step, message) => setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
       }
@@ -423,7 +426,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setRowBusy(rowIndex);
     setRowErr('');
     try {
-      const r = await editMonoRow(rowIndex, slicer, family, traceOpts);
+      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing);
       setResult(r.result);
       setReport(r.report);
       setGlyphCount(r.glyphCount);
@@ -702,6 +705,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </div>
               )}
               <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                <RangeRow label="spacing" min={0} max={12} value={spacing} onChange={setSpacing} fmt={(v) => (v === 0 ? 'auto' : String(v))} />
+                <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', margin: '7px 0 11px', lineHeight: 1.5 }}>
+                  auto keeps the sheet's own letter pitch. Higher numbers rebuild every letter with an even gap, looser as it grows.
+                </p>
                 <ToggleRow label="fine detail" on={fineDetail} onChange={setFineDetail} />
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                   resample each letter at higher resolution before tracing, so serifs and sharp corners survive. Slower.
