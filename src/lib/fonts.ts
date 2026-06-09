@@ -64,6 +64,32 @@ function parse(row: FontRow): Font {
   return { ...row, meta };
 }
 
+/** Apply an owner edit (name, license) to a font's raw meta JSON string. The og
+ *  share card renders only the specimen word, so it only goes stale (dropOg)
+ *  when the resolved specimen changed and a card exists; a rename alone keeps
+ *  it. Every other key (treat, designer, ofl, standIn, builtWith, …) passes
+ *  through untouched. */
+export function editedFontMeta(
+  raw: string,
+  edit: { name: string; license: 'ofl' | 'cc0' | 'personal'; specimenChanged: boolean },
+): { meta: string; dropOg: boolean } {
+  let parsed: Record<string, unknown> = {};
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (v && typeof v === 'object' && !Array.isArray(v)) parsed = v as Record<string, unknown>;
+  } catch {
+    /* malformed meta still takes the edit */
+  }
+  const dropOg = edit.specimenChanged && parsed.og === true;
+  const next = {
+    ...parsed,
+    family: edit.name,
+    license: edit.license,
+    ...(dropOg ? { og: false } : {}),
+  };
+  return { meta: JSON.stringify(next), dropOg };
+}
+
 export interface HeroFace {
   id: string;
   family: string;
