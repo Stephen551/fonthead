@@ -152,6 +152,19 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     if (sk) sk.hidden = true;
   }, []);
 
+  // Escape closes the per-glyph editor, mirroring the site's dialogs.
+  useEffect(() => {
+    if (editIdx === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setEditIdx(null);
+        setEditErr('');
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [editIdx]);
+
   const setStage = (i: number, msg: string) => {
     setStageIdx((cur) => (i > cur ? i : cur));
     setLog(msg);
@@ -835,7 +848,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                     <span style={{ color: 'var(--ink-faint)' }}>GLYPHS</span>
                     <span style={{ color: flaggedCount ? '#9a6a12' : '#2f6f5e' }}>{flaggedCount ? `${flaggedCount} flagged` : 'all clean'}</span>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(42px, 1fr))', gap: 5 }}>
+                  <div className="fh-glyph-grid" style={{ display: 'grid', gap: 5 }}>
                     {report.map((g, i) => {
                       const flagged = g.flags.length > 0;
                       const dropped = g.status !== 'ok';
@@ -896,11 +909,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                         <button className="fh-btn fh-btn--ghost" disabled={editBusy} onClick={() => applyEdit('retrace')}>re-trace</button>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 11 }}>
+                      <div role="group" aria-label="Cell edges" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 11 }}>
                         <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', width: 48 }}>edges</span>
-                        <span className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>L</span>
+                        <span className="fh-mono" aria-hidden="true" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>L</span>
                         <input type="range" aria-label="Left edge" className="fh-range" min={-40} max={40} value={editLeft} onChange={(e) => setEditLeft(+e.target.value)} style={{ flex: 1 }} />
-                        <span className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>R</span>
+                        <span className="fh-mono" aria-hidden="true" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>R</span>
                         <input type="range" aria-label="Right edge" className="fh-range" min={-40} max={40} value={editRight} onChange={(e) => setEditRight(+e.target.value)} style={{ flex: 1 }} />
                         <button className="fh-btn fh-btn--ghost" disabled={editBusy} onClick={() => applyEdit('reslice')}>re-slice</button>
                       </div>

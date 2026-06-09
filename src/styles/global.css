@@ -301,12 +301,16 @@ body {
 @media (max-width: 920px) {
   .fh-maker-grid { grid-template-columns: minmax(0, 1fr); }
 }
+/* the maker's glyph inspection grid: comfortable desktop density, bigger
+   touch targets on a phone */
+.fh-glyph-grid { grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); }
 /* the build readout's stage rows budget desktop-fixed columns; on a phone that
    ellipsis-clips the descriptions. Let them wrap and drop the trailing tick so
    the "honest readout" stays fully legible. */
 @media (max-width: 560px) {
   .fh-build-desc { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
   .fh-build-tick { display: none !important; }
+  .fh-glyph-grid { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); }
 }
 @media (max-width: 820px) {
   .fh-fontpage-grid { grid-template-columns: minmax(0, 1fr); }
