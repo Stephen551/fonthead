@@ -373,6 +373,32 @@ export const server = {
     },
   }),
 
+  // An author deleting their OWN font. Same teardown as the admin takedown but
+  // gated to the owner: the row, its votes/favorites/reports, and every R2 object
+  // (the otf/ttf/woff2 binaries and the social card). Irreversible.
+  deleteOwnFont: defineAction({
+    input: z.object({ fontId: z.string().min(1) }),
+    handler: async ({ fontId }, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      const row = await env.DB.prepare(
+        'SELECT owner_id, otf_key, ttf_key, woff2_key FROM fonts WHERE id = ?',
+      )
+        .bind(fontId)
+        .first<{ owner_id: string | null; otf_key: string | null; ttf_key: string | null; woff2_key: string | null }>();
+      if (!row) throw new ActionError({ code: 'NOT_FOUND', message: 'No such font.' });
+      if (row.owner_id !== userId) throw new ActionError({ code: 'FORBIDDEN', message: 'That is not your font.' });
+      await limit(env, userId, 'delfont', 30, 3600);
+      await env.DB.prepare('DELETE FROM votes WHERE font_id = ?').bind(fontId).run();
+      await env.DB.prepare('DELETE FROM favorites WHERE font_id = ?').bind(fontId).run();
+      await env.DB.prepare('DELETE FROM reports WHERE font_id = ?').bind(fontId).run();
+      await env.DB.prepare('DELETE FROM fonts WHERE id = ?').bind(fontId).run();
+      const keys = [row.otf_key, row.ttf_key, row.woff2_key].filter((k): k is string => !!k);
+      keys.push(`og/${fontId}.png`); // the social card, if any (no-op delete otherwise)
+      await Promise.allSettled(keys.map((k) => env.FONTS.delete(k)));
+      return { ok: true };
+    },
+  }),
+
   // Admin: soft-ban a user (read-only). Refuses to ban yourself or another admin
   // so you can never lock the team out.
   banUser: defineAction({

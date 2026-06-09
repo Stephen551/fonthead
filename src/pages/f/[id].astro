@@ -23,6 +23,9 @@ if (f.visibility === 'private' && userId !== f.owner_id) {
   return Astro.rewrite('/404');
 }
 
+// the signed-in author looking at their own font gets a delete control
+const isOwner = !!userId && userId === f.owner_id;
+
 let voted = false;
 let favorited = false;
 if (userId) {
@@ -225,8 +228,12 @@ const fontSchema = {
         <a href={`/u/${f.maker_handle}`} class="fh-mono" style="font-size:11px;color:var(--ink-faint);text-decoration:none;">more from @{f.maker_handle}&nbsp;&rarr;</a>
       )}
       <a href={tweetUrl} target="_blank" rel="noopener noreferrer" class="fh-mono" style="font-size:11px;color:var(--ink-faint);text-decoration:underline;text-underline-offset:3px;">share on X</a>
-      {!m.standIn && (
-        <button data-report data-report-target="font" data-report-id={f.id} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--ink-faint);padding:0;text-decoration:underline;text-underline-offset:3px;">report this font</button>
+      {isOwner ? (
+        <button data-del-font data-font-id={f.id} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--signal);padding:0;text-decoration:underline;text-underline-offset:3px;">delete this font</button>
+      ) : (
+        !m.standIn && (
+          <button data-report data-report-target="font" data-report-id={f.id} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--ink-faint);padding:0;text-decoration:underline;text-underline-offset:3px;">report this font</button>
+        )
       )}
       <a href="/support" class="fh-mono" style="font-size:11px;color:var(--ink-faint);text-decoration:underline;text-underline-offset:3px;">support</a>
     </footer>

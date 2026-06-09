@@ -228,6 +228,7 @@ function wireSocialOnce() {
     const vote = t.closest('[data-vote]') as HTMLElement | null;
     const report = t.closest('[data-report]') as HTMLElement | null;
     const share = t.closest('[data-share]') as HTMLElement | null;
+    const delFont = t.closest('[data-del-font]') as HTMLElement | null;
     // a font-page download: count it best-effort and let the download proceed
     const dl = t.closest('.fh-dl[data-font-id]') as HTMLElement | null;
     if (dl?.dataset.fontId) actions.countDownload({ fontId: dl.dataset.fontId }).catch(() => {});
@@ -243,8 +244,40 @@ function wireSocialOnce() {
     } else if (share) {
       e.preventDefault();
       onShare(share);
+    } else if (delFont) {
+      e.preventDefault();
+      onDeleteFont(delFont);
     }
   });
+}
+
+// An author deleting their own font. Two-stage so a stray click can't wipe a
+// font: the first click arms the button (and disarms itself after a few
+// seconds), the second within that window deletes and returns to the account
+// page. Irreversible, so the armed copy says exactly that.
+async function onDeleteFont(btn: HTMLElement) {
+  const id = btn.dataset.fontId;
+  if (!id) return;
+  if (btn.dataset.armed !== '1') {
+    btn.dataset.armed = '1';
+    btn.dataset.label = btn.textContent || 'delete this font';
+    btn.textContent = 'click again to permanently delete';
+    window.setTimeout(() => {
+      if (btn.dataset.armed === '1') {
+        btn.dataset.armed = '0';
+        btn.textContent = btn.dataset.label || 'delete this font';
+      }
+    }, 4000);
+    return;
+  }
+  btn.dataset.armed = '0';
+  btn.textContent = 'deleting…';
+  const { error } = await actions.deleteOwnFont({ fontId: id });
+  if (error) {
+    btn.textContent = error.message || 'could not delete';
+    return;
+  }
+  window.location.href = '/account';
 }
 
 function lazyFonts() {
