@@ -6,6 +6,7 @@ import { verifySfntChecksums } from '../lib/sfnt';
 import { isOtf, isTtf, isWoff2 } from '../lib/fontsig';
 import { imageExt, isPng, MIN_AVATAR_BYTES, MAX_AVATAR_BYTES, AVATAR_CONTENT_TYPE } from '../lib/imagesig';
 import { rateLimit } from '../lib/ratelimit';
+import { editedFontMeta } from '../lib/fonts';
 import { containsBannedWord } from '../lib/banned-words';
 import { sendFeedbackEmail } from '../lib/email';
 
@@ -396,6 +397,62 @@ export const server = {
       keys.push(`og/${fontId}.png`); // the social card, if any (no-op delete otherwise)
       await Promise.allSettled(keys.map((k) => env.FONTS.delete(k)));
       return { ok: true };
+    },
+  }),
+
+  // An author editing their OWN published font's details: the display name, the
+  // specimen word, and the license. The binaries are untouched (the files keep
+  // the internal name they were built with). The og share card renders only the
+  // specimen word, so it is dropped (falling back to the generic og image) only
+  // when that word changes.
+  updateOwnFont: defineAction({
+    input: z.object({
+      fontId: z.string().min(1),
+      // same markup-character defence as publishFont
+      name: z
+        .string()
+        .min(1, 'Name your font')
+        .max(60)
+        .refine((s) => !/[<>&]/.test(s), 'Name cannot contain < > or &'),
+      specimenWord: z
+        .string()
+        .max(40)
+        .refine((s) => !/[<>&]/.test(s), 'Specimen cannot contain < > or &')
+        .optional(),
+      license: z.enum(['ofl', 'cc0', 'personal']),
+    }),
+    handler: async (input, ctx) => {
+      const { env, userId } = await requireUser(ctx);
+      const row = await env.DB.prepare('SELECT owner_id, specimen_word, meta FROM fonts WHERE id = ?')
+        .bind(input.fontId)
+        .first<{ owner_id: string | null; specimen_word: string; meta: string }>();
+      if (!row) throw new ActionError({ code: 'NOT_FOUND', message: 'No such font.' });
+      if (row.owner_id !== userId) throw new ActionError({ code: 'FORBIDDEN', message: 'That is not your font.' });
+      await limit(env, userId, 'editfont', 30, 3600);
+      if (containsBannedWord(input.name) || (input.specimenWord && containsBannedWord(input.specimenWord))) {
+        throw new ActionError({ code: 'BAD_REQUEST', message: "That name isn't allowed." });
+      }
+      // resolve the word the same way publish does: empty falls back to the name
+      const word = (input.specimenWord || '').trim() || input.name;
+      const { meta, dropOg } = editedFontMeta(row.meta, {
+        name: input.name,
+        license: input.license,
+        specimenChanged: word !== row.specimen_word,
+      });
+      await env.DB.prepare('UPDATE fonts SET name = ?, specimen_word = ?, meta = ? WHERE id = ? AND owner_id = ?')
+        .bind(input.name, word, meta, input.fontId, userId)
+        .run();
+      // D1 first, R2 second: meta.og is already false, so the page falls back to
+      // the generic og image even if this delete fails (the orphan is purged by
+      // deleteOwnFont/deleteAccount later, which always push the og key).
+      if (dropOg) {
+        try {
+          await env.FONTS.delete(`og/${input.fontId}.png`);
+        } catch {
+          /* best-effort */
+        }
+      }
+      return { ok: true, name: input.name, specimenWord: word, license: input.license };
     },
   }),
 

@@ -229,7 +229,10 @@ const fontSchema = {
       )}
       <a href={tweetUrl} target="_blank" rel="noopener noreferrer" class="fh-mono" style="font-size:11px;color:var(--ink-faint);text-decoration:underline;text-underline-offset:3px;">share on X</a>
       {isOwner ? (
-        <button data-del-font data-font-id={f.id} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--signal);padding:0;text-decoration:underline;text-underline-offset:3px;">delete this font</button>
+        <span style="display:inline-flex;gap:16px;align-items:center;">
+          <button data-edit-font data-font-id={f.id} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--ink-faint);padding:0;text-decoration:underline;text-underline-offset:3px;">edit details</button>
+          <button data-del-font data-font-id={f.id} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--signal);padding:0;text-decoration:underline;text-underline-offset:3px;">delete this font</button>
+        </span>
       ) : (
         !m.standIn && (
           <button data-report data-report-target="font" data-report-id={f.id} class="fh-mono" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--ink-faint);padding:0;text-decoration:underline;text-underline-offset:3px;">report this font</button>
@@ -237,5 +240,52 @@ const fontSchema = {
       )}
       <a href="/support" class="fh-mono" style="font-size:11px;color:var(--ink-faint);text-decoration:underline;text-underline-offset:3px;">support</a>
     </footer>
+
+    {/* owner-only edit dialog: opened from the footer's [data-edit-font] trigger.
+        Hidden until then; app.ts manages focus, the license toggle, and save. */}
+    {isOwner && (
+      <div id="fh-edit" class="fh-tour" hidden role="dialog" aria-modal="true" aria-label="Edit this font" data-font-id={f.id}>
+        <div class="fh-tour-card">
+          <button id="fh-edit-x" type="button" class="fh-tour-x" aria-label="Close">&times;</button>
+          <p class="fh-eyebrow">edit this font</p>
+          <label class="fh-mono" for="fh-edit-name" style="display:block;font-size:11px;color:var(--ink-faint);letter-spacing:.04em;margin:12px 0 5px;">name</label>
+          <input id="fh-edit-name" class="fh-input" maxlength="60" value={f.name} style="width:100%;" />
+          <label class="fh-mono" for="fh-edit-specimen" style="display:block;font-size:11px;color:var(--ink-faint);letter-spacing:.04em;margin:12px 0 5px;">specimen word</label>
+          <input id="fh-edit-specimen" class="fh-input" maxlength="40" value={f.specimen_word} style="width:100%;" />
+          <span class="fh-mono" style="display:block;font-size:11px;color:var(--ink-faint);letter-spacing:.04em;margin:12px 0 5px;">license</span>
+          <div role="group" aria-label="License" style="display:flex;border:1px solid var(--line-2);border-radius:2px;overflow:hidden;width:max-content;">
+            {(['ofl', 'cc0', 'personal'] as const).map((v) => (
+              <button
+                type="button"
+                data-license-opt={v}
+                aria-pressed={licenseKey === v}
+                class="fh-mono fh-edit-lic"
+                style="font-size:12px;padding:9px 14px;border:none;cursor:pointer;"
+              >{v === 'ofl' ? 'OFL' : v === 'cc0' ? 'CC0' : 'personal'}</button>
+            ))}
+          </div>
+          <p class="fh-mono" style="font-size:10.5px;line-height:1.6;color:var(--ink-faint);margin:14px 0 0;">
+            files keep the name they were built with<br />changing the specimen word resets the share card
+          </p>
+          <p id="fh-edit-msg" role="status" aria-live="polite" class="fh-mono" style="font-size:11.5px;color:var(--ink-soft);min-height:14px;margin:8px 0 0;"></p>
+          <div class="fh-tour-actions" style="margin-top:12px;">
+            <button id="fh-edit-save" type="button" class="fh-btn">save changes</button>
+            <button id="fh-edit-cancel" type="button" class="fh-btn fh-btn--ghost">cancel</button>
+          </div>
+        </div>
+      </div>
+    )}
   </div>
 </Base>
+
+<style>
+  .fh-edit-lic {
+    background: var(--paper);
+    color: var(--ink-soft);
+    transition: all var(--dur) var(--ease);
+  }
+  .fh-edit-lic[aria-pressed='true'] {
+    background: var(--ink);
+    color: var(--paper);
+  }
+</style>

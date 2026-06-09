@@ -229,6 +229,7 @@ function wireSocialOnce() {
     const report = t.closest('[data-report]') as HTMLElement | null;
     const share = t.closest('[data-share]') as HTMLElement | null;
     const delFont = t.closest('[data-del-font]') as HTMLElement | null;
+    const editFont = t.closest('[data-edit-font]') as HTMLElement | null;
     // a font-page download: count it best-effort and let the download proceed
     const dl = t.closest('.fh-dl[data-font-id]') as HTMLElement | null;
     if (dl?.dataset.fontId) actions.countDownload({ fontId: dl.dataset.fontId }).catch(() => {});
@@ -247,6 +248,9 @@ function wireSocialOnce() {
     } else if (delFont) {
       e.preventDefault();
       onDeleteFont(delFont);
+    } else if (editFont) {
+      e.preventDefault();
+      onEditFont();
     }
   });
 }
@@ -278,6 +282,103 @@ async function onDeleteFont(btn: HTMLElement) {
     return;
   }
   window.location.href = '/account';
+}
+
+// An author editing their own font's details (name, specimen word, license).
+// Same styled, focus-managed dialog pattern as report; the markup renders
+// owner-only on the font page. On success the page reloads, so the server
+// re-render refreshes the heading, specimen, license row, JSON-LD, and og
+// image in one shot.
+let editReturn: HTMLElement | null = null;
+
+function onEditFont() {
+  const dlg = document.getElementById('fh-edit');
+  if (!dlg) return;
+  editReturn = document.activeElement as HTMLElement | null;
+  const msg = document.getElementById('fh-edit-msg');
+  if (msg) msg.textContent = '';
+  dlg.hidden = false;
+  const name = document.getElementById('fh-edit-name') as HTMLInputElement | null;
+  requestAnimationFrame(() => name?.focus());
+}
+
+function closeEdit() {
+  const dlg = document.getElementById('fh-edit');
+  if (dlg) dlg.hidden = true;
+  editReturn?.focus?.();
+  editReturn = null;
+}
+
+async function submitEdit() {
+  const dlg = document.getElementById('fh-edit');
+  const id = dlg?.dataset.fontId;
+  if (!dlg || !id) return;
+  const nameEl = document.getElementById('fh-edit-name') as HTMLInputElement | null;
+  const msg = document.getElementById('fh-edit-msg');
+  const save = document.getElementById('fh-edit-save') as HTMLButtonElement | null;
+  const name = (nameEl?.value || '').trim();
+  if (!name) {
+    if (msg) msg.textContent = 'add a name';
+    nameEl?.focus();
+    return;
+  }
+  const specimenWord = (document.getElementById('fh-edit-specimen') as HTMLInputElement | null)?.value ?? '';
+  const pressed = dlg.querySelector<HTMLElement>('[data-license-opt][aria-pressed="true"]');
+  const license = (pressed?.dataset.licenseOpt || 'ofl') as 'ofl' | 'cc0' | 'personal';
+  if (save) save.disabled = true;
+  const { data, error } = await actions.updateOwnFont({ fontId: id, name, specimenWord, license });
+  if (save) save.disabled = false;
+  if (error || !data) {
+    if (msg) msg.textContent = error?.message || 'could not save, try again';
+    announce('Could not save, try again.');
+    return;
+  }
+  announce('Saved.');
+  window.location.reload();
+}
+
+// Wire the edit dialog once: save, cancel, close, the license toggle, Escape,
+// backdrop, Tab-trap. Mirrors wireReportOnce.
+function wireEditOnce() {
+  if ((window as Window & { __fhEdit?: boolean }).__fhEdit) return;
+  (window as Window & { __fhEdit?: boolean }).__fhEdit = true;
+  document.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('#fh-edit-save')) return void submitEdit();
+    if (t.closest('#fh-edit-x') || t.closest('#fh-edit-cancel')) return closeEdit();
+    const lic = t.closest('[data-license-opt]') as HTMLElement | null;
+    if (lic && lic.closest('#fh-edit')) {
+      document
+        .querySelectorAll('#fh-edit [data-license-opt]')
+        .forEach((b) => b.setAttribute('aria-pressed', String(b === lic)));
+      return;
+    }
+    const dlg = document.getElementById('fh-edit');
+    if (dlg && !dlg.hidden && t === dlg) closeEdit(); // click the backdrop, not the card
+  });
+  document.addEventListener('keydown', (e) => {
+    const dlg = document.getElementById('fh-edit');
+    if (!dlg || dlg.hidden) return;
+    if (e.key === 'Escape') {
+      closeEdit();
+      return;
+    }
+    if (e.key === 'Tab') {
+      const f = Array.from(dlg.querySelectorAll<HTMLElement>('button, input, a[href]')).filter(
+        (el) => !(el as HTMLButtonElement).disabled,
+      );
+      if (!f.length) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  });
 }
 
 function lazyFonts() {
@@ -509,3 +610,4 @@ document.addEventListener('astro:page-load', init);
 wireSocialOnce();
 wireCoffeeOnce();
 wireReportOnce();
+wireEditOnce();
