@@ -70,13 +70,22 @@
     if (g._silhouette) return g._silhouette;
     const w = Math.max(1, Math.ceil(g.cellW));
     const h = Math.max(1, Math.ceil(g.cellH));
+    /* Overhang-aware (2026-06-10): with body advances a swash tail can ride
+       OUTSIDE [0, cellW] (negative bearings). A canvas sized to the cell
+       clips that ink, so the analyzer would see overlapped pairs as wide
+       open and over-pull them into collisions (the chancery capitals bug).
+       Pad the raster on both sides and subtract the pad on extraction, so
+       left/right stay in advance coordinates but may run negative or past
+       cellW, exactly like the rendered glyph. */
+    const pad = Math.ceil(Math.max(w, h) / 2);
     let canvas;
     try {
-      canvas = new OffscreenCanvas(w, h);
+      canvas = new OffscreenCanvas(w + pad * 2, h);
     } catch (e) {
       return null;
     }
     const ctx = canvas.getContext('2d');
+    ctx.translate(pad, 0);
     ctx.fillStyle = '#000';
     /* Re-walk path tokens and reissue as canvas calls. Path2D-from-
        string has spotty worker support across browsers; this path is
@@ -135,7 +144,8 @@
       ctx.fill('evenodd');
     }
 
-    const img = ctx.getImageData(0, 0, w, h);
+    const pw = w + pad * 2;
+    const img = ctx.getImageData(0, 0, pw, h);
     const data = img.data;
     const left = new Float64Array(h);
     const right = new Float64Array(h);
@@ -144,11 +154,12 @@
       left[y] = Infinity;
       right[y] = -Infinity;
       let hasInk = false;
-      const rowOff = y * w * 4 + 3;
-      for (let x = 0; x < w; x++) {
+      const rowOff = y * pw * 4 + 3;
+      for (let x = 0; x < pw; x++) {
         if (data[rowOff + x * 4] > 128) {
-          if (x < left[y]) left[y] = x;
-          if (x > right[y]) right[y] = x;
+          const ax = x - pad; /* back to advance coordinates */
+          if (ax < left[y]) left[y] = ax;
+          if (ax > right[y]) right[y] = ax;
           hasInk = true;
         }
       }

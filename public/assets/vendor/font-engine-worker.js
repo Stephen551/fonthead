@@ -65,6 +65,7 @@ importScripts('/assets/vendor/wawoff2_compress.js?v=0.8.59');
 importScripts('/assets/vendor/font-engine-builder.js?v=0.8.59');
 importScripts('/assets/vendor/font-engine-features.js?v=0.8.59');
 importScripts('/assets/vendor/font-engine-autokern.js?v=0.8.59');
+importScripts('/assets/vendor/font-engine-gpos.js?v=0.8.59');
 importScripts('/assets/vendor/font-engine-tables.js?v=0.8.59');
 importScripts('/assets/vendor/font-engine-hinting.js?v=0.8.59');
 importScripts('/assets/vendor/font-engine-cff-hints.js?v=0.8.59');
@@ -263,6 +264,10 @@ async function generateFonts(payload) {
       ttfConvert = { status: r.status, reason: r.reason, stats: r.stats };
       if (r.status === 'converted') {
         ttfBytes = r.bytes;
+        /* The CFF→TTF conversion rebuilds the sfnt from its own table
+           set; carry the custom tables (GPOS kerning) into the TTF too.
+           injectCustomTables skips tags the conversion already kept. */
+        ttfBytes = injectCustomTables(ttfBytes, otfFont._customTables);
 
         /* If hint generation ran, inject cvt/fpgm/prep tables (the
            values + functions per-glyph instructions reference) via

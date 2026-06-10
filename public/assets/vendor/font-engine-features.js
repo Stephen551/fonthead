@@ -77,6 +77,21 @@
          which were tuned for OTHER fonts. */
       const useStandard = !computedKernPairs;
       const pairs = useStandard ? STANDARD_KERN_PAIRS : computedKernPairs;
+      /* GPOS PairPos (2026-06-10): the cross-browser path the 2026-06-02
+         note below asked for. Chrome, Firefox, and Safari all position
+         from GPOS, so this is safe to write unconditionally; the legacy
+         `kern` table below stays opt-in for the same reason it always
+         was. Bytes ride font._customTables into injectCustomTables. */
+      if (typeof global.buildGposKern === 'function' && pairs && pairs.length) {
+        const norm = Array.isArray(pairs[0])
+          ? pairs.map(p => ({ leftChar: p[0], rightChar: p[1], value: p[2] * (upm / 1000) }))
+          : pairs;
+        const gpos = global.buildGposKern(norm, indexByChar);
+        if (gpos) {
+          font._customTables = font._customTables || {};
+          font._customTables.GPOS = gpos;
+        }
+      }
       /* CROSS-BROWSER LANDMINE (fixed 2026-06-02). The only kerning this
          engine can emit is a legacy TrueType `kern` table. On the modern
          web that table is honored by Safari/CoreText but IGNORED by
