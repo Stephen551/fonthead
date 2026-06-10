@@ -77,6 +77,24 @@ describe('bodyBoundsFromColumns, script rules', () => {
   });
 });
 
+describe('bodyBoundsFromColumns, aperture gate', () => {
+  it('never trims the mouth of a c, even under script rules', () => {
+    // dense bowl on the left; mouth columns thin but spanning arm-to-arm
+    const cols = profile([30, 120], [30, 40]);
+    const spans = [...Array(30).fill(0.9), ...Array(30).fill(0.92)];
+    const b = bodyBoundsFromColumns(cols, { areaFrac: 1, maxTrimFrac: 0.45, thinFrac: 0.65 }, spans)!;
+    expect(b).toEqual({ min: 0, max: 59 });
+  });
+
+  it('still trims a vertically compact tail when spans are provided', () => {
+    const cols = profile([60, 150], [40, 6]);
+    const spans = [...Array(60).fill(0.95), ...Array(40).fill(0.08)];
+    const b = bodyBoundsFromColumns(cols, { areaFrac: 1, maxTrimFrac: 0.45, thinFrac: 0.65 }, spans)!;
+    expect(b.min).toBe(0);
+    expect(b.max).toBeLessThan(99);
+  });
+});
+
 describe('translatePathX', () => {
   it('shifts every x and leaves y alone across M, L, C', () => {
     const d = 'M10.500 20 L30 40 C1 2,3.25 4,5 6 Z';

@@ -732,12 +732,18 @@ export interface BuildOpts {
  *  (>= minExtentFrac of the ink span). */
 export function bodyBoundsFromColumns(
   cols: number[],
-  opts: { areaFrac?: number; minExtentFrac?: number; maxTrimFrac?: number; thinFrac?: number } = {},
+  opts: { areaFrac?: number; minExtentFrac?: number; maxTrimFrac?: number; thinFrac?: number; maxSpanFrac?: number } = {},
+  spans?: number[],
 ): { min: number; max: number } | null {
   const areaFrac = opts.areaFrac ?? 0.08;
   const minExtentFrac = opts.minExtentFrac ?? 0.04;
   const maxTrimFrac = opts.maxTrimFrac ?? 0.3;
   const thinFrac = opts.thinFrac ?? 0.5;
+  // a tail column's ink is vertically compact (one stroke crossing); a column
+  // in a letter's aperture (the mouth of a c, the eye-and-arm side of an e)
+  // has ink at top AND bottom and spans most of the glyph's height. Spans
+  // above this fraction are structure, never tail.
+  const maxSpanFrac = opts.maxSpanFrac ?? 0.55;
   let first = -1,
     last = -1,
     total = 0,
@@ -756,10 +762,11 @@ export function bodyBoundsFromColumns(
   const budget = total * areaFrac;
   const maxTrim = Math.floor(inkW * maxTrimFrac);
   const minExtent = Math.max(2, Math.round(inkW * minExtentFrac));
+  const tailish = (i: number) => cols[i] < thin && (!spans || spans[i] <= maxSpanFrac);
 
   let lo = first;
   let spent = 0;
-  while (lo < last && cols[lo] < thin && spent + cols[lo] <= budget && lo - first < maxTrim) {
+  while (lo < last && tailish(lo) && spent + cols[lo] <= budget && lo - first < maxTrim) {
     spent += cols[lo];
     lo++;
   }
@@ -767,7 +774,7 @@ export function bodyBoundsFromColumns(
 
   let hi = last;
   spent = 0;
-  while (hi > lo && cols[hi] < thin && spent + cols[hi] <= budget && last - hi < maxTrim) {
+  while (hi > lo && tailish(hi) && spent + cols[hi] <= budget && last - hi < maxTrim) {
     spent += cols[hi];
     hi--;
   }
@@ -792,8 +799,9 @@ export function translatePathX(d: string, dx: number): string {
 }
 
 /** Rasterize a glyph's paths (one Path2D, evenodd so counters subtract) and
- *  count filled pixels per x column. */
-function glyphColumnAreas(g: Glyph): number[] | null {
+ *  measure each x column: filled pixel count plus the column's ink y-span as
+ *  a fraction of the glyph's full ink height (the tail-vs-aperture signal). */
+function glyphColumnAreas(g: Glyph): { cols: number[]; spans: number[] } | null {
   const cw = Math.max(1, Math.ceil(g.cellW));
   const ch = Math.max(1, Math.ceil(g.cellH));
   const c = document.createElement('canvas');
@@ -809,10 +817,24 @@ function glyphColumnAreas(g: Glyph): number[] | null {
   }
   const img = ctx.getImageData(0, 0, cw, ch).data;
   const cols = new Array<number>(cw).fill(0);
+  const minY = new Array<number>(cw).fill(Infinity);
+  const maxY = new Array<number>(cw).fill(-1);
+  let gMin = Infinity,
+    gMax = -1;
   for (let p = 0; p < img.length; p += 4) {
-    if (img[p + 3] > 127) cols[(p >> 2) % cw]++;
+    if (img[p + 3] > 127) {
+      const i = (p >> 2) % cw;
+      const y = ((p >> 2) / cw) | 0;
+      cols[i]++;
+      if (y < minY[i]) minY[i] = y;
+      if (y > maxY[i]) maxY[i] = y;
+      if (y < gMin) gMin = y;
+      if (y > gMax) gMax = y;
+    }
   }
-  return cols;
+  const inkH = Math.max(1, gMax - gMin + 1);
+  const spans = cols.map((n, i) => (n > 0 ? (maxY[i] - minY[i] + 1) / inkH : 0));
+  return { cols, spans };
 }
 
 /** The pad each glyph body gets per side, in cell pixels, sized so it lands
@@ -854,19 +876,21 @@ export function trimGlyphOverhangs(
 ): { glyphs: Glyph[]; trimmed: number; script: boolean } {
   // pass 1: profiles + conservative bounds, and let the sheet declare itself
   const profiles = glyphs.map((g) => glyphColumnAreas(g));
-  const ink = profiles.map((cols) => {
-    if (!cols) return null;
+  const ink = profiles.map((prof) => {
+    if (!prof) return null;
     let first = -1,
       last = -1;
-    for (let i = 0; i < cols.length; i++) {
-      if (cols[i] > 0) {
+    for (let i = 0; i < prof.cols.length; i++) {
+      if (prof.cols[i] > 0) {
         if (first < 0) first = i;
         last = i;
       }
     }
     return first < 0 ? null : { first, last };
   });
-  const conservative = profiles.map((cols, i) => (cols && ink[i] ? bodyBoundsFromColumns(cols) : null));
+  const conservative = profiles.map((prof, i) =>
+    prof && ink[i] ? bodyBoundsFromColumns(prof.cols, {}, prof.spans) : null,
+  );
   let withInk = 0,
     tails = 0;
   for (let i = 0; i < glyphs.length; i++) {
@@ -880,10 +904,10 @@ export function trimGlyphOverhangs(
   // pass 2: apply, re-measuring with the script rules when the face earned them
   let trimmed = 0;
   const out = glyphs.map((g, i) => {
-    const cols = profiles[i];
+    const prof = profiles[i];
     const span = ink[i];
-    if (!cols || !span) return g;
-    const body = script ? bodyBoundsFromColumns(cols, SCRIPT_TRIM) : conservative[i];
+    if (!prof || !span) return g;
+    const body = script ? bodyBoundsFromColumns(prof.cols, SCRIPT_TRIM, prof.spans) : conservative[i];
     const hasTail = !!body && !(body.min === span.first && body.max === span.last);
     if (!hasTail && !opts.padAll) return g;
     if (hasTail) trimmed++;
@@ -931,6 +955,7 @@ function rawWorkerBuild(payload: unknown, onProgress?: Progress): Promise<FontRe
 export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: Progress): Promise<FontResult> {
   const flags = spacingToBuildFlags(opts.spacingPct);
   let glyphsIn = glyphs;
+  let spaceAdvance: number | undefined;
   if (opts.trimFlourishes) {
     // body advances need cell-width mode: the trimmed cell IS the advance and
     // the tail rides outside it; tight advance would re-measure the full bbox
@@ -942,7 +967,11 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     const knob = !!opts.spacingPct && opts.spacingPct > 0;
     const pct = knob ? Math.min(Math.max(opts.spacingPct!, 1), 12) : 3.5;
     onProgress?.('trim', 'flourish overhang · body advances');
-    glyphsIn = trimGlyphOverhangs(glyphs, bodyPadPx(glyphs, pct), { padAll: knob }).glyphs;
+    const fit = trimGlyphOverhangs(glyphs, bodyPadPx(glyphs, pct), { padAll: knob });
+    glyphsIn = fit.glyphs;
+    // script overhangs sweep into the word space; widen it so word breaks
+    // survive (the engine default is 0.28em)
+    if (fit.script) spaceAdvance = 0.38;
   }
   const payload = {
     glyphs: glyphsIn.map((g) => ({
@@ -957,6 +986,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     style: opts.style ?? 'Regular',
     upm: opts.upm ?? 1000,
     ...flags,
+    spaceAdvance,
     formats: opts.formats ?? ['otf', 'ttf', 'woff2'],
     features: null,
     embedHints: false,

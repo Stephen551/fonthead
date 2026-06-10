@@ -312,10 +312,16 @@
     }
 
     const otGlyphs = [notdef];
+    /* spaceAdvance (additive, opt-in): the word space as a fraction of UPM.
+       Default 0.28 preserves legacy behavior; script faces whose swash tails
+       overhang into the space need a wider word space (~0.38) to keep word
+       breaks legible. */
+    const spaceAdvance = (typeof opts.spaceAdvance === 'number' && opts.spaceAdvance > 0)
+      ? opts.spaceAdvance : 0.28;
     otGlyphs.push(new opentype.Glyph({
       name: 'space',
       unicode: 0x20,
-      advanceWidth: Math.round(upm * 0.28),
+      advanceWidth: Math.round(upm * spaceAdvance),
       path: new opentype.Path(),
     }));
 

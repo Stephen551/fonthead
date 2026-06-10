@@ -112,6 +112,7 @@ async function generateFonts(payload) {
   const otfFont = buildFontForStyle(glyphs, {
     familyName: family, styleName: style, unitsPerEm: upm,
     useCellWidth, tightAdvance, sideBearingPct, outlinesFormat: 'cff', features, isItalic,
+    spaceAdvance: payload.spaceAdvance,
   });
 
   /* Phase 6 (v0.8.42): optical sidebearing optimization. When the

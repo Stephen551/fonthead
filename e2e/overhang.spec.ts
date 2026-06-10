@@ -79,7 +79,9 @@ test('flourish overhang fits a chancery sheet on body advances by default', asyn
 
   // swash-heavy letters tighten hard: the dead air leaves the advance
   expect(on.H.advance).toBeLessThan(off.H.advance * 0.8);
-  expect(on.m.advance).toBeLessThan(off.m.advance * 0.85);
+  // m's full-height entry/exit strokes are protected by the aperture gate,
+  // so it tightens less than the swash letters
+  expect(on.m.advance).toBeLessThan(off.m.advance * 0.92);
   expect(on.i.advance).toBeLessThan(off.i.advance * 0.85);
   // the trimmed tails really overhang (negative left bearing somewhere)
   expect(Math.min(on.H.lsb, on.m.lsb, on.i.lsb)).toBeLessThan(0);
@@ -87,4 +89,8 @@ test('flourish overhang fits a chancery sheet on body advances by default', asyn
   // grow, and never loses more than its edge slivers
   expect(on.o.advance).toBeLessThanOrEqual(off.o.advance);
   expect(on.o.advance).toBeGreaterThanOrEqual(Math.round(off.o.advance * 0.85));
+  // a script face gets the wider word space so swash overhangs cannot eat
+  // word breaks (0.38em vs the 0.28em default)
+  const onSpace = await probeOtf(page, test.info().outputPath('on.otf'), [' ']);
+  expect(onSpace[' '].advance).toBe(380);
 });
