@@ -8,6 +8,7 @@ import {
   makeSampleSheet,
   makeTemplateSheet,
   downloadCanvasPng,
+  classifyBuildError,
   canvasToImage,
   fileToImage,
   detectGeometry,
@@ -85,6 +86,15 @@ function ToggleRow({ label, on, onChange }: { label: string; on: boolean; onChan
   );
 }
 
+// Funnel instrument: anonymous day-bucketed counters (see trackFunnel).
+// Fire-and-forget; a lost count never costs the user anything.
+function track(
+  event: 'make_view' | 'sheet_drop' | 'sample_try' | 'grid_print' | 'build_ok' | 'build_fail' | 'download' | 'publish_ok',
+  meta?: string,
+) {
+  actions.trackFunnel({ event, meta }).catch(() => {});
+}
+
 export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [family, setFamily] = useState('Handmade');
@@ -155,6 +165,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   useEffect(() => {
     const sk = document.getElementById('maker-skeleton');
     if (sk) sk.hidden = true;
+    track('make_view');
   }, []);
 
   // Escape closes the per-glyph editor, mirroring the site's dialogs.
@@ -293,9 +304,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         setPreviewText(fam);
       }
       setPhase('done');
+      const fitScript = !isColor && !!(window as unknown as { __lastTrim?: { script?: boolean } }).__lastTrim?.script;
+      track('build_ok', `${kind}${fitScript ? '+script' : ''}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
       setPhase('error');
+      track('build_fail', classifyBuildError(msg));
     }
   }
 
@@ -323,6 +338,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         setPublishErr(error.message || 'publish failed');
       } else if (data) {
         setPublishedId(data.id);
+        track('publish_ok');
       }
     } catch (e) {
       setPublishErr(e instanceof Error ? e.message : 'publish failed');
@@ -468,6 +484,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   }
 
   const onSample = () => {
+    track('sample_try');
     setEditIdx(null);
     setCharsetText(SAMPLE_CHAR_LINES.join('\n')); // the sample is exactly these 3 rows
     run(async () => {
@@ -500,6 +517,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
+    track('sheet_drop');
     try {
       if (isColor) await waitForColorEngine();
       else await waitForEngine();
@@ -617,7 +635,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
-          <button className="fh-btn fh-btn--ghost" onClick={() => downloadCanvasPng(makeTemplateSheet(), 'fonthead-grid.png')}>
+          <button
+            className="fh-btn fh-btn--ghost"
+            onClick={() => {
+              track('grid_print');
+              downloadCanvasPng(makeTemplateSheet(), 'fonthead-grid.png');
+            }}
+          >
             print a blank grid
           </button>
           <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
@@ -1012,7 +1036,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                     <button
                       key={fmt}
                       className="fh-btn"
-                      onClick={() => downloadFont(result[fmt] as Uint8Array, family.trim() || 'Handmade', fmt)}
+                      onClick={() => {
+                        track('download', fmt);
+                        downloadFont(result[fmt] as Uint8Array, family.trim() || 'Handmade', fmt);
+                      }}
                     >
                       download {fmt}
                     </button>
