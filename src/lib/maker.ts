@@ -799,9 +799,17 @@ export function translatePathX(d: string, dx: number): string {
 }
 
 /** Rasterize a glyph's paths (one Path2D, evenodd so counters subtract) and
- *  measure each x column: filled pixel count plus the column's ink y-span as
- *  a fraction of the glyph's full ink height (the tail-vs-aperture signal). */
-function glyphColumnAreas(g: Glyph): { cols: number[]; spans: number[] } | null {
+ *  measure each x column (filled pixel count + the column's ink y-span as a
+ *  fraction of the glyph's full ink height — the tail-vs-aperture signal),
+ *  plus each pixel ROW's leftmost/rightmost ink x for the pairwise
+ *  fusion check. */
+function glyphColumnAreas(g: Glyph): {
+  cols: number[];
+  spans: number[];
+  rowLeft: number[];
+  rowRight: number[];
+  inkTopRow: number;
+} | null {
   const cw = Math.max(1, Math.ceil(g.cellW));
   const ch = Math.max(1, Math.ceil(g.cellH));
   const c = document.createElement('canvas');
@@ -819,6 +827,8 @@ function glyphColumnAreas(g: Glyph): { cols: number[]; spans: number[] } | null 
   const cols = new Array<number>(cw).fill(0);
   const minY = new Array<number>(cw).fill(Infinity);
   const maxY = new Array<number>(cw).fill(-1);
+  const rowLeft = new Array<number>(ch).fill(Infinity);
+  const rowRight = new Array<number>(ch).fill(-Infinity);
   let gMin = Infinity,
     gMax = -1;
   for (let p = 0; p < img.length; p += 4) {
@@ -828,13 +838,15 @@ function glyphColumnAreas(g: Glyph): { cols: number[]; spans: number[] } | null 
       cols[i]++;
       if (y < minY[i]) minY[i] = y;
       if (y > maxY[i]) maxY[i] = y;
+      if (i < rowLeft[y]) rowLeft[y] = i;
+      if (i > rowRight[y]) rowRight[y] = i;
       if (y < gMin) gMin = y;
       if (y > gMax) gMax = y;
     }
   }
   const inkH = Math.max(1, gMax - gMin + 1);
   const spans = cols.map((n, i) => (n > 0 ? (maxY[i] - minY[i] + 1) / inkH : 0));
-  return { cols, spans };
+  return { cols, spans, rowLeft, rowRight, inkTopRow: gMin === Infinity ? 0 : gMin };
 }
 
 /** The pad each glyph body gets per side, in cell pixels, sized so it lands
@@ -872,14 +884,31 @@ const SCRIPT_TRIM = { areaFrac: 1, maxTrimFrac: 0.45, thinFrac: 0.65 };
  *  both arms stack), and overhung it fuses with a following ascender —
  *  Chelsea read as a C-h ligature. Real fonts fit all three wide. */
 const NO_TRIM_RIGHT = new Set(['r', 'C', 'G']);
-/** A face is script when at least this share of its glyphs carry a tail
- *  under the conservative rules. */
+/** Misread-risk pairs verified AFTER trimming (the pairwise feedback pass):
+ *  deep interpenetration inside the x-height strip on any of these redraws
+ *  the pair, in any face. Mirrors the corpus lint's structural list. */
+const FUSION_CHECK_PAIRS: Array<[string, string]> = [
+  ['r', 'i'], ['r', 'n'], ['r', 'm'], ['r', 'u'], ['r', 'h'], ['r', 'l'], ['r', 'b'], ['r', 'k'],
+  ['C', 'h'], ['C', 'l'], ['C', 'k'], ['C', 'b'], ['C', 'd'], ['G', 'h'], ['G', 'l'], ['G', 'n'],
+  ['o', 'i'], ['o', 'l'], ['n', 'n'], ['l', 'l'], ['t', 't'], ['h', 'i'], ['m', 'i'], ['u', 'i'],
+  // f is a legitimate swash crosser, but a marker face's f-bar lands flush on
+  // the t-bar and welds; the body-strip scan tells the two apart (a chancery
+  // flag crosses above the strip and stays untouched)
+  ['f', 't'],
+];
+/** A face is script when at least this share of its glyphs carry a DEEP tail
+ *  under the conservative rules. Only tails at least SCRIPT_TAIL_DEPTH of the
+ *  glyph's ink width count: a chancery's sweeps run 10-40% deep, while rough
+ *  casual faces (markers, prints) carry many shallow edge-tails that must not
+ *  push them into the aggressive script fit (that is how Ink Free ended up
+ *  welding its t crossbars together). */
 const SCRIPT_TAIL_SHARE = 0.4;
+const SCRIPT_TAIL_DEPTH = 0.08;
 
 export function trimGlyphOverhangs(
   glyphs: Glyph[],
   padPx: number,
-  opts: { padAll?: boolean } = {},
+  opts: { padAll?: boolean; skipPairFeedback?: boolean } = {},
 ): { glyphs: Glyph[]; trimmed: number; script: boolean } {
   // pass 1: profiles + conservative bounds, and let the sheet declare itself
   const profiles = glyphs.map((g) => glyphColumnAreas(g));
@@ -899,24 +928,28 @@ export function trimGlyphOverhangs(
     prof && ink[i] ? bodyBoundsFromColumns(prof.cols, {}, prof.spans) : null,
   );
   let withInk = 0,
-    tails = 0;
+    deepTails = 0;
   for (let i = 0; i < glyphs.length; i++) {
     if (!ink[i]) continue;
     withInk++;
     const b = conservative[i];
-    if (b && (b.min > ink[i]!.first || b.max < ink[i]!.last)) tails++;
+    if (!b) continue;
+    const inkW = ink[i]!.last - ink[i]!.first + 1;
+    const trim = Math.max(b.min - ink[i]!.first, ink[i]!.last - b.max);
+    if (trim >= inkW * SCRIPT_TAIL_DEPTH) deepTails++;
   }
-  const script = withInk > 0 && tails / withInk >= SCRIPT_TAIL_SHARE;
+  const script = withInk > 0 && deepTails / withInk >= SCRIPT_TAIL_SHARE;
 
-  // pass 2: apply, re-measuring with the script rules when the face earned them
+  // pass 2: decide bounds, re-measuring with the script rules when the face
+  // earned them (applied after the pairwise feedback below)
   let trimmed = 0;
-  const out = glyphs.map((g, i) => {
+  const decisions = glyphs.map((g, i) => {
     const prof = profiles[i];
     const span = ink[i];
-    if (!prof || !span) return g;
+    if (!prof || !span) return null;
     const body = script ? bodyBoundsFromColumns(prof.cols, SCRIPT_TRIM, prof.spans) : conservative[i];
     const hasTail = !!body && !(body.min === span.first && body.max === span.last);
-    if (!hasTail && !opts.padAll) return g;
+    if (!hasTail && !opts.padAll) return null;
     if (hasTail) trimmed++;
     let min = hasTail ? body!.min : span.first;
     let max = hasTail ? body!.max : span.last;
@@ -925,11 +958,96 @@ export function trimGlyphOverhangs(
     // Real fonts always keep the arm inside r's advance, so its right side
     // never trims. (The same arm shape on t is a crossbar and overhangs fine.)
     if (NO_TRIM_RIGHT.has(g.char)) max = span.last;
-    const dx = padPx - min;
+    return { min, max };
+  });
+
+  // pass 3: pairwise feedback. No per-glyph rule can know where an overhang
+  // LANDS on each neighbor (Ink Free welds its t crossbars, chancery sweeps
+  // read beautifully — same geometry, different neighbors), so verify the
+  // trimmed result against the misread-risk pairs and back the trims off
+  // exactly where a pair interpenetrates the x-height body strip too deeply.
+  // Restores only ever grow advances, so a sequential sweep is stable.
+  if (!opts.skipPairFeedback) {
+    const byChar = new Map<string, number>();
+    glyphs.forEach((g, i) => {
+      if (decisions[i] || (profiles[i] && ink[i])) {
+        if (!byChar.has(g.char)) byChar.set(g.char, i);
+      }
+    });
+    let maxAsc = 1;
+    let xAsc = 0;
+    const xHeights: number[] = [];
+    glyphs.forEach((g, i) => {
+      const prof = profiles[i];
+      if (!prof || !ink[i]) return;
+      const asc = g.baselineYInCell - prof.inkTopRow;
+      if (asc > maxAsc) maxAsc = asc;
+      if (g.char === 'x') xAsc = asc;
+      if ('xvwzonu'.includes(g.char)) xHeights.push(asc);
+    });
+    xHeights.sort((a, b) => a - b);
+    const xh = xAsc || (xHeights.length ? xHeights[Math.floor(xHeights.length / 2)] : maxAsc * 0.5);
+    // restore with margin: the corpus lint gates at 55/1000 of UPM, and its
+    // band quantization differs slightly from this raster, so target ~18
+    const maxPenPx = Math.max(3, Math.round((0.018 * maxAsc) / 0.8));
+
+    // a re-anchored glyph's geometry shifts to pad-relative coordinates; an
+    // untrimmed glyph keeps its original cell (and cell-width advance)
+    const geom = (i: number) => {
+      const d = decisions[i];
+      if (d) return { adv: d.max - d.min + 1 + padPx * 2, off: padPx - d.min };
+      return { adv: Math.max(1, Math.ceil(glyphs[i].cellW)), off: 0 };
+    };
+    for (const [lc, rc] of FUSION_CHECK_PAIRS) {
+      const li = byChar.get(lc);
+      const ri = byChar.get(rc);
+      if (li === undefined || ri === undefined) continue;
+      const Lp = profiles[li];
+      const Rp = profiles[ri];
+      if (!Lp || !Rp || !ink[li] || !ink[ri]) continue;
+      const gL = glyphs[li];
+      const gR = glyphs[ri];
+      const GL = geom(li);
+      const GR = geom(ri);
+      let minGap = Infinity;
+      for (let s = 0; s <= 32; s++) {
+        const y = xh * 0.15 + ((xh * 0.95) * s) / 32; // the body strip
+        const rowL = Math.round(gL.baselineYInCell - y);
+        const rowR = Math.round(gR.baselineYInCell - y);
+        if (rowL < 0 || rowL >= Lp.rowRight.length || rowR < 0 || rowR >= Rp.rowLeft.length) continue;
+        if (!isFinite(Lp.rowRight[rowL]) || !isFinite(Rp.rowLeft[rowR])) continue;
+        const rightL = Lp.rowRight[rowL] + GL.off;
+        const leftR = Rp.rowLeft[rowR] + GR.off;
+        const gap = GL.adv + leftR - rightL;
+        if (gap < minGap) minGap = gap;
+      }
+      if (!isFinite(minGap) || minGap >= -maxPenPx) continue;
+      let deficit = -minGap - maxPenPx;
+      // restore the left glyph's right side first (the usual offender), then
+      // the right glyph's left side
+      if (decisions[li]) {
+        const room = ink[li]!.last - decisions[li]!.max;
+        const restore = Math.min(deficit, Math.max(0, room));
+        decisions[li]!.max += restore;
+        deficit -= restore;
+      }
+      if (deficit > 0 && decisions[ri]) {
+        const room = decisions[ri]!.min - ink[ri]!.first;
+        const restore = Math.min(deficit, Math.max(0, room));
+        decisions[ri]!.min -= restore;
+      }
+    }
+  }
+
+  // pass 4: apply
+  const out = glyphs.map((g, i) => {
+    const d = decisions[i];
+    if (!d) return g;
+    const dx = padPx - d.min;
     return {
       ...g,
-      paths: g.paths.map((d) => translatePathX(d, dx)),
-      cellW: max - min + 1 + padPx * 2,
+      paths: g.paths.map((p) => translatePathX(p, dx)),
+      cellW: d.max - d.min + 1 + padPx * 2,
     };
   });
   return { glyphs: out, trimmed, script };
@@ -984,6 +1102,8 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // script overhangs sweep into the word space; widen it so word breaks
     // survive (the engine default is 0.28em)
     if (fit.script) spaceAdvance = 0.38;
+    // diagnostics hook (harmless), mirrors __lastBuild
+    (globalThis as unknown as { __lastTrim?: object }).__lastTrim = { script: fit.script, trimmed: fit.trimmed };
   }
   const payload = {
     glyphs: glyphsIn.map((g) => ({
