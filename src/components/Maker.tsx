@@ -120,6 +120,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // letter spacing: 0 = auto (the sheet's own pitch for mono, the engine
   // default for color); 1-12 = percent of UPM as the side bearing per side
   const [spacing, setSpacing] = useState(0);
+  // flourish overhang: advances from the dense letter body, thin tails
+  // overhang the neighbor (negative bearings). Mono only.
+  const [trimFlourishes, setTrimFlourishes] = useState(false);
   // synthetic italic: the engine shears -14° and writes the italic metadata when
   // the build style says "Italic". Mono only for now (the color path is separate).
   const [italic, setItalic] = useState(false);
@@ -261,7 +264,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         setMonoRows(trace.rows);
         res = await buildFont(
           trace.glyphs,
-          { family: fam, style: italic ? 'Italic' : 'Regular', formats: ['otf', 'ttf', 'woff2'], spacingPct: spacing },
+          { family: fam, style: italic ? 'Italic' : 'Regular', formats: ['otf', 'ttf', 'woff2'], spacingPct: spacing, trimFlourishes },
           (step, message) => setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
       }
@@ -439,7 +442,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setRowBusy(rowIndex);
     setRowErr('');
     try {
-      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing);
+      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, trimFlourishes);
       setResult(r.result);
       setReport(r.report);
       setGlyphCount(r.glyphCount);
@@ -726,6 +729,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                   resample each letter at higher resolution before tracing, so serifs and sharp corners survive. Slower.
                 </p>
+                {!isColor && (
+                  <div style={{ marginTop: 11 }}>
+                    <ToggleRow label="flourish overhang" on={trimFlourishes} onChange={setTrimFlourishes} />
+                    <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
+                      spaces each letter by its body and lets thin tails overlap the next letter, like a real italic. For script faces with long swashes.
+                    </p>
+                  </div>
+                )}
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
                     <ToggleRow label="italic" on={italic} onChange={setItalic} />

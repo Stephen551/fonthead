@@ -641,6 +641,7 @@ export async function editMonoRow(
   family: string,
   opts: TraceOpts,
   spacingPct?: number,
+  trimFlourishes?: boolean,
   onProgress?: Progress,
 ): Promise<{ result: FontResult; glyphCount: number; report: GlyphReport[]; rows: MonoRowInfo[] }> {
   const s = _monoSession;
@@ -658,7 +659,11 @@ export async function editMonoRow(
     s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: chars.length, glyphCount: r.glyphs.length };
     const glyphs = s.rowGlyphs.flat();
     if (!glyphs.length) throw new Error('no glyphs left after re-slicing this row');
-    const result = await buildFont(glyphs, { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'], spacingPct }, onProgress);
+    const result = await buildFont(
+      glyphs,
+      { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes },
+      onProgress,
+    );
     return { result, glyphCount: glyphs.length, report: reportForGlyphs(glyphs), rows: s.rowInfo.slice() };
   } catch (e) {
     s.rowGlyphs[rowIndex] = prevGlyphs;
@@ -710,6 +715,150 @@ export interface BuildOpts {
    *  that percent of UPM as the side bearing, which evens out a loosely or
    *  unevenly drawn sheet. */
   spacingPct?: number;
+  /** Measure each glyph's advance from its dense ink body and let thin
+   *  flourish tails overhang the neighboring letters (negative side
+   *  bearings), the way a real italic is fit. For script faces whose swashes
+   *  otherwise ride inside the advance as dead air. */
+  trimFlourishes?: boolean;
+}
+
+// ---- flourish trim: body advances with overhang -----------------------------
+
+/** Pure: find the dense body of an ink column-area histogram. Only columns
+ *  THIN relative to the letter's peak density (< thinFrac * peak) are ever
+ *  trimmable, so a stem, bar, or thick serif always stops the walk; the area
+ *  budget (areaFrac of total) and maxTrimFrac then bound how much tail can
+ *  go, and a side only trims at all when the tail covers a real extent
+ *  (>= minExtentFrac of the ink span). */
+export function bodyBoundsFromColumns(
+  cols: number[],
+  opts: { areaFrac?: number; minExtentFrac?: number; maxTrimFrac?: number; thinFrac?: number } = {},
+): { min: number; max: number } | null {
+  const areaFrac = opts.areaFrac ?? 0.08;
+  const minExtentFrac = opts.minExtentFrac ?? 0.04;
+  const maxTrimFrac = opts.maxTrimFrac ?? 0.3;
+  const thinFrac = opts.thinFrac ?? 0.5;
+  let first = -1,
+    last = -1,
+    total = 0,
+    peak = 0;
+  for (let i = 0; i < cols.length; i++) {
+    if (cols[i] > 0) {
+      if (first < 0) first = i;
+      last = i;
+      total += cols[i];
+      if (cols[i] > peak) peak = cols[i];
+    }
+  }
+  if (first < 0 || total <= 0) return null;
+  const inkW = last - first + 1;
+  const thin = peak * thinFrac;
+  const budget = total * areaFrac;
+  const maxTrim = Math.floor(inkW * maxTrimFrac);
+  const minExtent = Math.max(2, Math.round(inkW * minExtentFrac));
+
+  let lo = first;
+  let spent = 0;
+  while (lo < last && cols[lo] < thin && spent + cols[lo] <= budget && lo - first < maxTrim) {
+    spent += cols[lo];
+    lo++;
+  }
+  if (lo - first < minExtent) lo = first;
+
+  let hi = last;
+  spent = 0;
+  while (hi > lo && cols[hi] < thin && spent + cols[hi] <= budget && last - hi < maxTrim) {
+    spent += cols[hi];
+    hi--;
+  }
+  if (last - hi < minExtent) hi = last;
+
+  return { min: lo, max: hi };
+}
+
+/** Translate a Potrace path d-string (absolute M/L/C/Q commands) along x. */
+export function translatePathX(d: string, dx: number): string {
+  if (!dx) return d;
+  let xNext = true;
+  return d.replace(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?|[A-Za-z]/g, (tok) => {
+    if (/[A-Za-z]/.test(tok)) {
+      xNext = true; // every supported command starts its args on an x
+      return tok;
+    }
+    const isX = xNext;
+    xNext = !xNext;
+    return isX ? String(Math.round((parseFloat(tok) + dx) * 1000) / 1000) : tok;
+  });
+}
+
+/** Rasterize a glyph's paths (one Path2D, evenodd so counters subtract) and
+ *  count filled pixels per x column. */
+function glyphColumnAreas(g: Glyph): number[] | null {
+  const cw = Math.max(1, Math.ceil(g.cellW));
+  const ch = Math.max(1, Math.ceil(g.cellH));
+  const c = document.createElement('canvas');
+  c.width = cw;
+  c.height = ch;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#000';
+  try {
+    ctx.fill(new Path2D(g.paths.join(' ')), 'evenodd');
+  } catch {
+    return null;
+  }
+  const img = ctx.getImageData(0, 0, cw, ch).data;
+  const cols = new Array<number>(cw).fill(0);
+  for (let p = 0; p < img.length; p += 4) {
+    if (img[p + 3] > 127) cols[(p >> 2) % cw]++;
+  }
+  return cols;
+}
+
+/** The pad each glyph body gets per side, in cell pixels, sized so it lands
+ *  as ~pct% of UPM after the engine's scale (scale = 0.8 * upm / maxAscPx). */
+function bodyPadPx(glyphs: Glyph[], pct: number): number {
+  const estimateBBox = w().estimateBBox;
+  let maxAsc = 1;
+  for (const g of glyphs) {
+    for (const d of g.paths) {
+      const bb = estimateBBox(d);
+      if (bb) maxAsc = Math.max(maxAsc, g.baselineYInCell - bb.minY);
+    }
+  }
+  return Math.max(1, Math.round((pct / 100) * (maxAsc / 0.8)));
+}
+
+/** Re-fit every glyph on its dense ink body: the advance becomes
+ *  body + 2*pad, the body is translated to start at pad, and any trimmed
+ *  tail keeps its shape but overhangs the advance (negative left bearing or
+ *  ink past the advance). Glyphs with no real tail pass through untouched, so
+ *  an upright face is a no-op. Used with cell-width advance (shiftX = 0). */
+export function trimGlyphOverhangs(glyphs: Glyph[], padPx: number): { glyphs: Glyph[]; trimmed: number } {
+  let trimmed = 0;
+  const out = glyphs.map((g) => {
+    const cols = glyphColumnAreas(g);
+    if (!cols) return g;
+    let first = -1,
+      last = -1;
+    for (let i = 0; i < cols.length; i++) {
+      if (cols[i] > 0) {
+        if (first < 0) first = i;
+        last = i;
+      }
+    }
+    if (first < 0) return g;
+    const body = bodyBoundsFromColumns(cols);
+    if (!body || (body.min === first && body.max === last)) return g;
+    trimmed++;
+    const dx = padPx - body.min;
+    return {
+      ...g,
+      paths: g.paths.map((d) => translatePathX(d, dx)),
+      cellW: body.max - body.min + 1 + padPx * 2,
+    };
+  });
+  return { glyphs: out, trimmed };
 }
 
 /** Map the spacing knob to the engine's advance flags. The engine only reads
@@ -742,8 +891,20 @@ function rawWorkerBuild(payload: unknown, onProgress?: Progress): Promise<FontRe
  *  checksums (the worker's woff2 wrapped the uncorrected otf, so re-wrap from
  *  the fixed otf) and validate. Throws if the font fails validation. */
 export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: Progress): Promise<FontResult> {
+  const flags = spacingToBuildFlags(opts.spacingPct);
+  let glyphsIn = glyphs;
+  if (opts.trimFlourishes) {
+    // body advances need cell-width mode: the trimmed cell IS the advance and
+    // the tail rides outside it; tight advance would re-measure the full bbox
+    // and put the tail back into the advance.
+    flags.useCellWidth = true;
+    flags.tightAdvance = false;
+    const pct = opts.spacingPct && opts.spacingPct > 0 ? Math.min(Math.max(opts.spacingPct, 1), 12) : 3.5;
+    onProgress?.('trim', 'flourish overhang · body advances');
+    glyphsIn = trimGlyphOverhangs(glyphs, bodyPadPx(glyphs, pct)).glyphs;
+  }
   const payload = {
-    glyphs: glyphs.map((g) => ({
+    glyphs: glyphsIn.map((g) => ({
       char: g.char,
       italic: !!g.italic,
       paths: g.paths,
@@ -754,7 +915,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     family: opts.family,
     style: opts.style ?? 'Regular',
     upm: opts.upm ?? 1000,
-    ...spacingToBuildFlags(opts.spacingPct),
+    ...flags,
     formats: opts.formats ?? ['otf', 'ttf', 'woff2'],
     features: null,
     embedHints: false,
