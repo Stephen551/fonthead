@@ -829,12 +829,20 @@ function bodyPadPx(glyphs: Glyph[], pct: number): number {
   return Math.max(1, Math.round((pct / 100) * (maxAsc / 0.8)));
 }
 
-/** Re-fit every glyph on its dense ink body: the advance becomes
- *  body + 2*pad, the body is translated to start at pad, and any trimmed
- *  tail keeps its shape but overhangs the advance (negative left bearing or
- *  ink past the advance). Glyphs with no real tail pass through untouched, so
- *  an upright face is a no-op. Used with cell-width advance (shiftX = 0). */
-export function trimGlyphOverhangs(glyphs: Glyph[], padPx: number): { glyphs: Glyph[]; trimmed: number } {
+/** Re-fit glyphs on their dense ink body: the advance becomes body + 2*pad,
+ *  the body is translated to start at pad, and any trimmed tail keeps its
+ *  shape but overhangs the advance (negative left bearing or ink past the
+ *  advance). Used with cell-width advance (shiftX = 0).
+ *
+ *  padAll=false (spacing auto): glyphs with no real tail pass through
+ *  untouched, keeping the sheet's drawn pitch — an upright face is a no-op.
+ *  padAll=true (the spacing knob is set): EVERY glyph re-anchors on its body
+ *  with the knob as the pad, which is tight-advance rhythm with overhang. */
+export function trimGlyphOverhangs(
+  glyphs: Glyph[],
+  padPx: number,
+  opts: { padAll?: boolean } = {},
+): { glyphs: Glyph[]; trimmed: number } {
   let trimmed = 0;
   const out = glyphs.map((g) => {
     const cols = glyphColumnAreas(g);
@@ -849,13 +857,16 @@ export function trimGlyphOverhangs(glyphs: Glyph[], padPx: number): { glyphs: Gl
     }
     if (first < 0) return g;
     const body = bodyBoundsFromColumns(cols);
-    if (!body || (body.min === first && body.max === last)) return g;
-    trimmed++;
-    const dx = padPx - body.min;
+    const hasTail = !!body && !(body.min === first && body.max === last);
+    if (!hasTail && !opts.padAll) return g;
+    if (hasTail) trimmed++;
+    const min = hasTail ? body.min : first;
+    const max = hasTail ? body.max : last;
+    const dx = padPx - min;
     return {
       ...g,
       paths: g.paths.map((d) => translatePathX(d, dx)),
-      cellW: body.max - body.min + 1 + padPx * 2,
+      cellW: max - min + 1 + padPx * 2,
     };
   });
   return { glyphs: out, trimmed };
@@ -896,12 +907,15 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   if (opts.trimFlourishes) {
     // body advances need cell-width mode: the trimmed cell IS the advance and
     // the tail rides outside it; tight advance would re-measure the full bbox
-    // and put the tail back into the advance.
+    // and put the tail back into the advance. When the spacing knob is set it
+    // becomes the pad and every glyph re-anchors (tight rhythm + overhang);
+    // at auto only tailed glyphs re-fit, so the sheet's pitch survives.
     flags.useCellWidth = true;
     flags.tightAdvance = false;
-    const pct = opts.spacingPct && opts.spacingPct > 0 ? Math.min(Math.max(opts.spacingPct, 1), 12) : 3.5;
+    const knob = !!opts.spacingPct && opts.spacingPct > 0;
+    const pct = knob ? Math.min(Math.max(opts.spacingPct!, 1), 12) : 3.5;
     onProgress?.('trim', 'flourish overhang · body advances');
-    glyphsIn = trimGlyphOverhangs(glyphs, bodyPadPx(glyphs, pct)).glyphs;
+    glyphsIn = trimGlyphOverhangs(glyphs, bodyPadPx(glyphs, pct), { padAll: knob }).glyphs;
   }
   const payload = {
     glyphs: glyphsIn.map((g) => ({

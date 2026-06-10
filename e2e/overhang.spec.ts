@@ -48,20 +48,20 @@ async function downloadOtf(page: Page, to: string): Promise<string> {
   return p;
 }
 
-test('flourish overhang fits a chancery sheet on body advances', async ({ page }) => {
+test('flourish overhang fits a chancery sheet on body advances by default', async ({ page }) => {
   test.setTimeout(180_000);
   await page.goto('/make');
 
-  // build with the toggle off: the historical bbox advances
+  // the default build carries the overhang fit
   await page.locator('input[type="file"]').setInputFiles('e2e/fixtures/chancery-sheet.png');
   await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 120_000 });
   await expect(page.getByText('7 rows · 13 cells in row 1')).toBeVisible();
   const probes = ['H', 'm', 'i', 'o'];
-  const off = await probeOtf(page, await downloadOtf(page, 'off.otf'), probes);
+  const on = await probeOtf(page, await downloadOtf(page, 'on.otf'), probes);
 
-  // toggle on, rebuild
+  // switch it off, rebuild: the historical bbox advances
   await page.getByRole('button', { name: /advanced/ }).click();
-  await page.getByRole('button', { name: 'flourish overhang', exact: true }).click();
+  await page.getByRole('button', { name: /flourish overhang/ }).click();
   await page.evaluate(() => {
     (window as unknown as { __b0?: unknown; __lastBuild?: unknown }).__b0 = (window as unknown as { __lastBuild?: unknown }).__lastBuild;
   });
@@ -75,7 +75,7 @@ test('flourish overhang fits a chancery sheet on body advances', async ({ page }
     { timeout: 120_000 },
   );
   await expect(page.getByRole('button', { name: 'download otf' })).toBeEnabled({ timeout: 15_000 });
-  const on = await probeOtf(page, await downloadOtf(page, 'on.otf'), probes);
+  const off = await probeOtf(page, await downloadOtf(page, 'off.otf'), probes);
 
   // swash-heavy letters tighten hard: the dead air leaves the advance
   expect(on.H.advance).toBeLessThan(off.H.advance * 0.8);

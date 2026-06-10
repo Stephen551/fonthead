@@ -121,8 +121,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // default for color); 1-12 = percent of UPM as the side bearing per side
   const [spacing, setSpacing] = useState(0);
   // flourish overhang: advances from the dense letter body, thin tails
-  // overhang the neighbor (negative bearings). Mono only.
-  const [trimFlourishes, setTrimFlourishes] = useState(false);
+  // overhang the neighbor (negative bearings). Mono only. Default ON: it is a
+  // no-op for letters without thin tails, and the people who need it (script
+  // sheets) never find an advanced toggle; the toggle is the off switch.
+  const [trimFlourishes, setTrimFlourishes] = useState(true);
   // synthetic italic: the engine shears -14° and writes the italic metadata when
   // the build style says "Italic". Mono only for now (the color path is separate).
   const [italic, setItalic] = useState(false);
