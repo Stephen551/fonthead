@@ -988,6 +988,11 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     ...flags,
     spaceAdvance,
     formats: opts.formats ?? ['otf', 'ttf', 'woff2'],
+    // No kerning yet, deliberately: the engine's silhouette auto-kern analyzer
+    // works, but its only writer is the legacy `kern` table, which Chrome and
+    // Firefox ignore (Safari-only rendering shipped broken once on the studio
+    // fonts, see font-engine-features.js). Kerning lands when the GPOS
+    // PairPos writer exists; the analyzer is ready and waiting for it.
     features: null,
     embedHints: false,
     embedTTHints: false,
