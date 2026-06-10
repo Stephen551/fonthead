@@ -39,6 +39,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
   const entries: Entry[] = [
     { loc: `${origin}/`, lastmod: newest },
     { loc: `${origin}/make`, lastmod: null },
+    { loc: `${origin}/handwriting`, lastmod: null },
     { loc: `${origin}/faq`, lastmod: null },
     { loc: `${origin}/licenses`, lastmod: null },
     { loc: `${origin}/terms`, lastmod: null },

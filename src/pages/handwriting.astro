@@ -1,0 +1,124 @@
+---
+import Base from '../layouts/Base.astro';
+
+export const prerender = false;
+
+// The handwriting landing page: the one search intent fonthead wins outright.
+// Other services charge for this behind an account; here it runs free, in the
+// browser, and the handwriting never leaves the device. The steps render both
+// as visible text and inside the HowTo JSON-LD, from the same source.
+const steps = [
+  {
+    name: 'Print the grid',
+    text: 'Download the blank alphabet grid and print it. The gray guides disappear when your sheet is traced, so only your pen marks count.',
+  },
+  {
+    name: 'Write your alphabet',
+    text: 'Fill each box with a dark pen: capitals, lowercase, digits, and punctuation. Keep each character inside its box.',
+  },
+  {
+    name: 'Photograph it flat',
+    text: 'Snap the sheet with your phone, flat and in good light, or scan it. On your phone, the maker opens your camera directly.',
+  },
+  {
+    name: 'Drop it in the maker',
+    text: 'The maker traces every letter in your browser and assembles a real font: OTF, TTF, and WOFF2, ready to install or publish.',
+  },
+];
+
+const faqs = [
+  {
+    q: 'Does my handwriting get uploaded anywhere?',
+    a: 'No. Tracing and font assembly run entirely in your browser. Your sheet and your font stay on your device unless you choose to publish.',
+  },
+  {
+    q: 'Is it really free?',
+    a: 'Yes. Making and downloading your handwriting font is free, with no account. An account is only needed to publish it to the public wall.',
+  },
+  {
+    q: 'Can I do this from my phone?',
+    a: 'Yes. Print the grid from any device, write your alphabet, then open the maker on your phone and photograph the sheet with the camera button.',
+  },
+  {
+    q: 'Who owns the font?',
+    a: 'You do. It is your handwriting. If you publish it, you pick the license others get.',
+  },
+];
+
+const howToSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'HowTo',
+  name: 'Turn your handwriting into a font',
+  description:
+    'Print a grid, write your alphabet, photograph it, and build an installable font in your browser for free.',
+  step: steps.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, name: s.name, text: s.text })),
+};
+const faqSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: faqs.map((f) => ({
+    '@type': 'Question',
+    name: f.q,
+    acceptedAnswer: { '@type': 'Answer', text: f.a },
+  })),
+};
+---
+
+<Base
+  title="Turn your handwriting into a font, free, in your browser · fonthead.dev"
+  description="Print a grid, write your alphabet, photograph it, and get an installable font (OTF, TTF, WOFF2). Free, no account, and your handwriting never leaves your browser."
+  schema={[howToSchema, faqSchema]}
+  active="make"
+>
+  <div style="background:var(--paper);min-height:100vh;">
+    <header class="fh-pad" style="padding:56px 0 34px;border-bottom:1px solid var(--line);">
+      <p class="fh-eyebrow">fonthead.dev · handwriting</p>
+      <h1 class="fh-mono" style="font-size:clamp(28px,5vw,42px);font-weight:700;letter-spacing:-.01em;margin:12px 0 10px;max-width:18ch;line-height:1.15;">
+        Turn your handwriting into a font
+      </h1>
+      <p style="font-size:15.5px;color:var(--ink-soft);line-height:1.55;margin:0 0 22px;max-width:54ch;">
+        Write your alphabet on one sheet of paper and get a real, installable font.
+        Free, no account, and it all happens in your browser: your handwriting never
+        leaves your device.
+      </p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <a href="/grid.png" download="fonthead-grid.png" class="fh-btn">download the grid</a>
+        <a href="/make" data-astro-reload class="fh-btn fh-btn--ghost">open the maker&nbsp;&nbsp;&rarr;</a>
+      </div>
+    </header>
+
+    <div class="fh-pad" style="max-width:760px;padding:8px 0 10px;">
+      {steps.map((s, i) => (
+        <section style="padding:26px 0;border-bottom:1px solid var(--line);display:flex;gap:18px;">
+          <div class="fh-mono" style="font-size:13px;color:var(--ink-faint);min-width:34px;padding-top:2px;">0{i + 1}</div>
+          <div>
+            <h2 style="font-size:16px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px;">{s.name}</h2>
+            <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;margin:0;max-width:60ch;">{s.text}</p>
+          </div>
+        </section>
+      ))}
+    </div>
+
+    <div class="fh-pad" style="max-width:760px;padding:18px 0 28px;">
+      <div class="fh-eyebrow" style="margin-bottom:6px;">questions</div>
+      {faqs.map((f) => (
+        <section style="padding:22px 0;border-bottom:1px solid var(--line);">
+          <h2 style="font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0 0 7px;">{f.q}</h2>
+          <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;margin:0;max-width:62ch;">{f.a}</p>
+        </section>
+      ))}
+      <div style="padding:30px 0 16px;">
+        <a href="/make" data-astro-reload class="fh-btn">make your handwriting font&nbsp;&nbsp;&rarr;</a>
+      </div>
+    </div>
+
+    <footer class="fh-pad" style="padding:26px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);display:flex;gap:14px;flex-wrap:wrap;">
+        <a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a>
+        <a href="/faq" style="color:inherit;">faq</a>
+        <a href="/licenses" style="color:inherit;">licenses</a>
+        <a href="/support" style="color:inherit;">support</a>
+      </div>
+    </footer>
+  </div>
+</Base>
