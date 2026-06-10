@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+﻿import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 // Skip the maker onboarding modal so it does not block the flow.
@@ -82,7 +82,7 @@ test('an upright build carries GPOS kerning the browser applies', async ({ page 
 test('a script face with swash overhangs does not get double-kerned', async ({ page }) => {
   test.setTimeout(150_000);
   await page.goto('/make');
-  await page.locator('input[type="file"]').setInputFiles('e2e/fixtures/chancery-sheet.png');
+  await page.locator('#sheet-file').setInputFiles('e2e/fixtures/chancery-sheet.png');
   await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 120_000 });
   const otf = await downloadFmt(page, 'otf', 'chancery.otf');
 

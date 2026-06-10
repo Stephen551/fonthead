@@ -367,6 +367,9 @@ body {
 /* the maker's glyph inspection grid: comfortable desktop density, bigger
    touch targets on a phone */
 .fh-glyph-grid { grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); }
+/* the camera path only makes sense where a camera is: coarse pointers */
+.fh-camera { display: none; }
+@media (pointer: coarse) { .fh-camera { display: inline-flex; } }
 /* the build readout's stage rows budget desktop-fixed columns; on a phone that
    ellipsis-clips the descriptions. Let them wrap and drop the trailing tick so
    the "honest readout" stays fully legible. */

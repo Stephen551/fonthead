@@ -515,9 +515,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     }
   }
 
-  const onFile = async (file: File | undefined) => {
+  const onFile = async (file: File | undefined, source: 'file' | 'camera' = 'file') => {
     if (!file) return;
-    track('sheet_drop');
+    track('sheet_drop', source);
     try {
       if (isColor) await waitForColorEngine();
       else await waitForEngine();
@@ -611,18 +611,30 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 6 }}>
             png or jpg · rows of A–Z, a–z, 0–9
           </div>
-          <label
-            className="fh-btn fh-btn--ghost"
-            style={{ marginTop: 16, cursor: 'pointer', display: 'inline-flex' }}
-          >
-            choose a file
-            <input
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={(e) => onFile(e.target.files?.[0] ?? undefined)}
-            />
-          </label>
+          <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <label className="fh-btn fh-btn--ghost" style={{ cursor: 'pointer', display: 'inline-flex' }}>
+              choose a file
+              <input
+                id="sheet-file"
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={(e) => onFile(e.target.files?.[0] ?? undefined)}
+              />
+            </label>
+            {/* phones get a straight-to-camera path: photograph the sheet flat
+                and the tracer takes it from there (shown on coarse pointers) */}
+            <label className="fh-btn fh-camera" style={{ cursor: 'pointer' }}>
+              take a photo
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: 'none' }}
+                onChange={(e) => onFile(e.target.files?.[0] ?? undefined, 'camera')}
+              />
+            </label>
+          </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>

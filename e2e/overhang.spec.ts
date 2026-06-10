@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+﻿import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 // Skip the maker onboarding modal so it does not block the flow.
@@ -54,7 +54,7 @@ test('flourish overhang fits a chancery sheet on body advances by default', asyn
   await page.goto('/make');
 
   // the default build carries the overhang fit
-  await page.locator('input[type="file"]').setInputFiles('e2e/fixtures/chancery-sheet.png');
+  await page.locator('#sheet-file').setInputFiles('e2e/fixtures/chancery-sheet.png');
   await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 120_000 });
   await expect(page.getByText('7 rows · 13 cells in row 1')).toBeVisible();
   const probes = ['H', 'm', 'i', 'o', 'r', 'C', 'G'];

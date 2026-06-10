@@ -1,20 +1,20 @@
-import { test, expect, type Page } from '@playwright/test';
+﻿import { test, expect, type Page } from '@playwright/test';
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 // The typographic lint. Every fixture sheet builds through the real maker,
 // and the resulting font is measured for the failure classes found in the
 // field (each metric maps to a shipped-and-fixed bug):
-//   fusion    — adjacent glyph ink interpenetrating so deep the pair redraws
+//   fusion    : adjacent glyph ink interpenetrating so deep the pair redraws
 //               (r+i read as n, Chelsea read as a C-h ligature)
-//   rhythm    — wildly uneven pair gaps ("H and mad e S pacin g")
-//   wordSpace — swash overhangs swallowing the word break ("pipperhuddle")
+//   rhythm    : wildly uneven pair gaps ("H and mad e S pacin g")
+//   wordSpace : swash overhangs swallowing the word break ("pipperhuddle")
 // Thresholds were calibrated against the broken historical builds: the
 // pre-fix chancery measured fusion 89 / rhythm SD 156; the fixed corpus
 // stays under half of each gate.
 //
 // One contact-sheet PNG lands in test-results/corpus-contact.png for the
-// thirty-second human pass — metrics catch the known classes, eyes the new.
+// thirty-second human pass: metrics catch the known classes, eyes the new.
 
 const ROOT = process.cwd();
 const CORPUS_DIR = join(ROOT, 'e2e', 'fixtures', 'corpus');
@@ -186,7 +186,7 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
       // The body strip: where letter identity is read. Calibration on the
       // chancery showed benign script crossings are DEEPER than real fusions
       // (V+A baseline tails at -170 vs the r+i arm fusion at -117), so depth
-      // alone cannot discriminate — zone does. Tails cross at the baseline
+      // alone cannot discriminate; zone does. Tails cross at the baseline
       // and in the ascender/descender zones; fusions that redraw a pair (the
       // r arm into a stem) happen inside the x-height strip.
       const xProf = profile('x');
@@ -275,7 +275,7 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
 for (const sheet of sheets) {
   test(`corpus: ${sheet.name}`, async ({ page }) => {
     await page.goto('/make');
-    await page.locator('input[type="file"]').setInputFiles(sheet.path);
+    await page.locator('#sheet-file').setInputFiles(sheet.path);
     await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 150_000 });
 
     const [download] = await Promise.all([

@@ -138,7 +138,7 @@ test.describe('tracing stress matrix', () => {
       await page.goto('/make');
       // wait for the maker island to hydrate its file input before feeding it,
       // else the evaluate sets .files on null (a hydration race, not a build bug)
-      await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
+      await page.locator('#sheet-file').waitFor({ state: 'attached', timeout: 30_000 });
       const r = await buildSheet(page, cond.rows, cond.opts);
       const cov = r.expected ? Math.round((r.built / r.expected) * 100) : 0;
       // eslint-disable-next-line no-console

@@ -79,7 +79,7 @@ test('selecting a generate preset arms its charset for the tracer', async ({ pag
 
 test('a generated sheet traces against the armed preset charset', async ({ page }) => {
   await page.goto('/make');
-  await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.locator('#sheet-file').waitFor({ state: 'attached', timeout: 30_000 });
   // arm the flat preset charset, exactly as the generate block does on copy/select
   await page.evaluate((cs) => localStorage.setItem('fh-gen-charset', JSON.stringify(cs)), FLAT6);
 
@@ -91,7 +91,7 @@ test('a generated sheet traces against the armed preset charset', async ({ page 
 
 test('a color sheet detects all its rows (yellow letters no longer vanish)', async ({ page }) => {
   await page.goto('/make');
-  await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.locator('#sheet-file').waitFor({ state: 'attached', timeout: 30_000 });
   // build as a flat-color font, so the maker treats the drop as a color sheet
   await page.getByRole('button', { name: 'color · flat', exact: true }).click();
 
@@ -109,7 +109,7 @@ test('a color sheet detects all its rows (yellow letters no longer vanish)', asy
 
 test('a color sheet uses its armed preset charset even when the probe disagrees', async ({ page }) => {
   await page.goto('/make');
-  await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.locator('#sheet-file').waitFor({ state: 'attached', timeout: 30_000 });
   await page.getByRole('button', { name: 'color · flat', exact: true }).click();
   // arm the flat 6-row preset charset, as the generate block does
   const FLAT6 = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789', '.,!?:;\'"-&@#'];
@@ -123,7 +123,7 @@ test('a color sheet uses its armed preset charset even when the probe disagrees'
 
 test('a row-count mismatch falls back to the geometry guess', async ({ page }) => {
   await page.goto('/make');
-  await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.locator('#sheet-file').waitFor({ state: 'attached', timeout: 30_000 });
   await page.evaluate((cs) => localStorage.setItem('fh-gen-charset', JSON.stringify(cs)), FLAT6);
 
   // a 4-row letters sheet: 4 rows != the armed 6, so the armed charset is ignored
@@ -136,7 +136,7 @@ test('a row-count mismatch falls back to the geometry guess', async ({ page }) =
 
 test('a shadow-bridged color sheet guesses every row with no charset armed', async ({ page }) => {
   await page.goto('/make');
-  await page.locator('input[type=file]').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.locator('#sheet-file').waitFor({ state: 'attached', timeout: 30_000 });
   await page.getByRole('button', { name: 'color · flat', exact: true }).click();
 
   // The bug this guards: no preset armed, the maker guesses the charset from the

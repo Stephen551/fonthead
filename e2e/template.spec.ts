@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+﻿import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 // Skip the maker onboarding modal so it does not block the flow.
@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
 
 // The printable blank grid. The promise under test: the downloaded template's
 // gray guides sit above the tracer's hard 128 threshold, so a sheet drawn into
-// it traces ONLY the pen ink — the guides, baselines, hint letters, and margin
+// it traces ONLY the pen ink: the guides, baselines, hint letters, and margin
 // instructions all vanish. Round-trips the real artifact: download the PNG,
 // draw into it in-page, upload the drawn sheet, and check what the maker sees.
 
@@ -70,7 +70,7 @@ test('the blank grid downloads, and a sheet drawn into it traces clean', async (
   // upload the drawn sheet: the tracer must see exactly the 6 drawn rows (the
   // guides and margin instructions traced as nothing), and the charset guess
   // must land on the split layout the grid prints
-  await page.locator('input[type="file"]').setInputFiles(drawnPath);
+  await page.locator('#sheet-file').setInputFiles(drawnPath);
   await expect(page.getByText('6 rows · 13 cells in row 1')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 60_000 });
   const charset = await page.getByLabel('Charset, one row of characters per line').inputValue();
