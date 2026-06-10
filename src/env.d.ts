@@ -13,6 +13,10 @@ interface __BaseEnv_Env {
   // Resend API key for transactional email (password reset). Optional: without
   // it, reset emails no-op (the rest of auth still works).
   RESEND_API_KEY?: string;
+  // Set (any non-empty value) to pretend email sends succeed without calling
+  // Resend. For .dev.vars, so local dev and the e2e suite never send real
+  // mail with the real key. Never set in production.
+  EMAIL_DRY_RUN?: string;
 }
 type Runtime = import('@astrojs/cloudflare').Runtime<Env>;
 

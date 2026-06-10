@@ -13,6 +13,10 @@ const SUPPORT = 'support@fonthead.dev';
 // One place that talks to Resend. Returns false on a missing key or any failure
 // so a caller can never be broken by a send problem.
 async function resendSend(env: Env, payload: Record<string, unknown>): Promise<boolean> {
+  // dry-run guard: local dev + the e2e suite run with the real key in
+  // .dev.vars, and every suite run was mailing the real support inbox and
+  // bouncing @example.test confirmations. Pretend success, send nothing.
+  if (env.EMAIL_DRY_RUN) return true;
   if (!env.RESEND_API_KEY) return false;
   try {
     const res = await fetch('https://api.resend.com/emails', {
