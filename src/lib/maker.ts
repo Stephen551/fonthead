@@ -1279,6 +1279,19 @@ export function makeTemplateSheet(): HTMLCanvasElement {
   return c;
 }
 
+/** Bucket a build error into a funnel failure class, so field failures count
+ *  by kind without ever storing a message. */
+export function classifyBuildError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('engine did not load')) return 'engine_load';
+  if (m.includes('no glyphs')) return 'no_glyphs';
+  if (m.includes('rows but your charset')) return 'rows_mismatch';
+  if (m.includes('no character rows')) return 'no_rows';
+  if (m.includes('charset')) return 'charset';
+  if (m.includes('worker')) return 'worker';
+  return 'other';
+}
+
 /** Trigger a PNG download of a rendered canvas. */
 export function downloadCanvasPng(c: HTMLCanvasElement, filename: string) {
   c.toBlob((blob) => {

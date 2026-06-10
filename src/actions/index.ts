@@ -162,6 +162,38 @@ export const server = {
     },
   }),
 
+  // The maker funnel counter. Public (the funnel starts before any account),
+  // best-effort (never blocks or breaks the maker), and structurally
+  // anonymous: it can only increment a (day, event, meta) counter. A generous
+  // per-IP rate limit keeps junk from skewing the counts.
+  trackFunnel: defineAction({
+    input: z.object({
+      event: z.enum(['make_view', 'sheet_drop', 'sample_try', 'grid_print', 'build_ok', 'build_fail', 'download', 'publish_ok']),
+      meta: z
+        .string()
+        .max(40)
+        .regex(/^[\w+.-]*$/)
+        .optional(),
+    }),
+    handler: async ({ event, meta }, ctx) => {
+      try {
+        const env = ctx.locals.runtime.env;
+        const ip = ctx.request.headers.get('cf-connecting-ip') || 'anon';
+        const fresh = await rateLimit(env.SESSION, `fn:${ip}`, 240, 3600);
+        if (!fresh) return { ok: true };
+        const day = new Date().toISOString().slice(0, 10);
+        await env.DB.prepare(
+          'INSERT INTO funnel (day, event, meta, count) VALUES (?,?,?,1) ON CONFLICT(day, event, meta) DO UPDATE SET count = count + 1',
+        )
+          .bind(day, event, meta || '')
+          .run();
+      } catch {
+        /* a lost count must never cost a user anything */
+      }
+      return { ok: true };
+    },
+  }),
+
   setVisibility: defineAction({
     input: z.object({ fontId: z.string().min(1), visibility: z.enum(['public', 'private']) }),
     handler: async ({ fontId, visibility }, ctx) => {
