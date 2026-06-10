@@ -866,8 +866,12 @@ function bodyPadPx(glyphs: Glyph[], pct: number): number {
  *  face must never get it, or a T's crossbar over-tucks. */
 const SCRIPT_TRIM = { areaFrac: 1, maxTrimFrac: 0.45, thinFrac: 0.65 };
 /** Letters whose right side may never trim: the projection there is the
- *  letterform, not a flourish, and overhanging it redraws the next pair. */
-const NO_TRIM_RIGHT = new Set(['r']);
+ *  letterform, not a flourish, and overhanging it redraws the next pair.
+ *  r: arm + a following stem fuses into an n. C and G: the top terminal
+ *  overshoots the bottom arm (the aperture gate only protects columns where
+ *  both arms stack), and overhung it fuses with a following ascender —
+ *  Chelsea read as a C-h ligature. Real fonts fit all three wide. */
+const NO_TRIM_RIGHT = new Set(['r', 'C', 'G']);
 /** A face is script when at least this share of its glyphs carry a tail
  *  under the conservative rules. */
 const SCRIPT_TAIL_SHARE = 0.4;

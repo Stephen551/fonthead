@@ -57,7 +57,7 @@ test('flourish overhang fits a chancery sheet on body advances by default', asyn
   await page.locator('input[type="file"]').setInputFiles('e2e/fixtures/chancery-sheet.png');
   await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 120_000 });
   await expect(page.getByText('7 rows · 13 cells in row 1')).toBeVisible();
-  const probes = ['H', 'm', 'i', 'o', 'r'];
+  const probes = ['H', 'm', 'i', 'o', 'r', 'C', 'G'];
   const on = await probeOtf(page, await downloadOtf(page, 'on.otf'), probes);
 
   // switch it off, rebuild: the historical bbox advances
@@ -97,4 +97,8 @@ test('flourish overhang fits a chancery sheet on body advances by default', asyn
   // r keeps its arm inside the advance: trimmed and overhung, r plus a
   // following stem fuses into an n
   expect(on.r.rsb).toBeGreaterThanOrEqual(0);
+  // C and G keep their top terminals inside the advance: overhung, they fuse
+  // with a following ascender (Chelsea read as a C-h ligature)
+  expect(on.C.rsb).toBeGreaterThanOrEqual(0);
+  expect(on.G.rsb).toBeGreaterThanOrEqual(0);
 });
