@@ -17,7 +17,7 @@ test.beforeEach(async ({ page }) => {
 // air ("H and mad e S pacin g"). With the toggle on, advances come from the
 // dense letter body and the tails overhang the neighbor (negative bearings).
 
-type Probe = { advance: number; lsb: number };
+type Probe = { advance: number; lsb: number; rsb: number };
 
 async function probeOtf(page: Page, otfPath: string, chars: string[]): Promise<Record<string, Probe>> {
   const b64 = readFileSync(otfPath).toString('base64');
@@ -26,11 +26,12 @@ async function probeOtf(page: Page, otfPath: string, chars: string[]): Promise<R
       const bin = atob(b);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const font = (window as unknown as { opentype: { parse: (x: ArrayBuffer) => { charToGlyph: (c: string) => { advanceWidth: number; getBoundingBox: () => { x1: number } } } } }).opentype.parse(bytes.buffer);
-      const out: Record<string, { advance: number; lsb: number }> = {};
+      const font = (window as unknown as { opentype: { parse: (x: ArrayBuffer) => { charToGlyph: (c: string) => { advanceWidth: number; getBoundingBox: () => { x1: number; x2: number } } } } }).opentype.parse(bytes.buffer);
+      const out: Record<string, { advance: number; lsb: number; rsb: number }> = {};
       for (const c of cs) {
         const g = font.charToGlyph(c);
-        out[c] = { advance: Math.round(g.advanceWidth), lsb: Math.round(g.getBoundingBox().x1) };
+        const bb = g.getBoundingBox();
+        out[c] = { advance: Math.round(g.advanceWidth), lsb: Math.round(bb.x1), rsb: Math.round(g.advanceWidth - bb.x2) };
       }
       return out;
     },
@@ -56,7 +57,7 @@ test('flourish overhang fits a chancery sheet on body advances by default', asyn
   await page.locator('input[type="file"]').setInputFiles('e2e/fixtures/chancery-sheet.png');
   await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 120_000 });
   await expect(page.getByText('7 rows · 13 cells in row 1')).toBeVisible();
-  const probes = ['H', 'm', 'i', 'o'];
+  const probes = ['H', 'm', 'i', 'o', 'r'];
   const on = await probeOtf(page, await downloadOtf(page, 'on.otf'), probes);
 
   // switch it off, rebuild: the historical bbox advances
@@ -93,4 +94,7 @@ test('flourish overhang fits a chancery sheet on body advances by default', asyn
   // word breaks (0.38em vs the 0.28em default)
   const onSpace = await probeOtf(page, test.info().outputPath('on.otf'), [' ']);
   expect(onSpace[' '].advance).toBe(380);
+  // r keeps its arm inside the advance: trimmed and overhung, r plus a
+  // following stem fuses into an n
+  expect(on.r.rsb).toBeGreaterThanOrEqual(0);
 });

@@ -865,6 +865,9 @@ function bodyPadPx(glyphs: Glyph[], pct: number): number {
  *  chancery l whose loop is a third of its own area needs this; an upright
  *  face must never get it, or a T's crossbar over-tucks. */
 const SCRIPT_TRIM = { areaFrac: 1, maxTrimFrac: 0.45, thinFrac: 0.65 };
+/** Letters whose right side may never trim: the projection there is the
+ *  letterform, not a flourish, and overhanging it redraws the next pair. */
+const NO_TRIM_RIGHT = new Set(['r']);
 /** A face is script when at least this share of its glyphs carry a tail
  *  under the conservative rules. */
 const SCRIPT_TAIL_SHARE = 0.4;
@@ -911,8 +914,13 @@ export function trimGlyphOverhangs(
     const hasTail = !!body && !(body.min === span.first && body.max === span.last);
     if (!hasTail && !opts.padAll) return g;
     if (hasTail) trimmed++;
-    const min = hasTail ? body.min : span.first;
-    const max = hasTail ? body.max : span.last;
+    let min = hasTail ? body!.min : span.first;
+    let max = hasTail ? body!.max : span.last;
+    // Letter knowledge the geometry cannot supply: r's arm IS the letter, not
+    // a flourish. Trimmed and overhung, r + a following stem fuses into an n.
+    // Real fonts always keep the arm inside r's advance, so its right side
+    // never trims. (The same arm shape on t is a crossbar and overhangs fine.)
+    if (NO_TRIM_RIGHT.has(g.char)) max = span.last;
     const dx = padPx - min;
     return {
       ...g,
