@@ -54,6 +54,29 @@ describe('bodyBoundsFromColumns', () => {
   });
 });
 
+describe('bodyBoundsFromColumns, script rules', () => {
+  it('trims a loop that is a big share of a skinny letter deeper than the budget allows', () => {
+    // a chancery l: 12 dense stem columns, then a 30-column thin loop that
+    // holds ~26% of the letter's own area (the budget chokes on it)
+    const cols = profile([12, 200], [30, 28]);
+    const conservative = bodyBoundsFromColumns(cols)!;
+    const script = bodyBoundsFromColumns(cols, { areaFrac: 1, maxTrimFrac: 0.45 })!;
+    expect(script.max).toBeLessThan(conservative.max);
+    expect(script.min).toBe(0);
+  });
+
+  it('still never eats a dense body, even with no budget', () => {
+    const cols = profile([100, 150]);
+    expect(bodyBoundsFromColumns(cols, { areaFrac: 1, maxTrimFrac: 0.45 })).toEqual({ min: 0, max: 99 });
+  });
+
+  it('caps the deep trim at maxTrimFrac', () => {
+    const cols = profile([20, 200], [80, 10]);
+    const b = bodyBoundsFromColumns(cols, { areaFrac: 1, maxTrimFrac: 0.45 })!;
+    expect(100 - 1 - b.max).toBeLessThanOrEqual(Math.floor(100 * 0.45));
+  });
+});
+
 describe('translatePathX', () => {
   it('shifts every x and leaves y alone across M, L, C', () => {
     const d = 'M10.500 20 L30 40 C1 2,3.25 4,5 6 Z';

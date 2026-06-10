@@ -838,15 +838,24 @@ function bodyPadPx(glyphs: Glyph[], pct: number): number {
  *  untouched, keeping the sheet's drawn pitch — an upright face is a no-op.
  *  padAll=true (the spacing knob is set): EVERY glyph re-anchors on its body
  *  with the knob as the pad, which is tight-advance rhythm with overhang. */
+/** The aggressive fit for script faces: the area budget falls away (the thin
+ *  gate and the cap still protect bodies) and tails may trim deeper. A skinny
+ *  chancery l whose loop is a third of its own area needs this; an upright
+ *  face must never get it, or a T's crossbar over-tucks. */
+const SCRIPT_TRIM = { areaFrac: 1, maxTrimFrac: 0.45, thinFrac: 0.65 };
+/** A face is script when at least this share of its glyphs carry a tail
+ *  under the conservative rules. */
+const SCRIPT_TAIL_SHARE = 0.4;
+
 export function trimGlyphOverhangs(
   glyphs: Glyph[],
   padPx: number,
   opts: { padAll?: boolean } = {},
-): { glyphs: Glyph[]; trimmed: number } {
-  let trimmed = 0;
-  const out = glyphs.map((g) => {
-    const cols = glyphColumnAreas(g);
-    if (!cols) return g;
+): { glyphs: Glyph[]; trimmed: number; script: boolean } {
+  // pass 1: profiles + conservative bounds, and let the sheet declare itself
+  const profiles = glyphs.map((g) => glyphColumnAreas(g));
+  const ink = profiles.map((cols) => {
+    if (!cols) return null;
     let first = -1,
       last = -1;
     for (let i = 0; i < cols.length; i++) {
@@ -855,13 +864,31 @@ export function trimGlyphOverhangs(
         last = i;
       }
     }
-    if (first < 0) return g;
-    const body = bodyBoundsFromColumns(cols);
-    const hasTail = !!body && !(body.min === first && body.max === last);
+    return first < 0 ? null : { first, last };
+  });
+  const conservative = profiles.map((cols, i) => (cols && ink[i] ? bodyBoundsFromColumns(cols) : null));
+  let withInk = 0,
+    tails = 0;
+  for (let i = 0; i < glyphs.length; i++) {
+    if (!ink[i]) continue;
+    withInk++;
+    const b = conservative[i];
+    if (b && (b.min > ink[i]!.first || b.max < ink[i]!.last)) tails++;
+  }
+  const script = withInk > 0 && tails / withInk >= SCRIPT_TAIL_SHARE;
+
+  // pass 2: apply, re-measuring with the script rules when the face earned them
+  let trimmed = 0;
+  const out = glyphs.map((g, i) => {
+    const cols = profiles[i];
+    const span = ink[i];
+    if (!cols || !span) return g;
+    const body = script ? bodyBoundsFromColumns(cols, SCRIPT_TRIM) : conservative[i];
+    const hasTail = !!body && !(body.min === span.first && body.max === span.last);
     if (!hasTail && !opts.padAll) return g;
     if (hasTail) trimmed++;
-    const min = hasTail ? body.min : first;
-    const max = hasTail ? body.max : last;
+    const min = hasTail ? body.min : span.first;
+    const max = hasTail ? body.max : span.last;
     const dx = padPx - min;
     return {
       ...g,
@@ -869,7 +896,7 @@ export function trimGlyphOverhangs(
       cellW: max - min + 1 + padPx * 2,
     };
   });
-  return { glyphs: out, trimmed };
+  return { glyphs: out, trimmed, script };
 }
 
 /** Map the spacing knob to the engine's advance flags. The engine only reads

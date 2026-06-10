@@ -83,6 +83,8 @@ test('flourish overhang fits a chancery sheet on body advances by default', asyn
   expect(on.i.advance).toBeLessThan(off.i.advance * 0.85);
   // the trimmed tails really overhang (negative left bearing somewhere)
   expect(Math.min(on.H.lsb, on.m.lsb, on.i.lsb)).toBeLessThan(0);
-  // a round letter with no tail is untouched
-  expect(Math.abs(on.o.advance - off.o.advance)).toBeLessThanOrEqual(Math.round(off.o.advance * 0.01));
+  // a round letter only tucks a little under the script rules: it can never
+  // grow, and never loses more than its edge slivers
+  expect(on.o.advance).toBeLessThanOrEqual(off.o.advance);
+  expect(on.o.advance).toBeGreaterThanOrEqual(Math.round(off.o.advance * 0.85));
 });
