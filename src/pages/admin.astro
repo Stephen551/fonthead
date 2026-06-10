@@ -60,6 +60,26 @@ const { results: users } = await env.DB.prepare(
     LIMIT 500`,
 ).all<UserRow>();
 
+// The maker funnel, last 14 days: day rows pivoted across the event columns,
+// plus 14-day meta breakdowns for the events that carry one.
+type FunnelRow = { day: string; event: string; meta: string; count: number };
+const { results: funnelRows } = await env.DB.prepare(
+  "SELECT day, event, meta, count FROM funnel WHERE day >= date('now', '-13 days') ORDER BY day DESC",
+).all<FunnelRow>();
+const FUNNEL_EVENTS = ['make_view', 'sheet_drop', 'sample_try', 'grid_print', 'build_ok', 'build_fail', 'download', 'publish_ok'] as const;
+const funnelDays = new Map<string, Record<string, number>>();
+const funnelMeta = new Map<string, number>();
+for (const r of funnelRows ?? []) {
+  if (!funnelDays.has(r.day)) funnelDays.set(r.day, {});
+  const d = funnelDays.get(r.day)!;
+  d[r.event] = (d[r.event] ?? 0) + r.count;
+  if (r.meta) {
+    const k = `${r.event} · ${r.meta}`;
+    funnelMeta.set(k, (funnelMeta.get(k) ?? 0) + r.count);
+  }
+}
+const funnelMetaSorted = [...funnelMeta.entries()].sort((a, b) => b[1] - a[1]);
+
 const day = (s: string | null) => (s ? s.slice(0, 10) : '–');
 const th = 'text-align:left;font-size:10.5px;letter-spacing:.06em;color:var(--ink-faint);text-transform:uppercase;padding:0 12px 8px 0;font-weight:500;';
 const td = 'font-size:12.5px;color:var(--ink);padding:9px 12px 9px 0;border-top:1px solid var(--line);vertical-align:top;';
@@ -72,6 +92,41 @@ const td = 'font-size:12.5px;color:var(--ink);padding:9px 12px 9px 0;border-top:
       <h1 class="fh-mono" style="font-size:30px;font-weight:700;letter-spacing:-.01em;margin:10px 0 0;">Moderation</h1>
       <p id="admin-msg" role="status" aria-live="polite" class="fh-mono" style="font-size:12px;color:var(--ink-soft);min-height:16px;margin:8px 0 0;"></p>
     </header>
+
+    <section class="fh-pad" style="padding:28px 0;border-bottom:1px solid var(--line);">
+      <div class="fh-eyebrow" style="margin-bottom:14px;">Maker funnel · last 14 days</div>
+      {funnelDays.size > 0 ? (
+        <div style="overflow-x:auto;">
+          <table class="fh-mono" style="border-collapse:collapse;min-width:760px;">
+            <thead>
+              <tr>
+                <th style={th}>day</th>
+                {FUNNEL_EVENTS.map((e) => (
+                  <th style={th}>{e.replace('_', ' ')}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...funnelDays.entries()].map(([d, counts]) => (
+                <tr>
+                  <td style={td}>{d}</td>
+                  {FUNNEL_EVENTS.map((e) => (
+                    <td style={td + (counts[e] ? '' : 'color:var(--ink-faint);')}>{counts[e] ?? 0}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {funnelMetaSorted.length > 0 && (
+            <p class="fh-mono" style="font-size:11px;color:var(--ink-soft);margin:12px 0 0;line-height:1.7;max-width:90ch;">
+              {funnelMetaSorted.map(([k, n]) => `${k} ${n}`).join('  ·  ')}
+            </p>
+          )}
+        </div>
+      ) : (
+        <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);">no events yet</p>
+      )}
+    </section>
 
     <section class="fh-pad" style="padding:28px 0;border-bottom:1px solid var(--line);">
       <div class="fh-eyebrow" style="margin-bottom:14px;">Reports · {reports?.length ?? 0} open</div>
