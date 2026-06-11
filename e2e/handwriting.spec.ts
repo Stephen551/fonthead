@@ -24,6 +24,14 @@ test('the handwriting page serves the grid and routes to the maker', async ({ pa
   await page.waitForURL('**/make');
 });
 
+test('the handwriting page is discoverable from nav, hero, and maker', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('nav').getByRole('link', { name: 'handwriting' })).toHaveAttribute('href', '/handwriting');
+  await expect(page.locator('#main').getByRole('link', { name: 'your own handwriting' })).toHaveAttribute('href', '/handwriting');
+  await page.goto('/make');
+  await expect(page.getByRole('link', { name: 'Turn your handwriting into a font' })).toHaveAttribute('href', '/handwriting');
+});
+
 test('the maker offers the camera path', async ({ page }) => {
   await page.addInitScript(() => {
     try {
