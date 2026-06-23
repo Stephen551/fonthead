@@ -32,6 +32,16 @@ const STRUCTURAL_MAX = 70;
 const CROSSER_MAX = 260;
 const RHYTHM_SD_MAX = 130; // pair-gap standard deviation across a pangram
 const WORD_SPACE_MIN = 40; // median visible gap across a word break
+// capOverhang: a cap with a right-reaching arm or bowl (F/P/R/E/B, and the
+// T/Y/V/W reaches) over-kerned onto the following lowercase so the arm welds
+// into the next letter's body. The metric the corpus already had could not
+// see it only because cap+lowercase pairs weren't in any pair list, not
+// because of where it measures: the weld interpenetrates the x-height body
+// (the F mid-arm sits inside the strip), so the existing strip measure
+// catches it once the pairs are listed. The pre-fix LaunchSans build welded
+// F+a / r+a ~150 deep; the fixed build reads ~0. Upright faces only: a
+// script cap legitimately swashes into the following letter.
+const CAP_OVERHANG_MAX = 60;
 
 const STRUCTURAL_PAIRS = [
   'ri', 'rn', 'rm', 'ru', 'rh', 'rl', 'rb', 'rk',
@@ -39,6 +49,16 @@ const STRUCTURAL_PAIRS = [
   'oi', 'ol', 'nn', 'll', 'tt', 'hi', 'mi', 'ui',
 ];
 const CROSSER_PAIRS = ['AV', 'VA', 'To', 'Ta', 'Yo', 'Wa', 'LT', 'fl', 'fi', 'ft'];
+// Cap -> lowercase pairs where an over-kern welds a top/right protrusion
+// into the next glyph. Top-heavy and open-right caps before short/round
+// lowercase. Measured full-height (see CAP_OVERHANG_MAX).
+const CAP_PAIRS = [
+  'Fi', 'Fa', 'Fe', 'Fo', 'Fr', 'Fu', 'Fs',
+  'Pa', 'Pe', 'Po', 'Pr', 'Pu',
+  'Ti', 'Ta', 'Te', 'To', 'Tu', 'Tr',
+  'Ya', 'Ye', 'Yo', 'Yu', 'Va', 'Vo', 'Wa', 'Wo',
+  'Ra', 'Re', 'Ro', 'Ka', 'Ke', 'Ko',
+];
 const PANGRAM = 'thequickbrownfoxjumpsoverthelazydog';
 const SPACE_PAIRS = [
   ['y', 'd'],
@@ -69,6 +89,7 @@ type Metrics = {
   glyphs: number;
   structural: { depth: number; worst: string };
   crosser: { depth: number; worst: string };
+  capOverhang: { depth: number; worst: string };
   rhythmSd: number;
   wordSpaceMedian: number;
 };
@@ -76,7 +97,7 @@ type Metrics = {
 async function measure(page: Page, otfPath: string): Promise<Metrics> {
   const b64 = readFileSync(otfPath).toString('base64');
   return page.evaluate(
-    ({ b, structuralPairs, crosserPairs, pangram, spacePairs }) => {
+    ({ b, structuralPairs, crosserPairs, capPairs, pangram, spacePairs }) => {
       const bin = atob(b);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -235,6 +256,12 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
       };
       const structural = worstOf(structuralPairs);
       const crosser = worstOf(crosserPairs);
+      // Cap over-kern is measured in the SAME x-height body strip as the
+      // other fusion classes, not full-height: the weld (an F/P arm or bowl
+      // dragged into the next letter) interpenetrates the body, while the
+      // benign tuck it must NOT flag (an i-dot riding under a T/Y crossbar)
+      // sits in the cap zone the strip already excludes.
+      const capOverhang = worstOf(capPairs);
 
       // rhythm: spread of closest-approach gaps across a pangram
       const gaps: number[] = [];
@@ -264,11 +291,12 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
         glyphs,
         structural,
         crosser,
+        capOverhang,
         rhythmSd: Math.round(sd),
         wordSpaceMedian: Math.round(wordSpaceMedian),
       };
     },
-    { b: b64, structuralPairs: STRUCTURAL_PAIRS, crosserPairs: CROSSER_PAIRS, pangram: PANGRAM, spacePairs: SPACE_PAIRS },
+    { b: b64, structuralPairs: STRUCTURAL_PAIRS, crosserPairs: CROSSER_PAIRS, capPairs: CAP_PAIRS, pangram: PANGRAM, spacePairs: SPACE_PAIRS },
   );
 }
 
@@ -288,7 +316,7 @@ for (const sheet of sheets) {
     const m = await measure(page, otfPath);
     const trim = await page.evaluate(() => (window as unknown as { __lastTrim?: { script: boolean; trimmed: number } }).__lastTrim);
     console.log(
-      `CORPUS | ${sheet.name.padEnd(24)} | ${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'} glyphs=${m.glyphs} structural=${m.structural.depth}(${m.structural.worst || '-'}) crosser=${m.crosser.depth}(${m.crosser.worst || '-'}) rhythmSd=${m.rhythmSd} wordSpace=${m.wordSpaceMedian}`,
+      `CORPUS | ${sheet.name.padEnd(24)} | ${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'} glyphs=${m.glyphs} structural=${m.structural.depth}(${m.structural.worst || '-'}) crosser=${m.crosser.depth}(${m.crosser.worst || '-'}) capOverhang=${m.capOverhang.depth}(${m.capOverhang.worst || '-'}) rhythmSd=${m.rhythmSd} wordSpace=${m.wordSpaceMedian}`,
     );
 
     // render the contact-sheet strip for this face (real shaping, kern on)
@@ -307,6 +335,11 @@ for (const sheet of sheets) {
     expect(m.glyphs, 'built glyph count').toBeGreaterThanOrEqual(60);
     expect(m.structural.depth, `structural fusion (worst pair ${m.structural.worst})`).toBeLessThanOrEqual(STRUCTURAL_MAX);
     expect(m.crosser.depth, `crosser over-kern (worst pair ${m.crosser.worst})`).toBeLessThanOrEqual(CROSSER_MAX);
+    // Cap-zone over-kern only makes sense for upright faces; a script cap
+    // legitimately swashes into the cap/ascender zone this metric watches.
+    if (!trim?.script) {
+      expect(m.capOverhang.depth, `cap over-kern weld (worst pair ${m.capOverhang.worst})`).toBeLessThanOrEqual(CAP_OVERHANG_MAX);
+    }
     expect(m.rhythmSd, 'pair-gap rhythm spread').toBeLessThanOrEqual(RHYTHM_SD_MAX);
     expect(m.wordSpaceMedian, 'word-break visibility').toBeGreaterThanOrEqual(WORD_SPACE_MIN);
   });
