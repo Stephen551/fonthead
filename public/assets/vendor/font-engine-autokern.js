@@ -178,23 +178,41 @@
     const sL = silhouetteForGlyph(L);
     const sR = silhouetteForGlyph(R);
     if (!sL || !sR) return null;
-    const y0 = Math.max(sL.inkY0, sR.inkY0);
-    const y1 = Math.min(sL.inkY1, sR.inkY1);
-    if (y1 <= y0) return null;
+    /* Register both silhouettes to the baseline before comparing. Each
+       glyph is rasterized in its OWN cell — a cap fills a short cell, an
+       x-height glyph sits low in a tall one — so a raw row index means
+       different baseline-relative heights for the two glyphs. Comparing
+       right[y] vs left[y] at equal y was lining an F's arm up against the
+       wrong slice of the next letter, reading a real collision as wide
+       open (the LaunchSans F+a / r+a weld). baselineYInCell is the baseline
+       row in cell (= silhouette) coordinates and the font-wide px scale is
+       uniform, so rows measured from the baseline are directly comparable
+       once aligned. Fall back to the ink bottom if a glyph has no baseline. */
+    const baseL = Math.round(isFinite(L.baselineYInCell) ? L.baselineYInCell : sL.inkY1);
+    const baseR = Math.round(isFinite(R.baselineYInCell) ? R.baselineYInCell : sR.inkY1);
+    /* height above baseline, px: ink at row r sits (base - r) above it. */
+    const aHi = Math.min(baseL - sL.inkY0, baseR - sR.inkY0); // lower of the two tops
+    const aLo = Math.max(baseL - sL.inkY1, baseR - sR.inkY1); // higher of the two bottoms
+    if (aHi <= aLo) return null;
     const advanceL = L.cellW;
     let weightedSum = 0;
     let weightSum = 0;
-    for (let y = y0; y <= y1; y++) {
-      const r = sL.right[y];
-      const l = sR.left[y];
+    let minGap = Infinity;
+    for (let a = aLo; a <= aHi; a++) {
+      const r = sL.right[baseL - a];
+      const l = sR.left[baseR - a];
       if (!isFinite(r) || !isFinite(l)) continue;
       const gap = advanceL + l - r;
       const w = 1 / (1 + Math.max(0, gap) * 0.05);
       weightedSum += gap * w;
       weightSum += w;
+      if (gap < minGap) minGap = gap;
     }
     if (weightSum === 0) return null;
-    return weightedSum / weightSum;
+    /* avg drives the perceptual close-up; min is the tightest scanline,
+       used downstream as a collision floor so an open lower profile
+       (F/P/T arms, P/b bowls) can't average away a protruding band. */
+    return { avg: weightedSum / weightSum, min: minGap };
   }
 
   function computeTargetGap(glyphs) {
@@ -247,6 +265,7 @@
     const targetGapPx = computeTargetGap(glyphs);
     if (!isFinite(targetGapPx) || targetGapPx <= 0) return [];
 
+
     const pairs = buildCandidatePairs(glyphs);
     const out = [];
     const MIN_VALUE = 4;        /* font units; smaller is invisible */
@@ -256,13 +275,24 @@
       const L = byChar.get(l);
       const R = byChar.get(r);
       if (!L || !R) continue;
-      const weightedGap = measurePairGap(L, R);
-      if (weightedGap === null) continue;
-      const excess = weightedGap - targetGapPx;
+      const gap = measurePairGap(L, R);
+      if (gap === null) continue;
+      const excess = gap.avg - targetGapPx;
       if (excess <= 0) continue;
       /* Apply strength BEFORE the cap so strength > 1 doesn't bypass
          the MAX_UNITS ceiling (bug found in audit). */
-      const pullPx = Math.min(excess * strength, MAX_PULL_PX);
+      let pullPx = Math.min(excess * strength, MAX_PULL_PX);
+      /* Collision guard (2026-06-23, field bug): the pull above is driven
+         by the proximity-weighted AVERAGE gap. A glyph that's open below
+         but protrudes at one band (F/P/T arms, P/b bowls, r/t/f) inflates
+         that average, so the average says there's room while the tightest
+         scanline is already snug. Never close the MINIMUM gap past the
+         target spacing, or the protrusion welds into the next glyph (the
+         "Fi"/"Pa" weld on LaunchSans). min <= avg always, so this only
+         ever shrinks a pull, never invents one; tuck pairs with genuine
+         room (T+a, T+o) still kern, landing at the target gap. */
+      const minSlack = gap.min - targetGapPx;
+      if (minSlack < pullPx) pullPx = Math.max(0, minSlack);
       const valueUnits = -Math.round(pullPx * scale);
       if (Math.abs(valueUnits) < MIN_VALUE) continue;
       out.push({ leftChar: l, rightChar: r, value: valueUnits });
