@@ -1,6 +1,6 @@
 ---
 import Badge from './Badge.astro';
-import { type Font, specClass, specTreat, familyOf, kb } from '../lib/fonts';
+import { type Font, specClass, specTreat, familyOf, kb, specimenFontSize } from '../lib/fonts';
 
 interface Props {
   font: Font;
@@ -27,7 +27,7 @@ const size = Math.min(m.size, 92);
         class={specClass(m)}
         data-font={familyOf(f.id)}
         transition:name={`spec-${f.id}`}
-        style={`font-family:var(--sans);${specTreat(m)};font-size:min(${size}px,22cqw);max-width:100%;white-space:nowrap;`}
+        style={`font-family:var(--sans);${specTreat(m)};font-size:${specimenFontSize(f.specimen_word, size, 22, 'cqw')};max-width:100%;white-space:nowrap;`}
       >
         {f.specimen_word}
       </div>

@@ -1,6 +1,6 @@
 ---
 import Badge from './Badge.astro';
-import { type Font, specClass, specTreat, familyOf, kb } from '../lib/fonts';
+import { type Font, specClass, specTreat, familyOf, kb, specimenFontSize } from '../lib/fonts';
 
 // The wall's lead, shown big and TYPE-INTO: the loudest expression of the
 // site's idea. You type straight into the lead font's specimen here, the same
@@ -32,7 +32,7 @@ const m = f.meta;
       role="textbox"
       aria-multiline="false"
       aria-label={`Type to preview ${f.name}`}
-      style={`font-family:'${familyOf(f.id)}',var(--sans);${specTreat(m)};font-size:min(168px,30cqw);line-height:.92;max-width:100%;white-space:normal;overflow-wrap:anywhere;caret-color:var(--signal);`}
+      style={`font-family:'${familyOf(f.id)}',var(--sans);${specTreat(m)};font-size:${specimenFontSize(f.specimen_word, 168, 30, 'cqw')};line-height:.92;max-width:100%;white-space:normal;overflow-wrap:anywhere;caret-color:var(--signal);`}
     >
       {f.specimen_word}
     </div>

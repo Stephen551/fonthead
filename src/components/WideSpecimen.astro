@@ -1,5 +1,5 @@
 ---
-import { type Font, specClass, specTreat, familyOf } from '../lib/fonts';
+import { type Font, specClass, specTreat, familyOf, specimenFontSize } from '../lib/fonts';
 
 // A second composition break: one font set as a full-width living specimen
 // dropped into the wall, re-asserting the type-first hierarchy mid-scroll so
@@ -22,7 +22,7 @@ const m = f.meta;
     role="textbox"
     aria-multiline="false"
     aria-label={`Type to preview ${f.name}`}
-    style={`font-family:'${familyOf(f.id)}',var(--sans);${specTreat(m)};font-size:min(240px,19vw);line-height:.86;white-space:normal;overflow-wrap:anywhere;max-width:100%;caret-color:var(--signal);cursor:text;`}
+    style={`font-family:'${familyOf(f.id)}',var(--sans);${specTreat(m)};font-size:${specimenFontSize(f.specimen_word, 240, 19, 'vw')};line-height:.86;white-space:normal;overflow-wrap:anywhere;max-width:100%;caret-color:var(--signal);cursor:text;`}
   >
     {f.specimen_word}
   </div>

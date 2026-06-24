@@ -306,5 +306,24 @@ export function specStyle(id: string, meta: FontMeta, fallback = 'var(--sans)'):
   return parts.join(';');
 }
 
+/**
+ * Length-aware specimen font-size. The original `min(pxCap, fluidCap)` keeps a
+ * specimen responsive to its container (cqw on a card or feature column, vw on
+ * the full-width band) but is blind to the WORD length, so a long name
+ * overflows: it wraps mid-word in the feature/wide bands and clips in the card.
+ * This folds in a third cap that shrinks inversely with character count, so a
+ * long word drops to one line. All three are needed: pxCap stops a 2-3 letter
+ * word ballooning, fluidCap holds the design size for normal words, and the
+ * length term reins in long ones. `budget` is the fluid-unit span one average
+ * glyph spends on a line, tuned conservatively for wide geometric faces (and
+ * the narrowest 300px card) so it errs small rather than overflowing. Counts by
+ * code point so emoji/combining specimens don't undercount.
+ */
+export function specimenFontSize(word: string, pxCap: number, fluidCap: number, unit: 'cqw' | 'vw' = 'cqw', budget = 130): string {
+  const len = Math.max(1, [...(word || '')].length);
+  const cap = Math.min(fluidCap, Math.round(budget / len));
+  return `min(${pxCap}px, ${cap}${unit})`;
+}
+
 /** Human file size, e.g. "31 KB". */
 export const kb = (bytes: number | null) => (bytes == null ? '–' : `${Math.round(bytes / 1024)} KB`);
