@@ -518,6 +518,49 @@ function wireHero() {
   }, 2600);
 }
 
+// Fit a type-into specimen to one line. The server-rendered font-size is
+// length-aware for the ORIGINAL word, but once a visitor types, CSS can't know
+// the new length, so a long typed word would wrap (feature/wide) or clip. This
+// scales the size so the current text fills the available width up to the
+// element's design cap (data-fit-max), shrinking long input instead. Opt-in:
+// the font page specimen has a manual size slider and the masthead has its own
+// cycling clamp, so only the wall's feature + wide bands carry data-fit-max.
+function fitSpecimen(el: HTMLElement) {
+  const maxPx = parseFloat(el.dataset.fitMax || '');
+  const parent = el.parentElement;
+  if (!maxPx || !parent) return;
+  const pcs = getComputedStyle(parent);
+  const cw = parent.clientWidth;
+  const avail = (cw - parseFloat(pcs.paddingLeft) - parseFloat(pcs.paddingRight)) * 0.98;
+  if (avail <= 0) return;
+  // Ceiling = the responsive design cap the CSS already uses (min of the px cap
+  // and the fluid cap, cqw against the container or vw against the viewport), so
+  // a short typed word returns to the design size instead of jumping to maxPx.
+  const fluid = parseFloat(el.dataset.fitFluid || '');
+  const base = el.dataset.fitUnit === 'vw' ? window.innerWidth : cw;
+  const ceil = fluid ? Math.min(maxPx, (fluid / 100) * base) : maxPx;
+  el.style.whiteSpace = 'nowrap';
+  el.style.fontSize = ceil + 'px';
+  const w = el.scrollWidth;
+  el.style.fontSize = (w > avail ? Math.max(16, Math.floor((ceil * avail) / w)) : ceil) + 'px';
+}
+
+function fitSpecimens() {
+  document.querySelectorAll<HTMLElement>('[data-fit-max]').forEach(fitSpecimen);
+}
+
+// Re-fit on resize: the available width tracks the viewport (cqw/grid). Wired
+// once for the document; debounced so a drag doesn't thrash layout.
+function wireFitResizeOnce() {
+  if ((window as Window & { __fhFit?: boolean }).__fhFit) return;
+  (window as Window & { __fhFit?: boolean }).__fhFit = true;
+  let t: ReturnType<typeof setTimeout> | null = null;
+  window.addEventListener('resize', () => {
+    if (t) clearTimeout(t);
+    t = setTimeout(fitSpecimens, 120);
+  });
+}
+
 // Governs the standalone type-into specimens (the wall feature band and the
 // font page) the way the hero is: no newlines, single-line paste, and a hard
 // length cap so an edit can never grow the layout unboundedly.
@@ -548,6 +591,7 @@ function wireTypeInto() {
         sel?.removeAllRanges();
         sel?.addRange(r);
       }
+      fitSpecimen(el);
     });
   });
 }
@@ -622,10 +666,15 @@ function init() {
   wireSlider();
   wireHero();
   wireTypeInto();
+  // Measure with the real face, not the fallback, so the fit is exact. The
+  // server-rendered length-aware size holds until the face resolves.
+  if (document.fonts?.ready) document.fonts.ready.then(fitSpecimens);
+  else fitSpecimens();
 }
 
 // fires on initial load and after every View Transitions navigation
 document.addEventListener('astro:page-load', init);
+wireFitResizeOnce();
 wireSocialOnce();
 wireCoffeeOnce();
 wireReportOnce();
