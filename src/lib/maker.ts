@@ -1158,6 +1158,13 @@ const MIN_ADV_PCT = 0.18; // ·xhPx — narrow-letter advance floor (i l j)
 const OVERLAP_PCT = 0.0; // ·xhPx — shipping default, the consistent-touch floor
 const OVERLAP_SEAMLESS = 0.015; // ·xhPx — opt-in seamless overlap
 const LEFT_PAD_FLOOR = 1; // px — break-class + post-break side bearing
+// ·xhPx — the most a connector stroke may push the advance/anchor past the dense
+// body per side. A cursive whose entry/exit strokes reach far toward neighbours
+// would otherwise space the bodies a full connector-length apart (stretched,
+// dashed); the cap keeps body pitch tight and lets the long connectors overhang
+// and overlap between bodies instead. A normal short exit (r arm, o flick) is
+// well under the cap, so it is unaffected.
+const CONNECT_CAP = 0.4;
 
 export interface FaceMetrics {
   xhPx: number;
@@ -1306,12 +1313,24 @@ export function connectGlyphs(
       continue;
     }
     const rp = cls.highExit ? bandPlugs(i, HIGH_EXIT_LO, HIGH_EXIT_HI, xhPx) : main;
-    const rightPlug = isFinite(rp.right) ? rp.right : main.right;
-    const leftPlug = main.left;
+    let rightPlug = isFinite(rp.right) ? rp.right : main.right;
+    let leftPlug = main.left;
+    let inkLeftForAnchor = sp.first;
+    // Bound the connector's contribution: a letter drawn with long entry/exit
+    // strokes keeps its body pitch tight (advance to body + cap), and the long
+    // connectors overhang and overlap the neighbours instead of stretching the
+    // bodies apart. The dense body comes from the same bounds the trim path uses.
+    const body = bodyBoundsFromColumns(prof.cols, {}, prof.spans);
+    if (body) {
+      const cap = Math.round(xhPx * CONNECT_CAP);
+      rightPlug = Math.min(rightPlug, body.max + cap);
+      leftPlug = Math.max(leftPlug, body.min - cap);
+      inkLeftForAnchor = Math.max(sp.first, body.min - cap);
+    }
     decisions[i] = anchorAdvance({
       leftPlug,
       rightPlug,
-      inkLeft: sp.first,
+      inkLeft: inkLeftForAnchor,
       overlapPx,
       minAdvPx,
       leftPadPx,
