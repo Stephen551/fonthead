@@ -134,11 +134,12 @@ test.describe('connected-cursive mode', () => {
 
     const otf = await captureOtf(page);
     assertValidFont(otf, lb.glyphCount);
-    // the letters actually land joined, not just "decided" to join: a connected
-    // build measures a tight body-strip gap; a non-connect build of the same
-    // letters reads ~78+ units. Gate well between the two.
+    // the letters actually land joined, not just "decided" to join. Under the
+    // connection-point model the bodies sit a connector-width apart with the line
+    // filling between (~40-60 body-strip gap); a non-connect build of the same
+    // letters reads ~78+. Gate between the two so a regression to word spacing fails.
     const join = await medianJoinGap(page, otf);
-    expect(join, 'realized lowercase join gap (median)').toBeLessThanOrEqual(50);
+    expect(join, 'realized lowercase join gap (median)').toBeLessThanOrEqual(70);
   });
 
   test('toggling connect off falls back to the overhang path', async ({ page }) => {
