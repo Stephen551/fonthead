@@ -184,7 +184,7 @@ Requirements:
 - Output: one clean PNG image, 7 rows of letters as specified above`;
 
     const SCRIPT = (style: string) =>
-      `Hand-drawn CONNECTED CURSIVE alphabet sheet, 7 rows on white paper:
+      `Hand-drawn cursive alphabet sheet, 7 rows on white paper:
 Row 1: capitals A B C D E F G H I J K L M
 Row 2: capitals N O P Q R S T U V W X Y Z
 Row 3: lowercase a b c d e f g h i j k l m
@@ -193,18 +193,18 @@ Row 5: digits 0 1 2 3 4 5 6 7 8 9
 Row 6: symbols ! ? @ # $ % ^ & * ( ) - _ + = [ ]
 Row 7: symbols { } ; : ' " , . < > / \\ |
 
-CONNECTED CURSIVE is critical (this sheet feeds a joining tracer):
-- A single flowing cursive hand${style ? ` (${style})` : ''}, the lowercase letters made to link
-- Give EVERY lowercase letter an entry stroke on the left and an exit stroke on the right
-- All those entry and exit strokes meet ONE common connector line just above the baseline, at the same height on every letter, so the letters read as one continuous stroke
-- Each lowercase letter reaches the LEFT and RIGHT edges of its cell with that connector stroke, so neighbors almost touch
-- One character per cell with a faint even grid; the connector strokes carry the rhythm, not wide gaps
-- Capitals, digits, and punctuation stand alone, no joining needed
+CURSIVE style, drawn for a tracer that JOINS the letters itself (so the letters
+must stay separate on the sheet, NOT pre-connected):
+- A flowing cursive hand${style ? ` (${style})` : ''}
+- CRITICAL: draw each lowercase letter SEPARATELY in its own cell with a CLEAR GAP between letters. The letters must NOT touch or run into one continuous line. Do NOT draw a connector stroke that bridges from one letter to the next
+- Give each lowercase letter a SHORT entry stroke on the left and a SHORT exit stroke on the right, both ending at the same height just above the baseline (the maker reads these to join the letters). Keep them short, ending well inside the cell, never reaching the next letter
+- One character per cell, evenly spaced on a steady baseline, every letter clearly readable on its own
+- Capitals, digits, and punctuation stand alone as usual
 
 Other requirements:
 - Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
 - Even baseline across each row, consistent x-height
-- One character per cell, all 7 rows exactly as listed
+- One character per cell with a clear gap between every character, all 7 rows exactly as listed
 - High resolution: at least 2000px wide
 - Output: one clean PNG image, 7 rows as specified above`;
 

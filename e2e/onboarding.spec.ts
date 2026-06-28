@@ -32,8 +32,9 @@ test('walkthrough shows, dismisses, retriggers; prompt builder reflects the styl
   await page.locator('#gen-extra').fill('charcoal, red, cream');
   await expect(page.locator('#gen-prompt')).toContainText('charcoal, red, cream');
 
-  // the script preset prompts for a connected cursive with the connector contract
+  // the script preset prompts for a cursive whose letters stay SEPARATE (the
+  // maker joins them) with short entry/exit strokes the tracer reads
   await page.getByRole('button', { name: 'script', exact: true }).click();
-  await expect(page.locator('#gen-prompt')).toContainText('CONNECTED CURSIVE');
-  await expect(page.locator('#gen-prompt')).toContainText('common connector line');
+  await expect(page.locator('#gen-prompt')).toContainText('cursive');
+  await expect(page.locator('#gen-prompt')).toContainText('SEPARATELY');
 });
