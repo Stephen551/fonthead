@@ -1,11 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-// Skip the maker onboarding modal so it does not block the flow.
+// Skip the maker onboarding modal so it does not block the flow. This spec tests
+// the spacing knob, which connect mode disables, so pin connect auto-detect off
+// (the sample sheet can read as script under CI's font fallback and would
+// otherwise auto-connect and grey out the spacing control).
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
       localStorage.setItem('fh-maker-tour-seen', '1');
+      localStorage.setItem('fh-test-no-autoconnect', '1');
     } catch {
       /* private mode */
     }

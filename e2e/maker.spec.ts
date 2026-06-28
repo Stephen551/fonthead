@@ -10,6 +10,11 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
       localStorage.setItem('fh-maker-tour-seen', '1');
+      // These tests drive the mono italic / fine-detail / re-slice controls,
+      // which connect mode disables. Pin connect auto-detect off so the sample
+      // sheet (which can read as script under CI's font fallback) does not
+      // auto-connect and grey out those controls. Connect has its own e2e.
+      localStorage.setItem('fh-test-no-autoconnect', '1');
     } catch {
       /* private mode */
     }
