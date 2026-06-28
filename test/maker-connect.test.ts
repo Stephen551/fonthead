@@ -98,3 +98,49 @@ describe('connectGlyphs (structural)', () => {
     expect(isScriptFace(glyphs as never)).toBe(false);
   });
 });
+
+describe('connectGlyphs (geometry, injected profiles)', () => {
+  // jsdom has no canvas, so feed connectGlyphs synthetic column rasters to
+  // exercise the band/plug/anchor/advance path the production build runs.
+  const CELL_W = 40;
+  const CELL_H = 100;
+  const BASE = 80; // baseline y in cell
+  // a rectangular glyph inked from x0..x1, from (baseline-h) up to baseline
+  const rect = (x0: number, x1: number, h: number) => {
+    const cols = new Array(CELL_W).fill(0);
+    for (let x = x0; x <= x1; x++) cols[x] = h;
+    const spans = cols.map((n) => (n > 0 ? 0.9 : 0));
+    const rowLeft = new Array(CELL_H).fill(Infinity);
+    const rowRight = new Array(CELL_H).fill(-Infinity);
+    for (let y = BASE - h; y <= BASE; y++) {
+      rowLeft[y] = x0;
+      rowRight[y] = x1;
+    }
+    return { cols, spans, rowLeft, rowRight, inkTopRow: BASE - h };
+  };
+  const g = (char: string, x0: number, x1: number, h = 30) => ({ char, italic: false, paths: [`M${x0} 0`], cellW: CELL_W, cellH: CELL_H, baselineYInCell: BASE, _p: rect(x0, x1, h) });
+
+  it('joins lowercase plug-to-plug (advance = rightPlug - inkLeft)', () => {
+    const gs = [g('x', 2, 20), g('n', 3, 22)];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.joined).toBe(2);
+    expect(out.broke).toBe(0);
+    expect(out.glyphs[0].cellW).toBe(18); // x: 20 - 2 - 0 overlap
+    expect(out.glyphs[1].cellW).toBe(19); // n: 22 - 3 - 0 overlap
+  });
+
+  it('descender-exit breaks right (advance carries a trailing pad past the plug)', () => {
+    const gs = [g('x', 2, 20), g('g', 2, 20)]; // identical ink; only the class differs
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.glyphs[0].cellW).toBe(18); // x joins right: 20 - 2
+    expect(out.glyphs[1].cellW).toBeGreaterThan(18); // g breaks right: + leftPad past the plug
+  });
+
+  it('caps stand alone (break-class, full ink width + pad both sides)', () => {
+    const gs = [g('H', 4, 24)];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.joined).toBe(0);
+    expect(out.broke).toBe(1);
+    expect(out.glyphs[0].cellW).toBe(24 - 4 + 1 + 2); // ink span + 2*leftPad(1)
+  });
+});

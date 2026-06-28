@@ -1108,8 +1108,11 @@ export function joinClass(char: string): JoinClass {
  *  bowl bulges left of its entry never goes negative-x.
  *
  *  joinLeft  — the cursor arrives on this glyph's left plug, so anchor there:
- *              anchorOrigin = min(leftPlug, inkLeft); dx = -anchorOrigin. When
- *              false (a word-opener like a cap), give it a body-left bearing.
+ *              anchorOrigin = min(leftPlug, inkLeft); dx = -anchorOrigin. In
+ *              connectGlyphs leftPlug (band ink) is always >= inkLeft (all ink),
+ *              so this resolves to inkLeft and the leftmost ink lands at x=0; the
+ *              min stays as a guard for any caller that passes a plug left of the
+ *              ink. When false (a word-opener like a cap), give a left bearing.
  *  joinRight — advance to the right plug, less the overlap, so the next glyph
  *              meets it. When false (descender-exit), advance past the plug by a
  *              pad so the next glyph starts clean. */
@@ -1134,7 +1137,7 @@ const BAND_HI = 0.42; // ·xhPx — band top, below the round-bowl bulge (~0.50)
 const HIGH_EXIT_LO = 0.5; // ·xhPx — high-exit right band floor
 const HIGH_EXIT_HI = 0.95; // ·xhPx — high-exit right band ceiling
 const BAND_MIN_ROWS = 2; // one finite row is raster noise; two = a real crossing
-const BAND_MIN_AREA = 0.005; // band ink as a fraction of glyph ink
+const BAND_MIN_AREA = 0.005; // band's share of the glyph's horizontal extent
 const MIN_ADV_PCT = 0.18; // ·xhPx — narrow-letter advance floor (i l j)
 const OVERLAP_PCT = 0.0; // ·xhPx — shipping default, the consistent-touch floor
 const OVERLAP_SEAMLESS = 0.015; // ·xhPx — opt-in seamless overlap
@@ -1190,8 +1193,11 @@ export function faceMetrics(glyphs: Glyph[], profiles?: (ReturnType<typeof glyph
 export function connectGlyphs(
   glyphs: Glyph[],
   opts: { overlapPct?: number; minAdvPct?: number; seamless?: boolean } = {},
+  profilesIn?: (ReturnType<typeof glyphColumnAreas>)[],
 ): { glyphs: Glyph[]; joined: number; broke: number; breaks: Array<{ char: string; reason: string }> } {
-  const profiles = glyphs.map((g) => glyphColumnAreas(g));
+  // profilesIn lets tests inject column rasters (jsdom has no canvas, so
+  // glyphColumnAreas returns null there); production always computes them.
+  const profiles = profilesIn ?? glyphs.map((g) => glyphColumnAreas(g));
   const fm = faceMetrics(glyphs, profiles);
   const xhPx = Math.max(1, fm.xhPx);
   const overlapPx = Math.round((opts.overlapPct ?? (opts.seamless ? OVERLAP_SEAMLESS : OVERLAP_PCT)) * xhPx);
@@ -1212,8 +1218,10 @@ export function connectGlyphs(
   });
 
   // plugs in a horizontal band: leftmost/rightmost ink across the band's rows,
-  // plus how many band rows carry ink and what share of the glyph's ink the
-  // band holds (the no-band promotion signal).
+  // plus how many band rows carry ink and the band's share of the glyph's total
+  // horizontal EXTENT (sum of per-row left-to-right spans, not a pixel count) —
+  // the no-band promotion signal. Extent, not ink, is fine here: the dominant
+  // gate is BAND_MIN_ROWS and the area threshold is tiny.
   const bandPlugs = (i: number, lo: number, hi: number, hBase: number) => {
     const prof = profiles[i]!;
     const g = glyphs[i];
