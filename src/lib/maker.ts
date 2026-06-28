@@ -1161,6 +1161,11 @@ const MIN_ADV_PCT = 0.18; // ·xhPx — narrow-letter advance floor (i l j)
 const OVERLAP_PCT = 0.0; // ·xhPx — shipping default, the consistent-touch floor
 const OVERLAP_SEAMLESS = 0.015; // ·xhPx — opt-in seamless overlap
 const LEFT_PAD_FLOOR = 1; // px — break-class + post-break side bearing
+// ·maxRowWidth — a row counts as the dense BODY (not a thin connector dip or a
+// narrow descender stroke) when its ink is at least this share of the glyph's
+// widest row. The body's bottom row is the true baseline; re-deriving it per
+// glyph fixes the per-row baseline drift that left caps sitting above lowercase.
+const BODY_BASE_FRAC = 0.35;
 
 export interface FaceMetrics {
   xhPx: number;
@@ -1236,6 +1241,30 @@ export function connectGlyphs(
     return first < 0 ? null : { first, last };
   });
 
+  // Per-glyph baseline, re-derived to the dense BODY bottom so every glyph shares
+  // one baseline. detectBaselineInRow runs per row and drifts between the caps
+  // rows and the lowercase rows (lowercase came out ~14px high, so caps floated
+  // above lowercase). The body bottom — the lowest row at least BODY_BASE_FRAC of
+  // the glyph's widest row — is the true sit line: it ignores the thin connector
+  // dip below the baseline and the narrow descender stroke. Falls back to the
+  // traced baseline when there is no profile (jsdom) or no dense row.
+  const baseY = glyphs.map((g, i) => {
+    const prof = profiles[i];
+    if (!prof) return g.baselineYInCell;
+    let maxW = 0;
+    const w = new Array<number>(prof.rowLeft.length).fill(0);
+    for (let y = 0; y < prof.rowLeft.length; y++) {
+      if (isFinite(prof.rowLeft[y]) && isFinite(prof.rowRight[y])) {
+        w[y] = prof.rowRight[y] - prof.rowLeft[y] + 1;
+        if (w[y] > maxW) maxW = w[y];
+      }
+    }
+    if (maxW <= 0) return g.baselineYInCell;
+    const need = BODY_BASE_FRAC * maxW;
+    for (let y = w.length - 1; y >= 0; y--) if (w[y] >= need) return y;
+    return g.baselineYInCell;
+  });
+
   // plugs in a horizontal band: leftmost/rightmost ink across the band's rows,
   // plus how many band rows carry ink and the band's share of the glyph's total
   // horizontal EXTENT (sum of per-row left-to-right spans, not a pixel count) —
@@ -1244,8 +1273,8 @@ export function connectGlyphs(
   const bandPlugs = (i: number, lo: number, hi: number, hBase: number) => {
     const prof = profiles[i]!;
     const g = glyphs[i];
-    const botY = Math.min(g.cellH - 1, Math.max(0, Math.round(g.baselineYInCell - hBase * lo)));
-    const topY = Math.min(g.cellH - 1, Math.max(0, Math.round(g.baselineYInCell - hBase * hi)));
+    const botY = Math.min(g.cellH - 1, Math.max(0, Math.round(baseY[i] - hBase * lo)));
+    const topY = Math.min(g.cellH - 1, Math.max(0, Math.round(baseY[i] - hBase * hi)));
     let left = Infinity,
       right = -Infinity,
       rows = 0,
@@ -1352,8 +1381,8 @@ export function connectGlyphs(
     let minGap = Infinity;
     for (let s = 0; s <= 32; s++) {
       const y = xhPx * 0.15 + xhPx * 0.95 * (s / 32);
-      const rowL = Math.round(glyphs[li].baselineYInCell - y);
-      const rowR = Math.round(glyphs[ri].baselineYInCell - y);
+      const rowL = Math.round(baseY[li] - y);
+      const rowR = Math.round(baseY[ri] - y);
       if (rowL < 0 || rowL >= Lp.rowRight.length || rowR < 0 || rowR >= Rp.rowLeft.length) continue;
       if (!isFinite(Lp.rowRight[rowL]) || !isFinite(Rp.rowLeft[rowR])) continue;
       const gap = GLadv + (Rp.rowLeft[rowR] + GRoff) - (Lp.rowRight[rowL] + GLoff);
@@ -1362,10 +1391,13 @@ export function connectGlyphs(
     if (isFinite(minGap) && minGap < -maxPenPx && dL) dL.cellW += -minGap - maxPenPx;
   }
 
+  // Apply the corrected baseline to every glyph so caps and lowercase share one
+  // sit line, then the x placement on the joining glyphs.
   const out = glyphs.map((g, i) => {
+    const base = baseY[i] !== g.baselineYInCell ? { baselineYInCell: baseY[i] } : null;
     const d = decisions[i];
-    if (!d) return g;
-    return { ...g, paths: g.paths.map((p) => translatePathX(p, d.dx)), cellW: d.cellW };
+    if (!d) return base ? { ...g, ...base } : g;
+    return { ...g, ...base, paths: g.paths.map((p) => translatePathX(p, d.dx)), cellW: d.cellW };
   });
   return { glyphs: out, joined, broke, breaks };
 }
