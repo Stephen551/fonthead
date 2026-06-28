@@ -1570,6 +1570,8 @@ export function makeTemplateSheet(): HTMLCanvasElement {
   ctx.fillText('fonthead.dev · draw one character per box with a dark pen', 40, 46);
   ctx.textAlign = 'right';
   ctx.fillText('photograph the sheet flat · the gray guides disappear when traced', W - 40, H - 24);
+  ctx.textAlign = 'left';
+  ctx.fillText('for a joined cursive: run each letter through the dotted connector line and out to the cell edges', 40, H - 24);
 
   TEMPLATE_CHAR_LINES.forEach((row, r) => {
     const y0 = top + r * rowH;
@@ -1594,6 +1596,17 @@ export function makeTemplateSheet(): HTMLCanvasElement {
     ctx.beginPath();
     ctx.moveTo(1, baseline);
     ctx.lineTo(W - 1, baseline);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // the connector line: a fainter dotted guide just above the baseline where a
+    // connected cursive's join strokes ride. A joined hand runs every letter
+    // through this one height so the maker's connect mode links them; an upright
+    // hand can ignore it (it sits above the trace threshold and never traces).
+    ctx.setLineDash([3, 7]);
+    ctx.beginPath();
+    ctx.moveTo(1, baseline - rowH * 0.08);
+    ctx.lineTo(W - 1, baseline - rowH * 0.08);
     ctx.stroke();
     ctx.setLineDash([]);
 
