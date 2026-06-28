@@ -1053,6 +1053,48 @@ export function trimGlyphOverhangs(
   return { glyphs: out, trimmed, script };
 }
 
+// ---- connected-cursive mode: join letters by their connection plugs ----------
+
+/** Letters whose connecting EXIT rides above the baseline connector band, so
+ *  the advance must be measured to the high plug or the high arm/terminal
+ *  overhangs and welds the next letter. r is here (its arm sits above the band
+ *  and IS the cursive lead-in, proven on the field sheet); f and t are NOT
+ *  (their crossbars overhang by design above any band and would over-extend the
+ *  advance — mirrors the trim path's f/t handling). */
+const HIGH_EXIT = new Set(['o', 'v', 'w', 'b', 'd', 's', 'u', 'r', 'O', 'V', 'W', 'B']);
+/** Letters whose only outbound stroke is the descender below the baseline, out
+ *  of every connector band. They join on the LEFT but break on the RIGHT (the
+ *  next letter starts clean) rather than fake a step off the x-height body. */
+const DESC_EXIT = new Set(['g', 'j', 'q', 'y', 'z']);
+/** Caps with no right-reaching exit into a following lowercase. */
+const CAP_NO_RIGHT_EXIT = new Set(['F', 'J', 'O', 'Q']);
+const LOWER = /[a-z]/;
+const UPPER = /[A-Z]/;
+const LETTER = /[A-Za-z]/;
+
+export type JoinClass = {
+  kind: 'join' | 'break' | 'space';
+  joinsLeft: boolean;
+  joinsRight: boolean;
+  highExit: boolean;
+  cap: boolean;
+};
+
+/** Classify a character for connected-cursive joining. Lowercase joins both
+ *  sides; descender-exit lowercase joins left only; caps join right only into a
+ *  following lowercase; digits/punctuation/symbols break both sides; space is
+ *  the word break. Letter knowledge the geometry cannot supply. */
+export function joinClass(char: string, _prevChar: string | undefined, nextChar: string | undefined): JoinClass {
+  if (char === ' ') return { kind: 'space', joinsLeft: false, joinsRight: false, highExit: false, cap: false };
+  if (!LETTER.test(char)) return { kind: 'break', joinsLeft: false, joinsRight: false, highExit: false, cap: false };
+  if (UPPER.test(char)) {
+    const joinsRight = !!nextChar && LOWER.test(nextChar) && !CAP_NO_RIGHT_EXIT.has(char);
+    return { kind: joinsRight ? 'join' : 'break', joinsLeft: false, joinsRight, highExit: HIGH_EXIT.has(char), cap: true };
+  }
+  if (DESC_EXIT.has(char)) return { kind: 'join', joinsLeft: true, joinsRight: false, highExit: false, cap: false };
+  return { kind: 'join', joinsLeft: true, joinsRight: true, highExit: HIGH_EXIT.has(char), cap: false };
+}
+
 /** Map the spacing knob to the engine's advance flags. The engine only reads
  *  sideBearingPct on the tight-advance path; under cell-width advance the
  *  sheet's own pitch wins, so auto (0) keeps the historical behavior bit for
