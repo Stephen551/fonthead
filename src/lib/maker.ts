@@ -1070,15 +1070,13 @@ export function trimGlyphOverhangs(
  *  overhangs and welds the next letter. r is here (its arm sits above the band
  *  and IS the cursive lead-in, proven on the field sheet); f and t are NOT
  *  (their crossbars overhang by design above any band and would over-extend the
- *  advance — mirrors the trim path's f/t handling). */
-const HIGH_EXIT = new Set(['o', 'v', 'w', 'b', 'd', 's', 'u', 'r', 'O', 'V', 'W', 'B']);
+ *  advance — mirrors the trim path's f/t handling). Lowercase only; caps stand
+ *  alone in v1. */
+const HIGH_EXIT = new Set(['o', 'v', 'w', 'b', 'd', 's', 'u', 'r']);
 /** Letters whose only outbound stroke is the descender below the baseline, out
  *  of every connector band. They join on the LEFT but break on the RIGHT (the
  *  next letter starts clean) rather than fake a step off the x-height body. */
 const DESC_EXIT = new Set(['g', 'j', 'q', 'y', 'z']);
-/** Caps with no right-reaching exit into a following lowercase. */
-const CAP_NO_RIGHT_EXIT = new Set(['F', 'J', 'O', 'Q']);
-const LOWER = /[a-z]/;
 const UPPER = /[A-Z]/;
 const LETTER = /[A-Za-z]/;
 
@@ -1087,34 +1085,34 @@ export type JoinClass = {
   joinsLeft: boolean;
   joinsRight: boolean;
   highExit: boolean;
-  cap: boolean;
 };
 
-/** Classify a character for connected-cursive joining. Lowercase joins both
- *  sides; descender-exit lowercase joins left only; caps join right only into a
- *  following lowercase; digits/punctuation/symbols break both sides; space is
- *  the word break. Letter knowledge the geometry cannot supply. */
-export function joinClass(char: string, _prevChar: string | undefined, nextChar: string | undefined): JoinClass {
-  if (char === ' ') return { kind: 'space', joinsLeft: false, joinsRight: false, highExit: false, cap: false };
-  if (!LETTER.test(char)) return { kind: 'break', joinsLeft: false, joinsRight: false, highExit: false, cap: false };
-  if (UPPER.test(char)) {
-    const joinsRight = !!nextChar && LOWER.test(nextChar) && !CAP_NO_RIGHT_EXIT.has(char);
-    return { kind: joinsRight ? 'join' : 'break', joinsLeft: false, joinsRight, highExit: HIGH_EXIT.has(char), cap: true };
-  }
-  if (DESC_EXIT.has(char)) return { kind: 'join', joinsLeft: true, joinsRight: false, highExit: false, cap: false };
-  return { kind: 'join', joinsLeft: true, joinsRight: true, highExit: HIGH_EXIT.has(char), cap: false };
+/** Classify a character for connected-cursive joining. Position-INDEPENDENT: a
+ *  glyph's metrics must work in any context, so the class is a property of the
+ *  character alone, never its sheet neighbors. Lowercase joins both sides;
+ *  descender-exit lowercase (g j q y z) joins left but breaks right (its only
+ *  exit is the descender, below every band); caps, digits, punctuation, and
+ *  symbols stand alone (body advance, both sides); space is the word break.
+ *  (Cap-into-lowercase joining is deferred to a v2 — caps reading as upright
+ *  word-openers matched the approved prototype and avoids a tight cap advance
+ *  welding the next letter.) */
+export function joinClass(char: string): JoinClass {
+  if (char === ' ') return { kind: 'space', joinsLeft: false, joinsRight: false, highExit: false };
+  if (!LETTER.test(char) || UPPER.test(char)) return { kind: 'break', joinsLeft: false, joinsRight: false, highExit: false };
+  if (DESC_EXIT.has(char)) return { kind: 'join', joinsLeft: true, joinsRight: false, highExit: false };
+  return { kind: 'join', joinsLeft: true, joinsRight: true, highExit: HIGH_EXIT.has(char) };
 }
 
 /** The single anchor/advance rule (the load-bearing geometry). Anchor and
  *  advance share one origin so consecutive plugs meet AND a round letter whose
  *  bowl bulges left of its entry never goes negative-x.
  *
- *  'join'    — the cursor arrives on this glyph's left plug. anchorOrigin =
- *              min(leftPlug, inkLeft); dx = -anchorOrigin; advance to the right
- *              plug from the same origin, less the overlap.
- *  'leftpad' — the cursor did NOT arrive on a plug (a cap's left, or a glyph
- *              after a break): give it a body-left bearing, advance still to its
- *              right plug. */
+ *  joinLeft  — the cursor arrives on this glyph's left plug, so anchor there:
+ *              anchorOrigin = min(leftPlug, inkLeft); dx = -anchorOrigin. When
+ *              false (a word-opener like a cap), give it a body-left bearing.
+ *  joinRight — advance to the right plug, less the overlap, so the next glyph
+ *              meets it. When false (descender-exit), advance past the plug by a
+ *              pad so the next glyph starts clean. */
 export function anchorAdvance(p: {
   leftPlug: number;
   rightPlug: number;
@@ -1122,13 +1120,12 @@ export function anchorAdvance(p: {
   overlapPx: number;
   minAdvPx: number;
   leftPadPx: number;
-  mode: 'join' | 'leftpad';
+  joinLeft: boolean;
+  joinRight: boolean;
 }): { dx: number; cellW: number } {
-  if (p.mode === 'leftpad') {
-    return { dx: p.leftPadPx - p.inkLeft, cellW: Math.max(p.minAdvPx, p.rightPlug - p.inkLeft - p.overlapPx) };
-  }
-  const anchorOrigin = Math.min(p.leftPlug, p.inkLeft);
-  return { dx: -anchorOrigin, cellW: Math.max(p.minAdvPx, p.rightPlug - anchorOrigin - p.overlapPx) };
+  const leftAnchor = p.joinLeft ? Math.min(p.leftPlug, p.inkLeft) : p.inkLeft - p.leftPadPx;
+  const rightEnd = p.joinRight ? p.rightPlug - p.overlapPx : p.rightPlug + p.leftPadPx;
+  return { dx: -leftAnchor, cellW: Math.max(p.minAdvPx, rightEnd - leftAnchor) };
 }
 
 // connect-mode constants (calibrated on the field cursive sheet in prototyping).
@@ -1136,7 +1133,6 @@ const BAND_LO = 0.06; // ·xhPx — band bottom, above baseline AA/foot, strictl
 const BAND_HI = 0.42; // ·xhPx — band top, below the round-bowl bulge (~0.50)
 const HIGH_EXIT_LO = 0.5; // ·xhPx — high-exit right band floor
 const HIGH_EXIT_HI = 0.95; // ·xhPx — high-exit right band ceiling
-const CAP_BAND_HI = 0.3; // ·capHpx — caps exit lower relative to their full height
 const BAND_MIN_ROWS = 2; // one finite row is raster noise; two = a real crossing
 const BAND_MIN_AREA = 0.005; // band ink as a fraction of glyph ink
 const MIN_ADV_PCT = 0.18; // ·xhPx — narrow-letter advance floor (i l j)
@@ -1250,7 +1246,6 @@ export function connectGlyphs(
   const decisions: ({ dx: number; cellW: number } | null)[] = glyphs.map(() => null);
   let joined = 0,
     broke = 0;
-  let prevBroke = true; // string start behaves like a break boundary
 
   const breakGlyph = (i: number) => {
     const prof = profiles[i];
@@ -1262,36 +1257,40 @@ export function connectGlyphs(
       decisions[i] = { dx: leftPadPx - body.min, cellW: body.max - body.min + 1 + 2 * leftPadPx };
     }
     broke++;
-    prevBroke = true;
   };
 
   for (let i = 0; i < glyphs.length; i++) {
     const g = glyphs[i];
     const prof = profiles[i];
     const sp = ink[i];
-    const cls = joinClass(g.char, glyphs[i - 1]?.char, glyphs[i + 1]?.char);
+    const cls = joinClass(g.char);
     if (cls.kind === 'space') {
       decisions[i] = null; // the worker gives the space its own advance (spaceAdvance)
-      prevBroke = true;
       continue;
     }
     if (cls.kind === 'break' || !prof || !sp) {
       breakGlyph(i);
       continue;
     }
-    const hBase = cls.cap ? fm.capHpx : xhPx;
-    const main = bandPlugs(i, BAND_LO, cls.cap ? CAP_BAND_HI : BAND_HI, hBase);
+    const main = bandPlugs(i, BAND_LO, BAND_HI, xhPx);
     if (main.rows < BAND_MIN_ROWS || main.area < BAND_MIN_AREA) {
       breakGlyph(i);
       continue;
     }
-    const rp = cls.highExit && !cls.cap ? bandPlugs(i, HIGH_EXIT_LO, HIGH_EXIT_HI, xhPx) : main;
+    const rp = cls.highExit ? bandPlugs(i, HIGH_EXIT_LO, HIGH_EXIT_HI, xhPx) : main;
     const rightPlug = isFinite(rp.right) ? rp.right : main.right;
     const leftPlug = main.left;
-    const mode: 'join' | 'leftpad' = cls.cap || prevBroke ? 'leftpad' : 'join';
-    decisions[i] = anchorAdvance({ leftPlug, rightPlug, inkLeft: sp.first, overlapPx, minAdvPx, leftPadPx, mode });
+    decisions[i] = anchorAdvance({
+      leftPlug,
+      rightPlug,
+      inkLeft: sp.first,
+      overlapPx,
+      minAdvPx,
+      leftPadPx,
+      joinLeft: cls.joinsLeft,
+      joinRight: cls.joinsRight,
+    });
     joined++;
-    prevBroke = cls.joinsRight ? false : true; // descender-exit / cap-no-right break the NEXT glyph
   }
 
   // loosen-only weld pass: grow a left glyph's advance where a misread-risk pair
@@ -1332,6 +1331,33 @@ export function connectGlyphs(
     return { ...g, paths: g.paths.map((p) => translatePathX(p, d.dx)), cellW: d.cellW };
   });
   return { glyphs: out, joined, broke };
+}
+
+/** Does the face read as a connected/script hand? Mirrors trimGlyphOverhangs's
+ *  pass-1 self-classification (the share of glyphs carrying a deep tail), so the
+ *  maker can auto-enable connect mode for a cursive sheet on the first build. */
+export function isScriptFace(glyphs: Glyph[]): boolean {
+  let withInk = 0,
+    deepTails = 0;
+  for (const g of glyphs) {
+    const prof = glyphColumnAreas(g);
+    if (!prof) continue;
+    let first = -1,
+      last = -1;
+    for (let i = 0; i < prof.cols.length; i++)
+      if (prof.cols[i] > 0) {
+        if (first < 0) first = i;
+        last = i;
+      }
+    if (first < 0) continue;
+    withInk++;
+    const b = bodyBoundsFromColumns(prof.cols, {}, prof.spans);
+    if (!b) continue;
+    const inkW = last - first + 1;
+    const trim = Math.max(b.min - first, last - b.max);
+    if (trim >= inkW * SCRIPT_TAIL_DEPTH) deepTails++;
+  }
+  return withInk > 0 && deepTails / withInk >= SCRIPT_TAIL_SHARE;
 }
 
 /** Map the spacing knob to the engine's advance flags. The engine only reads
