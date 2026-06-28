@@ -24,6 +24,7 @@ import {
   buildColorFontFromImage,
   editColorGlyph,
   editMonoRow,
+  isScriptFace,
   makeColorSampleSheet,
   type ColorMode,
   type FontResult,
@@ -67,19 +68,19 @@ const KINDS: { id: Kind; label: string }[] = [
   { id: 'flat', label: 'color · flat' },
 ];
 
-function RangeRow({ label, min, max, value, onChange, fmt }: { label: string; min: number; max: number; value: number; onChange: (v: number) => void; fmt?: (v: number) => string }) {
+function RangeRow({ label, min, max, value, onChange, fmt, disabled }: { label: string; min: number; max: number; value: number; onChange: (v: number) => void; fmt?: (v: number) => string; disabled?: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: disabled ? 0.4 : 1 }}>
       <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', width: 96 }}>{label}</span>
-      <input type="range" aria-label={label} className="fh-range" min={min} max={max} value={value} onChange={(e) => onChange(+e.target.value)} style={{ flex: 1 }} />
+      <input type="range" aria-label={label} className="fh-range" min={min} max={max} value={value} disabled={disabled} onChange={(e) => onChange(+e.target.value)} style={{ flex: 1 }} />
       <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-soft)', width: fmt ? 32 : 20, textAlign: 'right' }}>{fmt ? fmt(value) : value}</span>
     </div>
   );
 }
 
-function ToggleRow({ label, on, onChange }: { label: string; on: boolean; onChange: (v: boolean) => void }) {
+function ToggleRow({ label, on, onChange, disabled }: { label: string; on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <button type="button" aria-pressed={on} onClick={() => onChange(!on)} className="fh-mono" style={{ fontSize: 11.5, padding: '6px 12px', borderRadius: 2, cursor: 'pointer', border: `1px solid ${on ? 'var(--ink)' : 'var(--line-2)'}`, background: on ? 'var(--ink)' : 'var(--paper)', color: on ? 'var(--paper)' : 'var(--ink-soft)' }}>
+    <button type="button" aria-pressed={on} disabled={disabled} onClick={() => onChange(!on)} className="fh-mono" style={{ fontSize: 11.5, padding: '6px 12px', borderRadius: 2, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1, border: `1px solid ${on ? 'var(--ink)' : 'var(--line-2)'}`, background: on ? 'var(--ink)' : 'var(--paper)', color: on ? 'var(--paper)' : 'var(--ink-soft)' }}>
       {label}
       {on ? ' ✓' : ''}
     </button>
@@ -135,6 +136,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // no-op for letters without thin tails, and the people who need it (script
   // sheets) never find an advanced toggle; the toggle is the off switch.
   const [trimFlourishes, setTrimFlourishes] = useState(true);
+  // connected cursive: place each letter by its connection plugs so the strokes
+  // join. Mono only. Auto-enabled for a detected script face (unless the user has
+  // touched the toggle); replaces flourish overhang, spacing, and italic when on.
+  const [connect, setConnect] = useState(false);
+  const [connectTouched, setConnectTouched] = useState(false);
   // synthetic italic: the engine shears -14° and writes the italic metadata when
   // the build style says "Italic". Mono only for now (the color path is separate).
   const [italic, setItalic] = useState(false);
@@ -275,9 +281,20 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         warn = trace.rowWarning;
         rep = trace.report;
         setMonoRows(trace.rows);
+        // auto-enable connect for a script face on the first build; once the user
+        // touches the toggle, their choice sticks.
+        const useConnect = connectTouched ? connect : isScriptFace(trace.glyphs);
+        if (!connectTouched && useConnect !== connect) setConnect(useConnect);
         res = await buildFont(
           trace.glyphs,
-          { family: fam, style: italic ? 'Italic' : 'Regular', formats: ['otf', 'ttf', 'woff2'], spacingPct: spacing, trimFlourishes },
+          {
+            family: fam,
+            style: italic && !useConnect ? 'Italic' : 'Regular',
+            formats: ['otf', 'ttf', 'woff2'],
+            spacingPct: spacing,
+            trimFlourishes: useConnect ? false : trimFlourishes,
+            connect: useConnect,
+          },
           (step, message) => setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
       }
@@ -460,7 +477,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setRowBusy(rowIndex);
     setRowErr('');
     try {
-      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, trimFlourishes);
+      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, connect ? false : trimFlourishes, connect);
       setResult(r.result);
       setReport(r.report);
       setGlyphCount(r.glyphCount);
@@ -759,7 +776,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </div>
               )}
               <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                <RangeRow label="spacing" min={0} max={12} value={spacing} onChange={setSpacing} fmt={(v) => (v === 0 ? 'auto' : String(v))} />
+                <RangeRow label="spacing" min={0} max={12} value={spacing} onChange={setSpacing} fmt={(v) => (v === 0 ? 'auto' : String(v))} disabled={!isColor && connect} />
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', margin: '7px 0 11px', lineHeight: 1.5 }}>
                   auto keeps the sheet's own letter pitch. Higher numbers rebuild every letter with an even gap, looser as it grows.
                 </p>
@@ -769,7 +786,15 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </p>
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="flourish overhang" on={trimFlourishes} onChange={setTrimFlourishes} />
+                    <ToggleRow label="connected cursive" on={connect} onChange={(v) => { setConnect(v); setConnectTouched(true); }} />
+                    <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
+                      joins the letters into a connected script. Auto for cursive sheets. Turns off flourish overhang, spacing, and italic while on.
+                    </p>
+                  </div>
+                )}
+                {!isColor && (
+                  <div style={{ marginTop: 11 }}>
+                    <ToggleRow label="flourish overhang" on={connect ? false : trimFlourishes} onChange={setTrimFlourishes} disabled={connect} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       spaces each letter by its body and lets thin tails overlap the next letter, like a real italic. For script faces with long swashes.
                     </p>
@@ -777,7 +802,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="italic" on={italic} onChange={setItalic} />
+                    <ToggleRow label="italic" on={connect ? false : italic} onChange={setItalic} disabled={connect} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       slant it into an italic. Build again with this off for the upright.
                     </p>
