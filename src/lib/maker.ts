@@ -1190,7 +1190,7 @@ export function faceMetrics(glyphs: Glyph[], profiles?: (ReturnType<typeof glyph
 export function connectGlyphs(
   glyphs: Glyph[],
   opts: { overlapPct?: number; minAdvPct?: number; seamless?: boolean } = {},
-): { glyphs: Glyph[]; joined: number; broke: number } {
+): { glyphs: Glyph[]; joined: number; broke: number; breaks: Array<{ char: string; reason: string }> } {
   const profiles = glyphs.map((g) => glyphColumnAreas(g));
   const fm = faceMetrics(glyphs, profiles);
   const xhPx = Math.max(1, fm.xhPx);
@@ -1246,15 +1246,19 @@ export function connectGlyphs(
   const decisions: ({ dx: number; cellW: number } | null)[] = glyphs.map(() => null);
   let joined = 0,
     broke = 0;
+  const breaks: Array<{ char: string; reason: string }> = [];
 
-  const breakGlyph = (i: number) => {
-    const prof = profiles[i];
+  const breakGlyph = (i: number, reason: string) => {
+    breaks.push({ char: glyphs[i].char, reason });
     const sp = ink[i];
-    if (!prof || !sp) {
+    if (!sp) {
       decisions[i] = { dx: 0, cellW: Math.max(minAdvPx, Math.ceil(glyphs[i].cellW)) };
     } else {
-      const body = bodyBoundsFromColumns(prof.cols, {}, prof.spans) || { min: sp.first, max: sp.last };
-      decisions[i] = { dx: leftPadPx - body.min, cellW: body.max - body.min + 1 + 2 * leftPadPx };
+      // break-class glyphs (caps, digits, punctuation) take their FULL ink width
+      // plus a pad each side, never a trimmed body. A swashy cap must contain its
+      // own swash inside its advance, or the trimmed tail overhangs and welds the
+      // next letter (the field-chancery G+n / cap-overhang failures).
+      decisions[i] = { dx: leftPadPx - sp.first, cellW: sp.last - sp.first + 1 + 2 * leftPadPx };
     }
     broke++;
   };
@@ -1269,12 +1273,12 @@ export function connectGlyphs(
       continue;
     }
     if (cls.kind === 'break' || !prof || !sp) {
-      breakGlyph(i);
+      breakGlyph(i, cls.kind === 'break' ? 'class' : 'no-ink');
       continue;
     }
     const main = bandPlugs(i, BAND_LO, BAND_HI, xhPx);
     if (main.rows < BAND_MIN_ROWS || main.area < BAND_MIN_AREA) {
-      breakGlyph(i);
+      breakGlyph(i, `no-band(rows=${main.rows},area=${main.area.toFixed(3)})`);
       continue;
     }
     const rp = cls.highExit ? bandPlugs(i, HIGH_EXIT_LO, HIGH_EXIT_HI, xhPx) : main;
@@ -1330,7 +1334,7 @@ export function connectGlyphs(
     if (!d) return g;
     return { ...g, paths: g.paths.map((p) => translatePathX(p, d.dx)), cellW: d.cellW };
   });
-  return { glyphs: out, joined, broke };
+  return { glyphs: out, joined, broke, breaks };
 }
 
 /** Does the face read as a connected/script hand? Mirrors trimGlyphOverhangs's
@@ -1409,7 +1413,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // the worker slants on the STYLE NAME; a slant adds span to every advance
     // and shears every glyph, un-meeting the joins, so force upright here
     styleOut = 'Regular';
-    (globalThis as unknown as { __lastConnect?: object }).__lastConnect = { joined: fit.joined, broke: fit.broke };
+    (globalThis as unknown as { __lastConnect?: object }).__lastConnect = { joined: fit.joined, broke: fit.broke, breaks: fit.breaks };
   } else if (opts.trimFlourishes) {
     // body advances need cell-width mode: the trimmed cell IS the advance and
     // the tail rides outside it; tight advance would re-measure the full bbox
