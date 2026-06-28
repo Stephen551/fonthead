@@ -32,6 +32,13 @@ const STRUCTURAL_MAX = 70;
 const CROSSER_MAX = 260;
 const RHYTHM_SD_MAX = 130; // pair-gap standard deviation across a pangram
 const WORD_SPACE_MIN = 40; // median visible gap across a word break
+// Connect mode only: adjacent lowercase must JOIN (touch), not float. The
+// connected-cursive fixture measures median 15 / max ~104; a non-connect build
+// of the same letters reads median 78-110, so these gates sit well between and
+// catch a face that has stopped connecting (a regression) without flagging the
+// healthy slightly-loose high-exit pair.
+const JOIN_GAP_MEDIAN_MAX = 40;
+const JOIN_GAP_MAX = 150;
 // capOverhang: a cap with a right-reaching arm or bowl (F/P/R/E/B, and the
 // T/Y/V/W reaches) over-kerned onto the following lowercase so the arm welds
 // into the next letter's body. The metric the corpus already had could not
@@ -79,11 +86,20 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
       localStorage.setItem('fh-maker-tour-seen', '1');
+      // Build each fixture in a deterministic, intended mode: this harness drives
+      // the connect toggle explicitly (off for the trim/overhang fixtures, on for
+      // the connected-cursive fixture), so it must not auto-connect script faces.
+      localStorage.setItem('fh-test-no-autoconnect', '1');
     } catch {
       /* private mode */
     }
   });
 });
+
+// Lowercase->lowercase pairs that should JOIN in connect mode (no break-class
+// glyph, no descender-exit left member). The realized gap should be a touch,
+// never visible daylight, or the "connected" face reads disconnected.
+const JOIN_PAIRS = ['an', 'ne', 'en', 'nn', 'mi', 'in', 're', 'er', 'ou', 'un', 'th', 'he', 'ic', 'ck', 'ow', 'wn', 'el', 'll', 'or', 'ab', 'cd', 'de', 'ef', 'ro', 'br', 'fr', 'lo', 'oo', 'ee'];
 
 type Metrics = {
   glyphs: number;
@@ -92,12 +108,15 @@ type Metrics = {
   capOverhang: { depth: number; worst: string };
   rhythmSd: number;
   wordSpaceMedian: number;
+  joinGapMedian: number;
+  joinGapMax: number;
+  joinGapWorst: string;
 };
 
 async function measure(page: Page, otfPath: string): Promise<Metrics> {
   const b64 = readFileSync(otfPath).toString('base64');
   return page.evaluate(
-    ({ b, structuralPairs, crosserPairs, capPairs, pangram, spacePairs }) => {
+    ({ b, structuralPairs, crosserPairs, capPairs, pangram, spacePairs, joinPairs }) => {
       const bin = atob(b);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -282,6 +301,25 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
       spaceGaps.sort((a, b) => a - b);
       const wordSpaceMedian = spaceGaps.length ? spaceGaps[Math.floor(spaceGaps.length / 2)] : 0;
 
+      // join gaps: how far apart adjacent lowercase letters land in the body
+      // strip. Positive = daylight (disconnected); ~0 or slightly negative =
+      // joined. Median across the join pairs + the worst (largest) gap.
+      const jg: Array<{ p: string; g: number }> = [];
+      for (const p of joinPairs) {
+        const g = pairGap(p[0], p[1]);
+        if (g !== null) jg.push({ p, g });
+      }
+      const jgVals = jg.map((x) => x.g).sort((a, b) => a - b);
+      const joinGapMedian = jgVals.length ? jgVals[Math.floor(jgVals.length / 2)] : 0;
+      let joinGapMax = -Infinity;
+      let joinGapWorst = '';
+      for (const x of jg)
+        if (x.g > joinGapMax) {
+          joinGapMax = x.g;
+          joinGapWorst = x.p;
+        }
+      if (!isFinite(joinGapMax)) joinGapMax = 0;
+
       let glyphs = 0;
       for (let i = 0; i < font.glyphs.length; i++) {
         const g = font.glyphs.get(i);
@@ -294,17 +332,30 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
         capOverhang,
         rhythmSd: Math.round(sd),
         wordSpaceMedian: Math.round(wordSpaceMedian),
+        joinGapMedian: Math.round(joinGapMedian),
+        joinGapMax: Math.round(joinGapMax),
+        joinGapWorst,
       };
     },
-    { b: b64, structuralPairs: STRUCTURAL_PAIRS, crosserPairs: CROSSER_PAIRS, capPairs: CAP_PAIRS, pangram: PANGRAM, spacePairs: SPACE_PAIRS },
+    { b: b64, structuralPairs: STRUCTURAL_PAIRS, crosserPairs: CROSSER_PAIRS, capPairs: CAP_PAIRS, pangram: PANGRAM, spacePairs: SPACE_PAIRS, joinPairs: JOIN_PAIRS },
   );
 }
 
 for (const sheet of sheets) {
   test(`corpus: ${sheet.name}`, async ({ page }) => {
+    const isConnect = sheet.name === 'connected-cursive';
     await page.goto('/make');
     await page.locator('#sheet-file').setInputFiles(sheet.path);
     await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 150_000 });
+
+    // The connected-cursive fixture is built in connect mode (auto-detect is off
+    // in this harness); every other fixture stays on the trim/overhang path.
+    if (isConnect) {
+      await page.getByRole('button', { name: 'advanced' }).click();
+      await page.getByRole('button', { name: /connected cursive/ }).click();
+      await page.getByRole('button', { name: 'rebuild with these settings' }).click();
+      await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 150_000 });
+    }
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
@@ -315,8 +366,10 @@ for (const sheet of sheets) {
 
     const m = await measure(page, otfPath);
     const trim = await page.evaluate(() => (window as unknown as { __lastTrim?: { script: boolean; trimmed: number } }).__lastTrim);
+    const conn = await page.evaluate(() => (window as unknown as { __lastConnect?: { joined: number; broke: number } }).__lastConnect);
+    const mode = isConnect ? `connect/${conn?.joined ?? '?'}j` : `${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'}`;
     console.log(
-      `CORPUS | ${sheet.name.padEnd(24)} | ${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'} glyphs=${m.glyphs} structural=${m.structural.depth}(${m.structural.worst || '-'}) crosser=${m.crosser.depth}(${m.crosser.worst || '-'}) capOverhang=${m.capOverhang.depth}(${m.capOverhang.worst || '-'}) rhythmSd=${m.rhythmSd} wordSpace=${m.wordSpaceMedian}`,
+      `CORPUS | ${sheet.name.padEnd(24)} | ${mode} glyphs=${m.glyphs} structural=${m.structural.depth}(${m.structural.worst || '-'}) crosser=${m.crosser.depth}(${m.crosser.worst || '-'}) capOverhang=${m.capOverhang.depth}(${m.capOverhang.worst || '-'}) rhythmSd=${m.rhythmSd} wordSpace=${m.wordSpaceMedian} joinGap=med${m.joinGapMedian}/max${m.joinGapMax}(${m.joinGapWorst || '-'})`,
     );
 
     // render the contact-sheet strip for this face (real shaping, kern on)
@@ -342,6 +395,10 @@ for (const sheet of sheets) {
     }
     expect(m.rhythmSd, 'pair-gap rhythm spread').toBeLessThanOrEqual(RHYTHM_SD_MAX);
     expect(m.wordSpaceMedian, 'word-break visibility').toBeGreaterThanOrEqual(WORD_SPACE_MIN);
+    if (isConnect) {
+      expect(m.joinGapMedian, `connect join gap median (worst ${m.joinGapWorst})`).toBeLessThanOrEqual(JOIN_GAP_MEDIAN_MAX);
+      expect(m.joinGapMax, `connect join gap max (worst ${m.joinGapWorst})`).toBeLessThanOrEqual(JOIN_GAP_MAX);
+    }
   });
 }
 

@@ -282,8 +282,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         rep = trace.report;
         setMonoRows(trace.rows);
         // auto-enable connect for a script face on the first build; once the user
-        // touches the toggle, their choice sticks.
-        const useConnect = connectTouched ? connect : isScriptFace(trace.glyphs);
+        // touches the toggle, their choice sticks. The corpus harness sets
+        // fh-test-no-autoconnect so each fixture is built in a deterministic,
+        // intended mode (it drives the toggle explicitly) rather than relying on
+        // auto-detect.
+        const noAuto = typeof localStorage !== 'undefined' && localStorage.getItem('fh-test-no-autoconnect') === '1';
+        const useConnect = connectTouched ? connect : noAuto ? false : isScriptFace(trace.glyphs);
         if (!connectTouched && useConnect !== connect) setConnect(useConnect);
         res = await buildFont(
           trace.glyphs,
