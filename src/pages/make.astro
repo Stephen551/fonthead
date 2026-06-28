@@ -79,6 +79,7 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
       </div>
       <div class="fh-gen-presets" role="group" aria-label="Sheet type">
         <button type="button" class="fh-chip fh-preset" data-preset="standard" aria-pressed="true">standard</button>
+        <button type="button" class="fh-chip fh-preset" data-preset="script" aria-pressed="false">script</button>
         <button type="button" class="fh-chip fh-preset" data-preset="monoline" aria-pressed="false">monoline</button>
         <button type="button" class="fh-chip fh-preset" data-preset="flat" aria-pressed="false">flat color</button>
         <button type="button" class="fh-chip fh-preset" data-preset="gradient" aria-pressed="false">gradient color</button>
@@ -161,7 +162,7 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
     // gradient a color family, monoline none. The two symbol rows match the
     // maker's punctuation order so the charset auto-detect reads every row.
     // (Template lines sit at column 0 so no source indentation leaks into the copy.)
-    type Preset = 'standard' | 'monoline' | 'flat' | 'gradient';
+    type Preset = 'standard' | 'script' | 'monoline' | 'flat' | 'gradient';
 
     const STANDARD = (style: string) =>
       `Hand-drawn alphabet sheet, 7 rows on white paper:
@@ -181,6 +182,31 @@ Requirements:
 - No swashes or decorative flourishes that extend into the next letter
 - High resolution: at least 2000px wide
 - Output: one clean PNG image, 7 rows of letters as specified above`;
+
+    const SCRIPT = (style: string) =>
+      `Hand-drawn CONNECTED CURSIVE alphabet sheet, 7 rows on white paper:
+Row 1: capitals A B C D E F G H I J K L M
+Row 2: capitals N O P Q R S T U V W X Y Z
+Row 3: lowercase a b c d e f g h i j k l m
+Row 4: lowercase n o p q r s t u v w x y z
+Row 5: digits 0 1 2 3 4 5 6 7 8 9
+Row 6: symbols ! ? @ # $ % ^ & * ( ) - _ + = [ ]
+Row 7: symbols { } ; : ' " , . < > / \\ |
+
+CONNECTED CURSIVE is critical (this sheet feeds a joining tracer):
+- A single flowing cursive hand${style ? ` (${style})` : ''}, the lowercase letters made to link
+- Give EVERY lowercase letter an entry stroke on the left and an exit stroke on the right
+- All those entry and exit strokes meet ONE common connector line just above the baseline, at the same height on every letter, so the letters read as one continuous stroke
+- Each lowercase letter reaches the LEFT and RIGHT edges of its cell with that connector stroke, so neighbors almost touch
+- One character per cell with a faint even grid; the connector strokes carry the rhythm, not wide gaps
+- Capitals, digits, and punctuation stand alone, no joining needed
+
+Other requirements:
+- Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
+- Even baseline across each row, consistent x-height
+- One character per cell, all 7 rows exactly as listed
+- High resolution: at least 2000px wide
+- Output: one clean PNG image, 7 rows as specified above`;
 
     const MONOLINE = () =>
       `Hand-drawn MONOLINE alphabet sheet, 7 rows on white paper:
@@ -259,6 +285,7 @@ Other requirements:
 
     const PRESETS: Record<Preset, { build: (v: string) => string; chips: boolean; label: string | null; placeholder: string }> = {
       standard: { build: STANDARD, chips: true, label: 'YOUR STYLE', placeholder: 'type a style: brush script, bubbly, monospace tech, hand-cut stencil...' },
+      script: { build: SCRIPT, chips: false, label: 'YOUR STYLE', placeholder: 'type a cursive style: elegant, casual, brush, spencerian...' },
       monoline: { build: () => MONOLINE(), chips: false, label: null, placeholder: '' },
       flat: { build: FLAT, chips: false, label: 'YOUR PALETTE', placeholder: 'list 2 to 4 flat colors' },
       gradient: { build: GRADIENT, chips: false, label: 'COLOR FAMILY', placeholder: 'name one color family' },
@@ -271,6 +298,7 @@ Other requirements:
     const ALPHA = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789'];
     const PRESET_CHARSETS: Record<Preset, string[]> = {
       standard: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
+      script: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
       monoline: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
       flat: [...ALPHA, '.,!?:;\'"-&@#'],
       gradient: [...ALPHA, '.,!?:;\'"-&@#'],

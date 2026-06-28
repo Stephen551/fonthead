@@ -31,4 +31,9 @@ test('walkthrough shows, dismisses, retriggers; prompt builder reflects the styl
   await expect(page.locator('#gen-prompt')).toContainText('COLRv0 FLAT-LAYER builder');
   await page.locator('#gen-extra').fill('charcoal, red, cream');
   await expect(page.locator('#gen-prompt')).toContainText('charcoal, red, cream');
+
+  // the script preset prompts for a connected cursive with the connector contract
+  await page.getByRole('button', { name: 'script', exact: true }).click();
+  await expect(page.locator('#gen-prompt')).toContainText('CONNECTED CURSIVE');
+  await expect(page.locator('#gen-prompt')).toContainText('common connector line');
 });
