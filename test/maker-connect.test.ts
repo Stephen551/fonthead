@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { joinClass, anchorAdvance } from '../src/lib/maker';
+import { joinClass, anchorAdvance, connectGlyphs } from '../src/lib/maker';
 
 // Connected-cursive join classification. Pure decision, no canvas, no engine.
 describe('joinClass', () => {
@@ -69,5 +69,22 @@ describe('anchorAdvance', () => {
     const r = anchorAdvance({ ...base, leftPlug: 10, rightPlug: 40, inkLeft: 6, mode: 'leftpad' });
     expect(r.dx).toBe(1 - 6); // leftPadPx - inkLeft
     expect(r.cellW).toBe(34); // max(5, 40-6-0)
+  });
+});
+
+describe('connectGlyphs (structural)', () => {
+  // Glyphs with no usable paths raster to null, so every glyph falls to the
+  // break-class fallback. This exercises the orchestration without needing a
+  // real canvas (the full raster path is gated by the corpus/e2e suites).
+  it('tolerates empty glyphs and never produces a non-positive advance', () => {
+    const glyphs = [
+      { char: 'a', italic: false, paths: [], cellW: 40, cellH: 100, baselineYInCell: 80 },
+      { char: ' ', italic: false, paths: [], cellW: 30, cellH: 100, baselineYInCell: 80 },
+      { char: 'n', italic: false, paths: [], cellW: 50, cellH: 100, baselineYInCell: 80 },
+    ];
+    const out = connectGlyphs(glyphs as never, {});
+    expect(out.glyphs).toHaveLength(3);
+    for (const g of out.glyphs) expect(g.cellW).toBeGreaterThan(0);
+    expect(out.joined + out.broke).toBeGreaterThanOrEqual(0);
   });
 });

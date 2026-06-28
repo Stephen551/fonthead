@@ -1121,6 +1121,209 @@ export function anchorAdvance(p: {
   return { dx: -anchorOrigin, cellW: Math.max(p.minAdvPx, p.rightPlug - anchorOrigin - p.overlapPx) };
 }
 
+// connect-mode constants (calibrated on the field cursive sheet in prototyping).
+const BAND_LO = 0.06; // ·xhPx — band bottom, above baseline AA/foot, strictly > 0
+const BAND_HI = 0.42; // ·xhPx — band top, below the round-bowl bulge (~0.50)
+const HIGH_EXIT_LO = 0.5; // ·xhPx — high-exit right band floor
+const HIGH_EXIT_HI = 0.95; // ·xhPx — high-exit right band ceiling
+const CAP_BAND_HI = 0.3; // ·capHpx — caps exit lower relative to their full height
+const BAND_MIN_ROWS = 2; // one finite row is raster noise; two = a real crossing
+const BAND_MIN_AREA = 0.005; // band ink as a fraction of glyph ink
+const MIN_ADV_PCT = 0.18; // ·xhPx — narrow-letter advance floor (i l j)
+const OVERLAP_PCT = 0.0; // ·xhPx — shipping default, the consistent-touch floor
+const OVERLAP_SEAMLESS = 0.015; // ·xhPx — opt-in seamless overlap
+const LEFT_PAD_FLOOR = 1; // px — break-class + post-break side bearing
+
+export interface FaceMetrics {
+  xhPx: number;
+  maxAscRaster: number;
+  maxAscBBox: number;
+  capHpx: number;
+}
+
+/** Face-wide measurements, computed once. Two ascent values are kept separate
+ *  on purpose: the RASTER ascent (from the rendered glyph rows) drives band
+ *  geometry, which lives in cell-pixel space; the estimateBBox ascent matches
+ *  the engine's own scale (0.80*upm/maxAscBBox) and drives px<->UPM conversions.
+ *  Mixing them drifts the realized overlap/penetration off its intended size. */
+export function faceMetrics(glyphs: Glyph[], profiles?: (ReturnType<typeof glyphColumnAreas>)[]): FaceMetrics {
+  const estimateBBox = w().estimateBBox;
+  let maxAscBBox = 1;
+  if (estimateBBox) {
+    for (const g of glyphs)
+      for (const d of g.paths) {
+        const bb = estimateBBox(d);
+        if (bb) maxAscBBox = Math.max(maxAscBBox, g.baselineYInCell - bb.minY);
+      }
+  }
+  let maxAscRaster = 1,
+    xAsc = 0;
+  const xHeights: number[] = [];
+  const capAsc: number[] = [];
+  glyphs.forEach((g, i) => {
+    const prof = profiles ? profiles[i] : glyphColumnAreas(g);
+    if (!prof) return;
+    const asc = g.baselineYInCell - prof.inkTopRow;
+    if (asc > maxAscRaster) maxAscRaster = asc;
+    if (g.char === 'x') xAsc = asc;
+    if ('xvwzonu'.includes(g.char)) xHeights.push(asc);
+    if ('HBEINPRT'.includes(g.char)) capAsc.push(asc);
+  });
+  xHeights.sort((a, b) => a - b);
+  const xhPx = xAsc || (xHeights.length ? xHeights[Math.floor(xHeights.length / 2)] : maxAscRaster * 0.5);
+  capAsc.sort((a, b) => a - b);
+  const capHpx = capAsc.length ? capAsc[Math.floor(capAsc.length / 2)] : xhPx / 0.7;
+  return { xhPx, maxAscRaster, maxAscBBox, capHpx };
+}
+
+/** Connected-cursive fit: place each glyph by its connection plugs so the exit
+ *  of one letter meets the entry of the next, instead of trimming tails. A
+ *  sibling of trimGlyphOverhangs (never a wrapper). Mutates paths via
+ *  translatePathX and cellW only; char/italic/cellH/baselineYInCell untouched.
+ *  See docs/superpowers/specs/2026-06-28-connected-cursive-design.md. */
+export function connectGlyphs(
+  glyphs: Glyph[],
+  opts: { overlapPct?: number; minAdvPct?: number; seamless?: boolean } = {},
+): { glyphs: Glyph[]; joined: number; broke: number } {
+  const profiles = glyphs.map((g) => glyphColumnAreas(g));
+  const fm = faceMetrics(glyphs, profiles);
+  const xhPx = Math.max(1, fm.xhPx);
+  const overlapPx = Math.round((opts.overlapPct ?? (opts.seamless ? OVERLAP_SEAMLESS : OVERLAP_PCT)) * xhPx);
+  const minAdvPx = Math.max(1, Math.round((opts.minAdvPct ?? MIN_ADV_PCT) * xhPx));
+  const leftPadPx = Math.max(LEFT_PAD_FLOOR, Math.round((0.1 / 100) * (fm.maxAscBBox / 0.8)));
+  const maxPenPx = Math.max(3, Math.round((0.018 * fm.maxAscBBox) / 0.8));
+
+  const ink = profiles.map((prof) => {
+    if (!prof) return null;
+    let first = -1,
+      last = -1;
+    for (let i = 0; i < prof.cols.length; i++)
+      if (prof.cols[i] > 0) {
+        if (first < 0) first = i;
+        last = i;
+      }
+    return first < 0 ? null : { first, last };
+  });
+
+  // plugs in a horizontal band: leftmost/rightmost ink across the band's rows,
+  // plus how many band rows carry ink and what share of the glyph's ink the
+  // band holds (the no-band promotion signal).
+  const bandPlugs = (i: number, lo: number, hi: number, hBase: number) => {
+    const prof = profiles[i]!;
+    const g = glyphs[i];
+    const botY = Math.min(g.cellH - 1, Math.max(0, Math.round(g.baselineYInCell - hBase * lo)));
+    const topY = Math.min(g.cellH - 1, Math.max(0, Math.round(g.baselineYInCell - hBase * hi)));
+    let left = Infinity,
+      right = -Infinity,
+      rows = 0,
+      bandInk = 0,
+      totalInk = 0,
+      lY = -1,
+      rY = -1;
+    for (let y = 0; y < prof.rowLeft.length; y++) if (isFinite(prof.rowLeft[y])) totalInk += prof.rowRight[y] - prof.rowLeft[y] + 1;
+    for (let y = topY; y <= botY; y++) {
+      if (!isFinite(prof.rowLeft[y]) || !isFinite(prof.rowRight[y])) continue;
+      rows++;
+      bandInk += prof.rowRight[y] - prof.rowLeft[y] + 1;
+      if (prof.rowLeft[y] < left) {
+        left = prof.rowLeft[y];
+        lY = y;
+      }
+      if (prof.rowRight[y] > right) {
+        right = prof.rowRight[y];
+        rY = y;
+      }
+    }
+    return { left, right, rows, area: totalInk > 0 ? bandInk / totalInk : 0, lY, rY };
+  };
+
+  const decisions: ({ dx: number; cellW: number } | null)[] = glyphs.map(() => null);
+  let joined = 0,
+    broke = 0;
+  let prevBroke = true; // string start behaves like a break boundary
+
+  const breakGlyph = (i: number) => {
+    const prof = profiles[i];
+    const sp = ink[i];
+    if (!prof || !sp) {
+      decisions[i] = { dx: 0, cellW: Math.max(minAdvPx, Math.ceil(glyphs[i].cellW)) };
+    } else {
+      const body = bodyBoundsFromColumns(prof.cols, {}, prof.spans) || { min: sp.first, max: sp.last };
+      decisions[i] = { dx: leftPadPx - body.min, cellW: body.max - body.min + 1 + 2 * leftPadPx };
+    }
+    broke++;
+    prevBroke = true;
+  };
+
+  for (let i = 0; i < glyphs.length; i++) {
+    const g = glyphs[i];
+    const prof = profiles[i];
+    const sp = ink[i];
+    const cls = joinClass(g.char, glyphs[i - 1]?.char, glyphs[i + 1]?.char);
+    if (cls.kind === 'space') {
+      decisions[i] = null; // the worker gives the space its own advance (spaceAdvance)
+      prevBroke = true;
+      continue;
+    }
+    if (cls.kind === 'break' || !prof || !sp) {
+      breakGlyph(i);
+      continue;
+    }
+    const hBase = cls.cap ? fm.capHpx : xhPx;
+    const main = bandPlugs(i, BAND_LO, cls.cap ? CAP_BAND_HI : BAND_HI, hBase);
+    if (main.rows < BAND_MIN_ROWS || main.area < BAND_MIN_AREA) {
+      breakGlyph(i);
+      continue;
+    }
+    const rp = cls.highExit && !cls.cap ? bandPlugs(i, HIGH_EXIT_LO, HIGH_EXIT_HI, xhPx) : main;
+    const rightPlug = isFinite(rp.right) ? rp.right : main.right;
+    const leftPlug = main.left;
+    const mode: 'join' | 'leftpad' = cls.cap || prevBroke ? 'leftpad' : 'join';
+    decisions[i] = anchorAdvance({ leftPlug, rightPlug, inkLeft: sp.first, overlapPx, minAdvPx, leftPadPx, mode });
+    joined++;
+    prevBroke = cls.joinsRight ? false : true; // descender-exit / cap-no-right break the NEXT glyph
+  }
+
+  // loosen-only weld pass: grow a left glyph's advance where a misread-risk pair
+  // penetrates the x-height body strip too deep. Mirrors trimGlyphOverhangs's
+  // pairwise feedback; restores only ever grow advances, so one sweep is stable.
+  const byChar = new Map<string, number>();
+  glyphs.forEach((g, i) => {
+    if (profiles[i] && ink[i] && !byChar.has(g.char)) byChar.set(g.char, i);
+  });
+  for (const [lc, rc] of FUSION_CHECK_PAIRS) {
+    const li = byChar.get(lc);
+    const ri = byChar.get(rc);
+    if (li === undefined || ri === undefined) continue;
+    const Lp = profiles[li];
+    const Rp = profiles[ri];
+    if (!Lp || !Rp) continue;
+    const dL = decisions[li];
+    const dR = decisions[ri];
+    const GLadv = dL ? dL.cellW : Math.max(1, Math.ceil(glyphs[li].cellW));
+    const GLoff = dL ? dL.dx : 0;
+    const GRoff = dR ? dR.dx : 0;
+    let minGap = Infinity;
+    for (let s = 0; s <= 32; s++) {
+      const y = xhPx * 0.15 + xhPx * 0.95 * (s / 32);
+      const rowL = Math.round(glyphs[li].baselineYInCell - y);
+      const rowR = Math.round(glyphs[ri].baselineYInCell - y);
+      if (rowL < 0 || rowL >= Lp.rowRight.length || rowR < 0 || rowR >= Rp.rowLeft.length) continue;
+      if (!isFinite(Lp.rowRight[rowL]) || !isFinite(Rp.rowLeft[rowR])) continue;
+      const gap = GLadv + (Rp.rowLeft[rowR] + GRoff) - (Lp.rowRight[rowL] + GLoff);
+      if (gap < minGap) minGap = gap;
+    }
+    if (isFinite(minGap) && minGap < -maxPenPx && dL) dL.cellW += -minGap - maxPenPx;
+  }
+
+  const out = glyphs.map((g, i) => {
+    const d = decisions[i];
+    if (!d) return g;
+    return { ...g, paths: g.paths.map((p) => translatePathX(p, d.dx)), cellW: d.cellW };
+  });
+  return { glyphs: out, joined, broke };
+}
+
 /** Map the spacing knob to the engine's advance flags. The engine only reads
  *  sideBearingPct on the tight-advance path; under cell-width advance the
  *  sheet's own pitch wins, so auto (0) keeps the historical behavior bit for
