@@ -143,4 +143,30 @@ describe('connectGlyphs (geometry, injected profiles)', () => {
     expect(out.broke).toBe(1);
     expect(out.glyphs[0].cellW).toBe(24 - 4 + 1 + 2); // ink span + 2*leftPad(1)
   });
+
+  // The connection-point model's distinguishing behaviour: the advance must run to
+  // the EXIT connection point (the connector tip reaching toward the next letter),
+  // not the dense body edge. Build a body [4..20] plus a thin exit connector in the
+  // connection band reaching to x=40, and an x glyph to set the x-height.
+  const bodyWithExit = () => {
+    const cols = new Array(CELL_W).fill(0);
+    for (let x = 4; x <= 20; x++) cols[x] = 30; // body, full height
+    for (let x = 21; x <= 40; x++) cols[x] = 3; // thin exit connector
+    const spans = cols.map((n) => (n > 0 ? (n > 10 ? 0.9 : 0.1) : 0));
+    const rowLeft = new Array(CELL_H).fill(Infinity);
+    const rowRight = new Array(CELL_H).fill(-Infinity);
+    for (let y = BASE - 30; y <= BASE; y++) { rowLeft[y] = 4; rowRight[y] = 20; } // body
+    for (let y = BASE - 8; y <= BASE - 2; y++) rowRight[y] = 40; // connector rides in the band
+    return { cols, spans, rowLeft, rowRight, inkTopRow: BASE - 30 };
+  };
+
+  it('advance runs to the EXIT connection point, not the body edge', () => {
+    const gs = [
+      { char: 'x', italic: false, paths: ['M2 0'], cellW: CELL_W, cellH: CELL_H, baselineYInCell: BASE, _p: rect(2, 20, 30) },
+      { char: 'n', italic: false, paths: ['M4 0'], cellW: CELL_W, cellH: CELL_H, baselineYInCell: BASE, _p: bodyWithExit() },
+    ];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    // entry = 4 (leftmost band ink), exit = 40 (connector tip) -> advance 36, NOT 16 (body 20-4)
+    expect(out.glyphs[1].cellW).toBe(36);
+  });
 });

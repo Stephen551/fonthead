@@ -1147,24 +1147,20 @@ export function anchorAdvance(p: {
   return { dx: -leftAnchor, cellW: Math.max(p.minAdvPx, rightEnd - leftAnchor) };
 }
 
-// connect-mode constants (calibrated on the field cursive sheet in prototyping).
-const BAND_LO = 0.06; // ·xhPx — band bottom, above baseline AA/foot, strictly > 0
-const BAND_HI = 0.42; // ·xhPx — band top, below the round-bowl bulge (~0.50)
-const HIGH_EXIT_LO = 0.5; // ·xhPx — high-exit right band floor
-const HIGH_EXIT_HI = 0.95; // ·xhPx — high-exit right band ceiling
+// connect-mode constants (calibrated on the field cursive sheets in prototyping).
+// The CONNECTION BAND: the horizontal strip from just above the baseline up to
+// ~0.6 x-height, where a cursive's entry/exit join strokes ride. The leftmost
+// ink in this band is the entry POINT, the rightmost is the exit POINT, and the
+// glyph is placed so its exit meets the next glyph's entry. One band, one rule
+// for both sides of every seam — the source of even, continuous joins.
+const CONNECT_BAND_LO = 0.02; // ·xhPx — band bottom, just above the baseline
+const CONNECT_BAND_HI = 0.6; // ·xhPx — band top, high enough to catch a raised exit (o/v/w/r)
 const BAND_MIN_ROWS = 2; // one finite row is raster noise; two = a real crossing
 const BAND_MIN_AREA = 0.005; // band's share of the glyph's horizontal extent
 const MIN_ADV_PCT = 0.18; // ·xhPx — narrow-letter advance floor (i l j)
 const OVERLAP_PCT = 0.0; // ·xhPx — shipping default, the consistent-touch floor
 const OVERLAP_SEAMLESS = 0.015; // ·xhPx — opt-in seamless overlap
 const LEFT_PAD_FLOOR = 1; // px — break-class + post-break side bearing
-// ·xhPx — the most a connector stroke may push the advance/anchor past the dense
-// body per side. A cursive whose entry/exit strokes reach far toward neighbours
-// would otherwise space the bodies a full connector-length apart (stretched,
-// dashed); the cap keeps body pitch tight and lets the long connectors overhang
-// and overlap between bodies instead. A normal short exit (r arm, o flick) is
-// well under the cap, so it is unaffected.
-const CONNECT_CAP = 0.4;
 
 export interface FaceMetrics {
   xhPx: number;
@@ -1307,30 +1303,24 @@ export function connectGlyphs(
       breakGlyph(i, cls.kind === 'break' ? 'class' : 'no-ink');
       continue;
     }
-    const main = bandPlugs(i, BAND_LO, BAND_HI, xhPx);
-    if (main.rows < BAND_MIN_ROWS || main.area < BAND_MIN_AREA) {
-      breakGlyph(i, `no-band(rows=${main.rows},area=${main.area.toFixed(3)})`);
+    // Connection-POINT placement. Find the entry point (furthest-left reach) and
+    // exit point (furthest-right reach) in the connection band, place the glyph so
+    // its entry sits at the origin and the advance runs to its exit. The next
+    // glyph's entry then lands exactly on this glyph's exit — the seam meets by
+    // construction, measured the same way on both sides, so the rhythm is even and
+    // the line is continuous. This replaces the old bounding-box plug + body-clamp,
+    // whose per-letter body bounds caused the uneven joins and jagged baseline.
+    const cp = bandPlugs(i, CONNECT_BAND_LO, CONNECT_BAND_HI, xhPx);
+    if (cp.rows < BAND_MIN_ROWS || cp.area < BAND_MIN_AREA) {
+      breakGlyph(i, `no-band(rows=${cp.rows},area=${cp.area.toFixed(3)})`);
       continue;
     }
-    const rp = cls.highExit ? bandPlugs(i, HIGH_EXIT_LO, HIGH_EXIT_HI, xhPx) : main;
-    let rightPlug = isFinite(rp.right) ? rp.right : main.right;
-    let leftPlug = main.left;
-    let inkLeftForAnchor = sp.first;
-    // Bound the connector's contribution: a letter drawn with long entry/exit
-    // strokes keeps its body pitch tight (advance to body + cap), and the long
-    // connectors overhang and overlap the neighbours instead of stretching the
-    // bodies apart. The dense body comes from the same bounds the trim path uses.
-    const body = bodyBoundsFromColumns(prof.cols, {}, prof.spans);
-    if (body) {
-      const cap = Math.round(xhPx * CONNECT_CAP);
-      rightPlug = Math.min(rightPlug, body.max + cap);
-      leftPlug = Math.max(leftPlug, body.min - cap);
-      inkLeftForAnchor = Math.max(sp.first, body.min - cap);
-    }
+    const entryX = isFinite(cp.left) ? cp.left : sp.first;
+    const exitX = isFinite(cp.right) ? cp.right : sp.last;
     decisions[i] = anchorAdvance({
-      leftPlug,
-      rightPlug,
-      inkLeft: inkLeftForAnchor,
+      leftPlug: entryX,
+      rightPlug: exitX,
+      inkLeft: entryX, // anchor on the entry connection point, not the leftmost body ink
       overlapPx,
       minAdvPx,
       leftPadPx,
