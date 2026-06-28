@@ -642,6 +642,8 @@ export async function editMonoRow(
   opts: TraceOpts,
   spacingPct?: number,
   trimFlourishes?: boolean,
+  connect?: boolean,
+  connectOverlapPct?: number,
   onProgress?: Progress,
 ): Promise<{ result: FontResult; glyphCount: number; report: GlyphReport[]; rows: MonoRowInfo[] }> {
   const s = _monoSession;
@@ -661,7 +663,7 @@ export async function editMonoRow(
     if (!glyphs.length) throw new Error('no glyphs left after re-slicing this row');
     const result = await buildFont(
       glyphs,
-      { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes },
+      { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes, connect, connectOverlapPct },
       onProgress,
     );
     return { result, glyphCount: glyphs.length, report: reportForGlyphs(glyphs), rows: s.rowInfo.slice() };
@@ -720,6 +722,14 @@ export interface BuildOpts {
    *  bearings), the way a real italic is fit. For script faces whose swashes
    *  otherwise ride inside the advance as dead air. */
   trimFlourishes?: boolean;
+  /** Connected-cursive mode: place each glyph by its connection plugs so the
+   *  letters join. Mutually exclusive with trimFlourishes (connect wins) and
+   *  forces an upright Regular style (the worker slants on the style name, and a
+   *  slant voids the joins). */
+  connect?: boolean;
+  /** Seamless overlap as a fraction of x-height. 0 (default) is the consistent
+   *  touch floor; a small positive value merges the strokes. */
+  connectOverlapPct?: number;
 }
 
 // ---- flourish trim: body advances with overhang -----------------------------
@@ -1357,7 +1367,24 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   const flags = spacingToBuildFlags(opts.spacingPct);
   let glyphsIn = glyphs;
   let spaceAdvance: number | undefined;
-  if (opts.trimFlourishes) {
+  let styleOut = opts.style ?? 'Regular';
+  if (opts.connect) {
+    // Connected cursive: cellW carries the plug-to-plug advance verbatim
+    // (useCellWidth, shiftX=0), so tight advance must stay off or the worker
+    // re-measures the bbox and adds a side bearing, voiding the join.
+    flags.useCellWidth = true;
+    flags.tightAdvance = false;
+    onProgress?.('connect', 'connected cursive · joining letters');
+    const fit = connectGlyphs(glyphs, { overlapPct: opts.connectOverlapPct });
+    glyphsIn = fit.glyphs;
+    // connected runs read denser than upright; a touch more than the 0.28em
+    // default keeps word breaks visible without gapping the join rhythm
+    spaceAdvance = 0.3;
+    // the worker slants on the STYLE NAME; a slant adds span to every advance
+    // and shears every glyph, un-meeting the joins, so force upright here
+    styleOut = 'Regular';
+    (globalThis as unknown as { __lastConnect?: object }).__lastConnect = { joined: fit.joined, broke: fit.broke };
+  } else if (opts.trimFlourishes) {
     // body advances need cell-width mode: the trimmed cell IS the advance and
     // the tail rides outside it; tight advance would re-measure the full bbox
     // and put the tail back into the advance. When the spacing knob is set it
@@ -1379,14 +1406,14 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   const payload = {
     glyphs: glyphsIn.map((g) => ({
       char: g.char,
-      italic: !!g.italic,
+      italic: opts.connect ? false : !!g.italic,
       paths: g.paths,
       cellW: g.cellW,
       cellH: g.cellH,
       baselineYInCell: g.baselineYInCell,
     })),
     family: opts.family,
-    style: opts.style ?? 'Regular',
+    style: styleOut,
     upm: opts.upm ?? 1000,
     ...flags,
     spaceAdvance,
@@ -1395,8 +1422,9 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // set on the real (post-trim) glyphs and the GPOS PairPos writer lands a
     // real kerning table in the bytes — the path every modern text stack
     // honors (the legacy `kern` table stays off; it was Safari-only and
-    // shipped broken once, see font-engine-features.js).
-    features: { kerning: true },
+    // shipped broken once, see font-engine-features.js). Connect mode places
+    // glyphs by their plugs, so pair kerning would fight the connector spacing.
+    features: { kerning: opts.connect ? false : true },
     embedHints: false,
     embedTTHints: false,
     opticalSidebearings: false,
