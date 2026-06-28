@@ -1,11 +1,15 @@
 ﻿import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-// Skip the maker onboarding modal so it does not block the flow.
+// Skip the maker onboarding modal so it does not block the flow. This spec tests
+// the flourish-overhang path on a chancery (script) sheet, so disable connect
+// auto-detect or the sheet would auto-connect and the overhang toggle would be
+// off-limits.
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
       localStorage.setItem('fh-maker-tour-seen', '1');
+      localStorage.setItem('fh-test-no-autoconnect', '1');
     } catch {
       /* private mode */
     }
