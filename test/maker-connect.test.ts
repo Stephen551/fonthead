@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { joinClass } from '../src/lib/maker';
+import { joinClass, anchorAdvance } from '../src/lib/maker';
 
 // Connected-cursive join classification. Pure decision, no canvas, no engine.
 describe('joinClass', () => {
@@ -37,5 +37,37 @@ describe('joinClass', () => {
     expect(joinClass('5', 'a', 'a')).toMatchObject({ kind: 'break', joinsLeft: false, joinsRight: false });
     expect(joinClass('!', 'a', 'a').kind).toBe('break');
     expect(joinClass(' ', 'a', 'a').kind).toBe('space');
+  });
+});
+
+describe('anchorAdvance', () => {
+  const base = { overlapPx: 0, minAdvPx: 5, leftPadPx: 1 };
+  it('join: anchors on left plug when entry is leftmost ink', () => {
+    const r = anchorAdvance({ ...base, leftPlug: 10, rightPlug: 40, inkLeft: 10, mode: 'join' });
+    expect(r.dx).toBe(-10); // anchorOrigin = min(10,10) = 10
+    expect(r.cellW).toBe(30); // 40 - 10 - 0
+  });
+
+  it('join: round letter bowl left of entry anchors on ink and shortens advance the same', () => {
+    // bowl bulges left: inkLeft=4, entry plug=10
+    const r = anchorAdvance({ ...base, leftPlug: 10, rightPlug: 40, inkLeft: 4, mode: 'join' });
+    expect(r.dx).toBe(-4); // anchorOrigin = min(10,4) = 4 → no negative-x ink
+    expect(r.cellW).toBe(36); // 40 - 4 - 0 → right plug still lands at the join
+  });
+
+  it('join: overlap shortens the advance', () => {
+    const r = anchorAdvance({ ...base, overlapPx: 3, leftPlug: 10, rightPlug: 40, inkLeft: 10, mode: 'join' });
+    expect(r.cellW).toBe(27); // 40 - 10 - 3
+  });
+
+  it('join: minAdvPx floors a narrow letter', () => {
+    const r = anchorAdvance({ ...base, leftPlug: 10, rightPlug: 12, inkLeft: 10, mode: 'join' });
+    expect(r.cellW).toBe(5); // max(5, 12-10-0 = 2)
+  });
+
+  it('leftpad: cap-right / post-break gets a left bearing, advance to right plug from ink', () => {
+    const r = anchorAdvance({ ...base, leftPlug: 10, rightPlug: 40, inkLeft: 6, mode: 'leftpad' });
+    expect(r.dx).toBe(1 - 6); // leftPadPx - inkLeft
+    expect(r.cellW).toBe(34); // max(5, 40-6-0)
   });
 });

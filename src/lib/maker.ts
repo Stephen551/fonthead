@@ -1095,6 +1095,32 @@ export function joinClass(char: string, _prevChar: string | undefined, nextChar:
   return { kind: 'join', joinsLeft: true, joinsRight: true, highExit: HIGH_EXIT.has(char), cap: false };
 }
 
+/** The single anchor/advance rule (the load-bearing geometry). Anchor and
+ *  advance share one origin so consecutive plugs meet AND a round letter whose
+ *  bowl bulges left of its entry never goes negative-x.
+ *
+ *  'join'    — the cursor arrives on this glyph's left plug. anchorOrigin =
+ *              min(leftPlug, inkLeft); dx = -anchorOrigin; advance to the right
+ *              plug from the same origin, less the overlap.
+ *  'leftpad' — the cursor did NOT arrive on a plug (a cap's left, or a glyph
+ *              after a break): give it a body-left bearing, advance still to its
+ *              right plug. */
+export function anchorAdvance(p: {
+  leftPlug: number;
+  rightPlug: number;
+  inkLeft: number;
+  overlapPx: number;
+  minAdvPx: number;
+  leftPadPx: number;
+  mode: 'join' | 'leftpad';
+}): { dx: number; cellW: number } {
+  if (p.mode === 'leftpad') {
+    return { dx: p.leftPadPx - p.inkLeft, cellW: Math.max(p.minAdvPx, p.rightPlug - p.inkLeft - p.overlapPx) };
+  }
+  const anchorOrigin = Math.min(p.leftPlug, p.inkLeft);
+  return { dx: -anchorOrigin, cellW: Math.max(p.minAdvPx, p.rightPlug - anchorOrigin - p.overlapPx) };
+}
+
 /** Map the spacing knob to the engine's advance flags. The engine only reads
  *  sideBearingPct on the tight-advance path; under cell-width advance the
  *  sheet's own pitch wins, so auto (0) keeps the historical behavior bit for
