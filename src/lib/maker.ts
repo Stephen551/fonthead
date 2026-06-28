@@ -151,33 +151,39 @@ function pickRanges(
   expected: number,
   chars: string,
   override: SlicerKind = 'auto',
-): { ranges: number[][]; ownerFn: any; slicer: PickedSlicer; forced: boolean } {
+): { ranges: number[][]; ownerFn: any; slicer: PickedSlicer; forced: boolean; naturalCount: number } {
   const TC = w().TracerCore;
+  // naturalCount = how many cells the NATURAL (non-forced) slicers found. When a
+  // row's letters run together (a connected cursive drawn as one line) this is
+  // far below expected even though the forced cut still returns `expected` cells
+  // sliced at arbitrary minima — the signal that the letters are fused.
   // explicit override: run exactly that slicer, no cascade
-  if (override === 'whitespace')
-    return { ranges: TC.sliceRowByWhitespace(data, W, y0, y1), ownerFn: null, slicer: 'whitespace', forced: false };
+  if (override === 'whitespace') {
+    const r = TC.sliceRowByWhitespace(data, W, y0, y1);
+    return { ranges: r, ownerFn: null, slicer: 'whitespace', forced: false, naturalCount: r.length };
+  }
   if (override === 'anchored')
-    return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: false };
+    return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: false, naturalCount: expected };
   if (override === 'components') {
     const comp = TC.sliceRowByComponents(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
-    return { ranges: comp.ranges, ownerFn: comp.ownerFn, slicer: 'components', forced: false };
+    return { ranges: comp.ranges, ownerFn: comp.ownerFn, slicer: 'components', forced: false, naturalCount: comp.ranges.length };
   }
   if (override === 'ownership') {
     const owned = TC.sliceRowByAnchoredWithOwnership(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
-    return { ranges: owned.ranges, ownerFn: owned.ownerFn, slicer: 'ownership', forced: false };
+    return { ranges: owned.ranges, ownerFn: owned.ownerFn, slicer: 'ownership', forced: false, naturalCount: owned.ranges.length };
   }
   // auto cascade: prefer the natural cut, fall back to a count-forced one
   const symbols = /[^A-Za-z0-9 ]/.test(chars);
   if (symbols) {
     const comp = TC.sliceRowByComponents(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
-    if (comp.ranges.length === expected) return { ranges: comp.ranges, ownerFn: comp.ownerFn, slicer: 'components', forced: false };
+    if (comp.ranges.length === expected) return { ranges: comp.ranges, ownerFn: comp.ownerFn, slicer: 'components', forced: false, naturalCount: comp.ranges.length };
     const owned = TC.sliceRowByAnchoredWithOwnership(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
-    if (owned.ranges.length === expected) return { ranges: owned.ranges, ownerFn: owned.ownerFn, slicer: 'ownership', forced: false };
-    return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: true };
+    if (owned.ranges.length === expected) return { ranges: owned.ranges, ownerFn: owned.ownerFn, slicer: 'ownership', forced: false, naturalCount: owned.ranges.length };
+    return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: true, naturalCount: Math.max(comp.ranges.length, owned.ranges.length) };
   }
   const ws = TC.sliceRowByWhitespace(data, W, y0, y1);
-  if (ws.length === expected) return { ranges: ws, ownerFn: null, slicer: 'whitespace', forced: false };
-  return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: true };
+  if (ws.length === expected) return { ranges: ws, ownerFn: null, slicer: 'whitespace', forced: false, naturalCount: ws.length };
+  return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: true, naturalCount: ws.length };
 }
 
 function filterFilledGlyphPaths(paths: string[], rowH: number, cellBaselineLocal: number) {
@@ -262,10 +268,10 @@ async function rowToGlyphs(
   opts: TraceOpts,
   override: SlicerKind = 'auto',
   sourceImg?: HTMLImageElement | ImageBitmap | null,
-): Promise<{ glyphs: Glyph[]; slicer: PickedSlicer; forced: boolean; cellCount: number }> {
+): Promise<{ glyphs: Glyph[]; slicer: PickedSlicer; forced: boolean; cellCount: number; naturalCount: number }> {
   const TC = w().TracerCore;
   const expected = chars.length;
-  const { ranges, ownerFn, slicer, forced } = pickRanges(data, W, y0, y1, expected, chars, override);
+  const { ranges, ownerFn, slicer, forced, naturalCount } = pickRanges(data, W, y0, y1, expected, chars, override);
   const cellCount = ranges.length;
   const baselineAbs = TC.detectBaselineInRow(data, W, y0, y1);
   const rowH = y1 - y0;
@@ -305,7 +311,7 @@ async function rowToGlyphs(
       baselineYInCell: map.baselineYInCell,
     });
   }
-  return { glyphs, slicer, forced, cellCount };
+  return { glyphs, slicer, forced, cellCount, naturalCount };
 }
 
 export interface GlyphReport {
@@ -620,16 +626,26 @@ export async function traceSheet(
   const n = Math.min(bands.length, lines.length);
   const rowGlyphs: Glyph[][] = [];
   const rowInfo: MonoRowInfo[] = [];
+  const fusedRows: number[] = [];
   for (let i = 0; i < n; i++) {
     onProgress?.('trace', `row ${i + 1}/${n} · contours`);
     const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], opts, 'auto', img);
     rowGlyphs.push(r.glyphs);
     rowInfo.push({ index: i, chars: lines[i], slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: lines[i].length, glyphCount: r.glyphs.length });
+    // Connected-letters guard: a row whose letters run together (a cursive drawn
+    // as one unbroken line) has no whitespace for the slicer to cut on, so the
+    // NATURAL count collapses far below the charset even though the forced cut
+    // still returns `expected` cells sliced at arbitrary minima (garbled). The
+    // maker joins SEPARATE letters; it cannot split a fused row.
+    if (lines[i].length >= 4 && r.naturalCount <= Math.max(1, Math.ceil(lines[i].length * 0.4))) fusedRows.push(i + 1);
   }
   const glyphs = rowGlyphs.flat();
+  const connectedWarning = fusedRows.length
+    ? `row ${fusedRows.join(', ')} ${fusedRows.length > 1 ? 'look' : 'looks'} drawn as one joined line (the letters run together, so they cannot be told apart). Cursive letters need a small gap between them — the maker joins them back up on its own. Redraw or regenerate that row with the letters apart.`
+    : '';
   const report = reportForGlyphs(glyphs);
   _monoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo, sourceImg: img };
-  return { glyphs, rowWarning, detectedRows: bands.length, report, rows: rowInfo };
+  return { glyphs, rowWarning: connectedWarning || rowWarning, detectedRows: bands.length, report, rows: rowInfo };
 }
 
 /** Re-slice one mono row with a chosen slicer (and the current trace opts, so a
@@ -1579,7 +1595,7 @@ export function makeTemplateSheet(): HTMLCanvasElement {
   ctx.textAlign = 'right';
   ctx.fillText('photograph the sheet flat · the gray guides disappear when traced', W - 40, H - 24);
   ctx.textAlign = 'left';
-  ctx.fillText('for a joined cursive: run each letter through the dotted connector line and out to the cell edges', 40, H - 24);
+  ctx.fillText('for a joined cursive: give each letter a short entry and exit stroke on the dotted line, but keep a gap between letters', 40, H - 24);
 
   TEMPLATE_CHAR_LINES.forEach((row, r) => {
     const y0 = top + r * rowH;
