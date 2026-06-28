@@ -539,6 +539,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const onFile = async (file: File | undefined, source: 'file' | 'camera' = 'file') => {
     if (!file) return;
     track('sheet_drop', source);
+    // A new sheet re-evaluates connect auto-detect: the prior sheet's toggle
+    // choice should not silently carry over to an unrelated upload.
+    setConnectTouched(false);
     try {
       if (isColor) await waitForColorEngine();
       else await waitForEngine();
