@@ -78,13 +78,24 @@
        left/right stay in advance coordinates but may run negative or past
        cellW, exactly like the rendered glyph. */
     const pad = Math.ceil(Math.max(w, h) / 2);
+    const cw = w + pad * 2;
+    /* Supersample the raster (2026-06-29): a thin connecting/exit stroke is only a
+       fraction of a cell pixel wide, so at cell resolution its rightmost reach
+       anti-aliases below the alpha threshold and is dropped. The kern then
+       UNDER-measures the overlap a long exit makes with the next letter, reads the
+       pair as loose, and TIGHTENS it into a crash (the delicate-cursive de/nn
+       over-kern). Rendering at a higher factor makes a sub-pixel stroke a solid
+       pixel so the exit reach is seen; results downsample back to cell rows below. */
+    let ss = 4;
+    while (ss > 1 && (cw * ss > 4096 || h * ss > 4096)) ss--;
     let canvas;
     try {
-      canvas = new OffscreenCanvas(w + pad * 2, h);
+      canvas = new OffscreenCanvas(cw * ss, h * ss);
     } catch (e) {
       return null;
     }
     const ctx = canvas.getContext('2d');
+    ctx.scale(ss, ss);
     ctx.translate(pad, 0);
     ctx.fillStyle = '#000';
     /* Re-walk path tokens and reissue as canvas calls. Path2D-from-
@@ -144,28 +155,31 @@
       ctx.fill('evenodd');
     }
 
-    const pw = w + pad * 2;
-    const img = ctx.getImageData(0, 0, pw, h);
+    const W = cw * ss, H = h * ss;
+    const img = ctx.getImageData(0, 0, W, H);
     const data = img.data;
     const left = new Float64Array(h);
     const right = new Float64Array(h);
+    for (let y = 0; y < h; y++) { left[y] = Infinity; right[y] = -Infinity; }
     let inkY0 = h, inkY1 = 0;
-    for (let y = 0; y < h; y++) {
-      left[y] = Infinity;
-      right[y] = -Infinity;
+    /* Extract at hi-res, downsample to cell rows: each cell row's left/right is the
+       min-left / max-right over its ss sub-rows, in cell advance coordinates, so
+       measurePairGap still indexes rows baseline-relative in cell pixels. */
+    for (let Y = 0; Y < H; Y++) {
+      const cy = (Y / ss) | 0;
+      const rowOff = Y * W * 4 + 3;
       let hasInk = false;
-      const rowOff = y * pw * 4 + 3;
-      for (let x = 0; x < pw; x++) {
-        if (data[rowOff + x * 4] > 128) {
-          const ax = x - pad; /* back to advance coordinates */
-          if (ax < left[y]) left[y] = ax;
-          if (ax > right[y]) right[y] = ax;
+      for (let X = 0; X < W; X++) {
+        if (data[rowOff + X * 4] > 128) {
+          const ax = X / ss - pad; /* hi-px back to cell advance coordinates */
+          if (ax < left[cy]) left[cy] = ax;
+          if (ax > right[cy]) right[cy] = ax;
           hasInk = true;
         }
       }
       if (hasInk) {
-        if (y < inkY0) inkY0 = y;
-        if (y > inkY1) inkY1 = y;
+        if (cy < inkY0) inkY0 = cy;
+        if (cy > inkY1) inkY1 = cy;
       }
     }
     if (inkY1 < inkY0) { inkY0 = 0; inkY1 = h - 1; }
