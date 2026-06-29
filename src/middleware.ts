@@ -72,6 +72,16 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
     res.headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');
     // The app uses none of these powerful features; lock them off.
     res.headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+    // HTML must always revalidate so a deploy's new content-hashed bundle — and the
+    // engine worker it points at — is picked up immediately. A browser-cached HTML
+    // page references the OLD bundle name (immutable-cached) and silently builds
+    // fonts with stale engine code: the "only works in incognito" trap, and a
+    // download that measured a build older than the deployed engine. Content-hashed
+    // static assets and the cdn/R2 routes carry their own caching and aren't
+    // text/html, so they keep it; only the page documents get no-cache.
+    if ((res.headers.get('content-type') || '').includes('text/html')) {
+      res.headers.set('cache-control', 'no-cache');
+    }
   } catch {
     /* immutable response (e.g. a static asset) — nothing to decorate */
   }
