@@ -447,7 +447,12 @@
       const featureOpts = opts.features;
       const kernStrength = (typeof featureOpts.kerningStrength === 'number')
         ? featureOpts.kerningStrength : 1.0;
-      if (featureOpts.kerning && kernStrength > 0
+      if (featureOpts.connectKern && glyphs && glyphs.length > 0
+          && typeof analyzeConnectKern === 'function') {
+        /* connected cursive: even every pair to one gap + break descender
+           collisions, instead of the tighten-only tight-pair canon. */
+        computedKernPairs = analyzeConnectKern(glyphs, scale, featureOpts.connectKern);
+      } else if (featureOpts.kerning && kernStrength > 0
           && glyphs && glyphs.length > 0
           && typeof analyzeAutoKern === 'function') {
         computedKernPairs = analyzeAutoKern(glyphs, scale, kernStrength);

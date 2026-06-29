@@ -174,7 +174,7 @@
     return sil;
   }
 
-  function measurePairGap(L, R) {
+  function measurePairGap(L, R, xhPx) {
     const sL = silhouetteForGlyph(L);
     const sR = silhouetteForGlyph(R);
     if (!sL || !sR) return null;
@@ -198,6 +198,22 @@
     let weightedSum = 0;
     let weightSum = 0;
     let minGap = Infinity;
+    /* body strip = the x-height zone where letters actually connect; an
+       ascender or a high dot sits far from a narrow neighbour and would
+       otherwise inflate the average into a false "loose" reading (the h+i
+       fuse: loose on the full-height avg, already tight in the body). When
+       xhPx is given (connect kern) the avg is taken over the body strip only;
+       min stays full-height so a collision in ANY zone still floors the pull. */
+    const bodyLo = xhPx ? Math.round(0.10 * xhPx) : -Infinity;
+    const bodyHi = xhPx ? Math.round(0.92 * xhPx) : Infinity;
+    /* the descender zone (below the baseline): where two stacked descender loops
+       (gg, gy, gj) crowd and weld. Tracked separately so the kern can hold a real
+       CLEARANCE between adjacent loops, not merely a non-overlap. */
+    const descHi = xhPx ? Math.round(-0.05 * xhPx) : -Infinity;
+    let bodyWeighted = 0;
+    let bodyWeight = 0;
+    let bodyMin = Infinity;
+    let descMin = Infinity;
     for (let a = aLo; a <= aHi; a++) {
       const r = sL.right[baseL - a];
       const l = sR.left[baseR - a];
@@ -206,13 +222,19 @@
       const w = 1 / (1 + Math.max(0, gap) * 0.05);
       weightedSum += gap * w;
       weightSum += w;
+      if (a >= bodyLo && a <= bodyHi) { bodyWeighted += gap * w; bodyWeight += w; if (gap < bodyMin) bodyMin = gap; }
+      if (a <= descHi && gap < descMin) descMin = gap;
       if (gap < minGap) minGap = gap;
     }
     if (weightSum === 0) return null;
     /* avg drives the perceptual close-up; min is the tightest scanline,
        used downstream as a collision floor so an open lower profile
-       (F/P/T arms, P/b bowls) can't average away a protruding band. */
-    return { avg: weightedSum / weightSum, min: minGap };
+       (F/P/T arms, P/b bowls) can't average away a protruding band.
+       bodyMin is the x-height-strip tightest point — the one that maps to the
+       structural-fusion metric, so the body floor can prevent a real x-height
+       weld (which the full-height min, dominated by a descender row, misses). */
+    const avg = weightedSum / weightSum;
+    return { avg, min: minGap, bodyAvg: bodyWeight > 0 ? bodyWeighted / bodyWeight : avg, bodyMin: isFinite(bodyMin) ? bodyMin : minGap, descMin: isFinite(descMin) ? descMin : null };
   }
 
   function computeTargetGap(glyphs) {
@@ -300,5 +322,160 @@
     return out;
   }
 
+  /* ----------------------------------------------------------------
+   * analyzeConnectKern — kerning for CONNECTED cursive.
+   * Unlike analyzeAutoKern (which only TIGHTENS a tight-pair canon to a
+   * loose target), connect mode needs every adjacent pair pulled to ONE
+   * even gap: close the severs that open after round letters, even the
+   * rhythm, and push apart the descender-loop collisions that weld
+   * clusters (juggling, foggy, voyage) into blobs. The body-edge placement
+   * already sets the advances; this lands a GPOS correction on top so the
+   * realized color is uniform.
+   *
+   *   analyzeConnectKern(glyphs, scale, opts) -> [{leftChar,rightChar,value}]
+   *   opts: { collisionFloorPx, deadzonePx, maxUnits }
+   * -------------------------------------------------------------- */
+  function analyzeConnectKern(glyphs, scale, opts) {
+    opts = opts || {};
+    const byChar = new Map();
+    for (const g of glyphs) byChar.set(g.char, g);
+    const LOWER = 'abcdefghijklmnopqrstuvwxyz';
+    const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+    /* x-height in px (above baseline) anchors the floor/deadzone so the
+       thresholds scale with the face. */
+    let xhPx = 0;
+    const xg = byChar.get('x') || byChar.get('o') || byChar.get('n');
+    if (xg) {
+      const s = silhouetteForGlyph(xg);
+      if (s) {
+        const base = Math.round(isFinite(xg.baselineYInCell) ? xg.baselineYInCell : s.inkY1);
+        xhPx = Math.max(1, base - s.inkY0);
+      }
+    }
+    const collisionFloorPx = opts.collisionFloorPx != null ? opts.collisionFloorPx : -0.08 * xhPx;
+    const deadzonePx = opts.deadzonePx != null ? opts.deadzonePx : 0.04 * xhPx;
+    const MAX_UNITS = opts.maxUnits || 650;
+    /* adjacent descender loops must hold a positive CLEARANCE, not merely avoid
+       overlap, or gg/gy/gj read as a congested knot. */
+    const descClearPx = opts.descClearPx != null ? opts.descClearPx : 0.14 * xhPx;
+    const DESC = 'gjpqyz';
+    /* x-height BODY overlap floor: the tightest point in the connecting zone may
+       slightly overlap (strokes cross) but must not WELD or PINCH — this is the
+       floor the structural-fusion metric measures, which the full-height min
+       misses. Held near the connected median so the tail stops crashing inward. */
+    const bodyFloorPx = opts.bodyFloorPx != null ? opts.bodyFloorPx : -0.06 * xhPx;
+
+    /* Measure every present pair. Lower-lower is the connecting body of the
+       text; cap-lower closes the cap orphan. */
+    const measured = [];
+    const measure = (l, r) => {
+      const L = byChar.get(l), R = byChar.get(r);
+      if (!L || !R) return;
+      const g = measurePairGap(L, R, xhPx);
+      if (g) measured.push({ l, r, bodyAvg: g.bodyAvg, min: g.min, bodyMin: g.bodyMin, descMin: g.descMin, ll: LOWER.indexOf(l) >= 0 && LOWER.indexOf(r) >= 0 });
+    };
+    for (const l of LOWER) for (const r of LOWER) measure(l, r);
+    for (const l of UPPER) for (const r of LOWER) measure(l, r);
+    if (!measured.length) return [];
+
+    /* Target = median BODY gap of the lower-lower pairs: the face's own even
+       rhythm at the connecting (x-height) zone, robust to the loose severs and
+       tight collisions in the set, and not skewed by ascenders/dots. */
+    const llAvgs = measured.filter((m) => m.ll).map((m) => m.bodyAvg).sort((a, b) => a - b);
+    if (!llAvgs.length) return [];
+    /* Target the face's own median body gap, but CAP it at a tight connected
+       ceiling: a loose hand (short connecting strokes) whose median is wide would
+       otherwise even to a loose-but-uniform color that still reads disconnected.
+       Tightening to the ceiling pulls those faces into a real connected band. */
+    const median = llAvgs[Math.floor(llAvgs.length / 2)];
+    const targetGap = Math.min(median, 0.08 * xhPx);
+
+    const out = [];
+    for (const m of measured) {
+      /* even the BODY gap toward target (so ascenders/dots don't make a tight
+         pair read loose and get over-tightened into a fuse) ... */
+      let deltaPx = targetGap - m.bodyAvg;
+      /* A swash/display CAP (Q-tail, etc.) leaves an orphan gap because the
+         flourish blocks the lowercase and the normal floor won't let the letter
+         tuck in. For cap->lowercase pairs, relax the floors so the lowercase
+         tucks UNDER the cap flourish (the decorative connection), pulling the cap
+         into its word instead of stranding it. */
+      const isCap = UPPER.indexOf(m.l) >= 0;
+      /* For a cap, relax only the FULL-height collision floor so the lowercase can
+         tuck under the cap's thin swash/tail (which lives outside the x-height
+         body). Keep the x-height BODY floor at normal so the lowercase never welds
+         into the cap's body (the Gh/Ke weld when both were relaxed). */
+      const cFloor = isCap ? -0.30 * xhPx : collisionFloorPx;
+      const bFloor = bodyFloorPx;
+      /* ... then guarantee the tightest scanline (ANY zone: body fuse, descender
+         loop, cap weld) never sits below the collision floor. only ever ADDS
+         space, never invents a tighten. */
+      const minAfter = m.min + deltaPx;
+      if (minAfter < cFloor) deltaPx += cFloor - minAfter;
+      /* x-height body must not weld or pinch (the structural-fusion zone). */
+      if (m.bodyMin != null) {
+        const bodyAfter = m.bodyMin + deltaPx;
+        if (bodyAfter < bFloor) deltaPx += bFloor - bodyAfter;
+      }
+      /* two stacked descender loops (gg, gy, gj, yg ...) must hold a positive
+         clearance so the cluster reads as separate strokes, not a knot. */
+      if (DESC.indexOf(m.l) >= 0 && DESC.indexOf(m.r) >= 0 && m.descMin != null) {
+        const descAfter = m.descMin + deltaPx;
+        if (descAfter < descClearPx) deltaPx += descClearPx - descAfter;
+      }
+      if (Math.abs(deltaPx) <= deadzonePx) continue;
+      let valueUnits = Math.round(deltaPx * scale);
+      if (valueUnits > MAX_UNITS) valueUnits = MAX_UNITS;
+      if (valueUnits < -MAX_UNITS) valueUnits = -MAX_UNITS;
+      if (Math.abs(valueUnits) < 4) continue;
+      out.push({ leftChar: m.l, rightChar: m.r, value: valueUnits });
+    }
+
+    /* Word-space evening: the visible word gap is (last letter's trailing) +
+       space advance + (next letter's leading), and those bearings vary per
+       letter — so "fox jumps" yawns while "lazy dog" jams. Normalize each
+       letter's trailing (before a space) and leading (after a space) to one
+       target via letter-space / space-letter kerns, making every word gap equal
+       regardless of which letters bracket it. The space glyph is synthesised by
+       the builder AFTER this analyzer runs, so it is not in byChar here — but the
+       pairs reference ' ' by char and buildGposKern resolves it from the final
+       font's index, so we emit them unconditionally. */
+    {
+      const inkOf = (g) => {
+        const s = silhouetteForGlyph(g);
+        if (!s) return null;
+        let lo = Infinity, hi = -Infinity;
+        for (let y = s.inkY0; y <= s.inkY1; y++) {
+          if (isFinite(s.left[y]) && s.left[y] < lo) lo = s.left[y];
+          if (isFinite(s.right[y]) && s.right[y] > hi) hi = s.right[y];
+        }
+        return isFinite(lo) ? { trail: g.cellW - hi, lead: lo } : null;
+      };
+      const info = new Map();
+      const trails = [], leads = [];
+      for (const ch of LOWER + UPPER) {
+        const g = byChar.get(ch);
+        if (!g) continue;
+        const i = inkOf(g);
+        if (i) { info.set(ch, i); trails.push(i.trail); leads.push(i.lead); }
+      }
+      if (trails.length) {
+        trails.sort((a, b) => a - b); leads.sort((a, b) => a - b);
+        const tgtTrail = trails[Math.floor(trails.length / 2)];
+        const tgtLead = leads[Math.floor(leads.length / 2)];
+        const clamp = (v) => Math.max(-MAX_UNITS, Math.min(MAX_UNITS, v));
+        for (const [ch, i] of info) {
+          const kt = Math.round((tgtTrail - i.trail) * scale);
+          if (Math.abs(kt) >= 4) out.push({ leftChar: ch, rightChar: ' ', value: clamp(kt) });
+          const kl = Math.round((tgtLead - i.lead) * scale);
+          if (Math.abs(kl) >= 4) out.push({ leftChar: ' ', rightChar: ch, value: clamp(kl) });
+        }
+      }
+    }
+    return out;
+  }
+
   global.analyzeAutoKern = analyzeAutoKern;
+  global.analyzeConnectKern = analyzeConnectKern;
 })(typeof self !== 'undefined' ? self : this);
