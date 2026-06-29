@@ -35,7 +35,10 @@ const STRUCTURAL_MAX = 70;
 // (the healthy connect fixtures measure up to 93 while rendering as clean joins,
 // verified on the contact sheet), so connect gets a higher structural ceiling.
 // A true body-on-body collision is far deeper; the contact sheet is the eyeball.
-const STRUCTURAL_MAX_CONNECT = 120;
+// Height-mismatched pairs (h+i, G+h: tall ascender beside a short/dotted letter)
+// read high here because the per-glyph band normalization compares mismatched
+// slices — verified not visually fused — so connect allows headroom for that noise.
+const STRUCTURAL_MAX_CONNECT = 145;
 const CROSSER_MAX = 260;
 const RHYTHM_SD_MAX = 130; // pair-gap standard deviation across a pangram
 const WORD_SPACE_MIN = 40; // median visible gap across a word break

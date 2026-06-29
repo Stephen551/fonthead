@@ -20,16 +20,16 @@ describe('joinClass', () => {
     expect(joinClass('t').highExit).toBe(false);
   });
 
-  it('descender-exit letter joins left, breaks right', () => {
+  it('descender letter joins both sides (body carries the join, loop hangs below)', () => {
     const c = joinClass('g');
     expect(c.kind).toBe('join');
     expect(c.joinsLeft).toBe(true);
-    expect(c.joinsRight).toBe(false);
+    expect(c.joinsRight).toBe(true);
   });
 
-  it('caps stand alone in v1 (break both sides)', () => {
-    expect(joinClass('H')).toMatchObject({ kind: 'break', joinsLeft: false, joinsRight: false });
-    expect(joinClass('B')).toMatchObject({ kind: 'break', joinsRight: false });
+  it('caps open a word: clean left, join right into the lowercase', () => {
+    expect(joinClass('H')).toMatchObject({ kind: 'join', joinsLeft: false, joinsRight: true });
+    expect(joinClass('B')).toMatchObject({ kind: 'join', joinsLeft: false, joinsRight: true });
   });
 
   it('digit, punctuation break both sides; space is space', () => {
@@ -132,22 +132,19 @@ describe('connectGlyphs (geometry, injected profiles)', () => {
     expect(out.glyphs[1].cellW).toBe(24); // n: (22 - 3) + gap(5)
   });
 
-  it('descender-exit breaks right (a trailing pad, not a connector gap)', () => {
-    const gs = [g('x', 2, 20), g('g', 2, 20)]; // identical ink; only the class differs
+  it('descender joins right like a normal letter (body carries the join)', () => {
+    const gs = [g('x', 2, 20), g('g', 2, 20)]; // identical ink; g now joins both sides
     const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
-    expect(out.glyphs[0].cellW).toBe(23); // x joins right: ink(18) + connector gap(5)
-    // g breaks right (its only exit is the descender): no connector gap, just a small
-    // side pad, so it advances tighter than the joined x.
-    expect(out.glyphs[1].cellW).toBeGreaterThanOrEqual(18);
-    expect(out.glyphs[1].cellW).toBeLessThan(out.glyphs[0].cellW);
+    expect(out.glyphs[0].cellW).toBe(23); // x: ink(18) + connector gap(5)
+    expect(out.glyphs[1].cellW).toBe(23); // g joins right too -> same advance as x
   });
 
-  it('caps stand alone (break-class, full ink width + pad both sides)', () => {
+  it('caps open a word: join right with a clean left bearing', () => {
     const gs = [g('H', 4, 24)];
     const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
-    expect(out.joined).toBe(0);
-    expect(out.broke).toBe(1);
-    expect(out.glyphs[0].cellW).toBe(24 - 4 + 1 + 2); // ink span + 2*leftPad(1)
+    expect(out.joined).toBe(1); // caps now join right into the following lowercase
+    expect(out.broke).toBe(0);
+    expect(out.glyphs[0].cellW).toBeGreaterThanOrEqual(24 - 4); // at least the body span
   });
 
   // The body-edge model's distinguishing behaviour: the advance runs to the dense
