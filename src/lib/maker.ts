@@ -1153,10 +1153,16 @@ export function anchorAdvance(p: {
 // ink in this band is the entry POINT, the rightmost is the exit POINT, and the
 // glyph is placed so its exit meets the next glyph's entry. One band, one rule
 // for both sides of every seam — the source of even, continuous joins.
-const CONNECT_BAND_LO = 0.02; // ·xhPx — band bottom, just above the baseline
-const CONNECT_BAND_HI = 0.6; // ·xhPx — band top, high enough to catch a raised exit (o/v/w/r)
+const CONNECT_BAND_LO = 0.02; // ·xhPx — band bottom, just above the baseline (no-band gate)
+const CONNECT_BAND_HI = 0.6; // ·xhPx — band top (no-band gate)
 const BAND_MIN_ROWS = 2; // one finite row is raster noise; two = a real crossing
 const BAND_MIN_AREA = 0.005; // band's share of the glyph's horizontal extent
+// Body-edge connection: trim the thin entry/exit connecting strokes off each
+// side aggressively (they are thin and vertically compact, so the thin/span
+// gates still protect a real stem or arm), leaving the dense body whose edges
+// carry tall ink — the consistent seam the join butts against.
+const BODY_CONNECT_OPTS = { areaFrac: 0.25, minExtentFrac: 0.02, maxTrimFrac: 0.5, thinFrac: 0.6 };
+const CONNECT_GAP_PCT = 0.16; // ·xhPx — gap between dense bodies; the real connecting strokes bridge it
 const MIN_ADV_PCT = 0.18; // ·xhPx — narrow-letter advance floor (i l j)
 const OVERLAP_PCT = 0.0; // ·xhPx — shipping default, the consistent-touch floor
 const OVERLAP_SEAMLESS = 0.015; // ·xhPx — opt-in seamless overlap
@@ -1166,6 +1172,10 @@ const LEFT_PAD_FLOOR = 1; // px — break-class + post-break side bearing
 // widest row. The body's bottom row is the true baseline; re-deriving it per
 // glyph fixes the per-row baseline drift that left caps sitting above lowercase.
 const BODY_BASE_FRAC = 0.35;
+// ·xhPx — the largest DOWNWARD baseline correction the re-derivation may apply.
+// The cap-float drift is moderate (~0.35 x-height); a descender drags the dense
+// bottom far further (~0.8+), so this ceiling keeps descenders on the traced line.
+const BASE_DOWN_TOL = 0.5;
 
 export interface FaceMetrics {
   xhPx: number;
@@ -1226,6 +1236,7 @@ export function connectGlyphs(
   const xhPx = Math.max(1, fm.xhPx);
   const overlapPx = Math.round((opts.overlapPct ?? (opts.seamless ? OVERLAP_SEAMLESS : OVERLAP_PCT)) * xhPx);
   const minAdvPx = Math.max(1, Math.round((opts.minAdvPct ?? MIN_ADV_PCT) * xhPx));
+  const connectGapPx = Math.round(CONNECT_GAP_PCT * xhPx);
   const leftPadPx = Math.max(LEFT_PAD_FLOOR, Math.round((0.1 / 100) * (fm.maxAscBBox / 0.8)));
   const maxPenPx = Math.max(3, Math.round((0.018 * fm.maxAscBBox) / 0.8));
 
@@ -1261,8 +1272,21 @@ export function connectGlyphs(
     }
     if (maxW <= 0) return g.baselineYInCell;
     const need = BODY_BASE_FRAC * maxW;
-    for (let y = w.length - 1; y >= 0; y--) if (w[y] >= need) return y;
-    return g.baselineYInCell;
+    let denseBottom = -1;
+    for (let y = w.length - 1; y >= 0; y--)
+      if (w[y] >= need) {
+        denseBottom = y;
+        break;
+      }
+    const traced = g.baselineYInCell;
+    // Only override the traced baseline when the dense body bottom is a MODERATE
+    // DOWNWARD correction (the per-row cap-float drift: lowercase came out ~14px
+    // high, denseBottom sits just below it and pulls them down to sit). Two shapes
+    // break the dense-bottom heuristic and must keep the traced line: a TOP-HEAVY
+    // letter (r's wide arm rides high while its narrow stem reaches the true
+    // baseline, so denseBottom lands ABOVE traced) and a DESCENDER (f g j y, whose
+    // loop is wide enough to count as body, so denseBottom lands FAR below traced).
+    return denseBottom >= traced && denseBottom - traced <= BASE_DOWN_TOL * xhPx ? denseBottom : traced;
   });
 
   // plugs in a horizontal band: leftmost/rightmost ink across the band's rows,
@@ -1344,13 +1368,26 @@ export function connectGlyphs(
       breakGlyph(i, `no-band(rows=${cp.rows},area=${cp.area.toFixed(3)})`);
       continue;
     }
-    const entryX = isFinite(cp.left) ? cp.left : sp.first;
-    const exitX = isFinite(cp.right) ? cp.right : sp.last;
+    // Connect on the DENSE BODY edge, not the connecting-stroke tip. Real
+    // handwriting (and an AI sheet) draws the entry/exit strokes at inconsistent
+    // heights and lengths; matching tip-to-tip then leaves the seam gapping
+    // whenever the two strokes ride at different heights. The body's left and
+    // right edges, by contrast, carry ink across most of the x-height, so when
+    // one body's right edge butts the next body's left edge they overlap across
+    // a tall shared range and connect at every height — and each letter's real
+    // thin strokes still ride out over the seam, keeping the cursive texture.
+    const body = bodyBoundsFromColumns(prof.cols, BODY_CONNECT_OPTS, prof.spans);
+    const entryX = body ? body.min : isFinite(cp.left) ? cp.left : sp.first;
+    const exitX = body ? body.max : isFinite(cp.right) ? cp.right : sp.last;
+    // Bodies sit a small CONNECTOR GAP apart (a negative overlap): butting them
+    // edge-to-edge fuses the thin strokes deep into the neighbour; the gap leaves
+    // room for the real connecting stroke to ride across the seam without the
+    // bodies themselves colliding.
     decisions[i] = anchorAdvance({
       leftPlug: entryX,
       rightPlug: exitX,
-      inkLeft: entryX, // anchor on the entry connection point, not the leftmost body ink
-      overlapPx,
+      inkLeft: sp.first, // anchor on the true left ink so a crossbar or lead-in (f, t) is never clipped into the previous letter
+      overlapPx: -connectGapPx,
       minAdvPx,
       leftPadPx,
       joinLeft: cls.joinsLeft,
