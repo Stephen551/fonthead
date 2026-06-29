@@ -194,12 +194,13 @@ Row 6: symbols ! ? @ # $ % ^ & * ( ) - _ + = [ ]
 Row 7: symbols { } ; : ' " , . < > / \\ |
 
 Requirements:
-- A natural, flowing cursive hand${style ? ` (${style})` : ''}, the kind you would write by hand
+- A natural, flowing cursive hand${style ? ` in this style: ${style}` : ''}, the kind you would write by hand
 - Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
 - Draw each lowercase letter SEPARATELY with a CLEAR GAP between letters. The maker joins them itself, so they must not already run into one continuous line
-- Let each letter keep its own natural entry and exit strokes; just hold the gap so every letter stays individually readable
-- Even baseline across each row, consistent x-height, one character per position
-- No long swash that reaches all the way into the next letter
+- Every letter's connecting stroke exits FORWARD, to the right toward where the next letter goes. No backward swash or flourish that curls away from the next letter
+- All letters rest on ONE steady baseline at a consistent x-height. Descenders drop below the line and ascenders rise above it, but the bodies sit on one line
+- Clean single-stroke letterforms; no two strokes overprinting or tangling into a knot
+- One character per position, evenly spaced, all 7 rows as listed
 - High resolution: at least 2000px wide
 - Output: one clean PNG image, 7 rows as specified above`;
 
