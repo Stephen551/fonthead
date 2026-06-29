@@ -1114,8 +1114,16 @@ export type JoinClass = {
  *  welding the next letter.) */
 export function joinClass(char: string): JoinClass {
   if (char === ' ') return { kind: 'space', joinsLeft: false, joinsRight: false, highExit: false };
-  if (!LETTER.test(char) || UPPER.test(char)) return { kind: 'break', joinsLeft: false, joinsRight: false, highExit: false };
-  if (DESC_EXIT.has(char)) return { kind: 'join', joinsLeft: true, joinsRight: false, highExit: false };
+  if (!LETTER.test(char)) return { kind: 'break', joinsLeft: false, joinsRight: false, highExit: false };
+  // Caps open a word: a clean start on the left, but they JOIN RIGHT into the
+  // following lowercase (body-edge advance + the connect kern even the gap) so a
+  // capital no longer orphans with a wide space before its word.
+  if (UPPER.test(char)) return { kind: 'join', joinsLeft: false, joinsRight: true, highExit: false };
+  // Descender letters (g j q y z) JOIN RIGHT too: under the body-edge model the
+  // x-height body carries the join while the loop hangs below, and the connect
+  // kern's descender clearance keeps adjacent loops apart — so the through-line no
+  // longer drops after a descender (the old break-right was for the band model).
+  if (DESC_EXIT.has(char)) return { kind: 'join', joinsLeft: true, joinsRight: true, highExit: false };
   return { kind: 'join', joinsLeft: true, joinsRight: true, highExit: HIGH_EXIT.has(char) };
 }
 
@@ -1554,9 +1562,11 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // set on the real (post-trim) glyphs and the GPOS PairPos writer lands a
     // real kerning table in the bytes — the path every modern text stack
     // honors (the legacy `kern` table stays off; it was Safari-only and
-    // shipped broken once, see font-engine-features.js). Connect mode places
-    // glyphs by their plugs, so pair kerning would fight the connector spacing.
-    features: { kerning: opts.connect ? false : true },
+    // shipped broken once, see font-engine-features.js). Connect mode runs a
+    // CONNECT-specific kern (analyzeConnectKern): it evens every pair to one gap
+    // and breaks descender-loop collisions, refining the body-edge placement
+    // rather than fighting it.
+    features: { kerning: true, connectKern: opts.connect ? {} : undefined },
     embedHints: false,
     embedTTHints: false,
     opticalSidebearings: false,
