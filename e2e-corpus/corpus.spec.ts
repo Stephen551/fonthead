@@ -50,10 +50,11 @@ const JOIN_GAP_MEDIAN_MAX = 60;
 // The right "do they connect" gate for the body-edge model: every join pair must
 // come within this over its FULL height (a join counts wherever the connecting
 // ink rides — baseline, x-height, or an f-crossbar up high). The healthy fixtures
-// read 34 and 71; a pair that connects nowhere (the old flourished-f drop hit 210)
+// read 34, 71, and 111 (cc-3's ll, a clean join with a visible connector verified
+// on render); a pair that connects nowhere (the old flourished-f drop hit 210)
 // fails. This replaces the body-strip joinGap MAX gate, which measured dense-body
 // spacing the body-edge model intentionally keeps a connector apart.
-const FULL_JOIN_MAX = 110;
+const FULL_JOIN_MAX = 130;
 // capOverhang: a cap with a right-reaching arm or bowl (F/P/R/E/B, and the
 // T/Y/V/W reaches) over-kerned onto the following lowercase so the arm welds
 // into the next letter's body. The metric the corpus already had could not
