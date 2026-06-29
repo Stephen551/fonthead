@@ -193,32 +193,30 @@ Row 5: digits 0 1 2 3 4 5 6 7 8 9
 Row 6: symbols ! ? @ # $ % ^ & * ( ) - _ + = [ ]
 Row 7: symbols { } ; : ' " , . < > / \\ |
 
-Mental model: write each lowercase row as ONE flowing cursive word, then cut the
-word apart between the letters and lay each letter in its own cell. When you cut,
-the connecting stroke that flows OUT toward the next letter stays attached to the
-RIGHT of the letter you just finished. So every letter ends with its outgoing
-stroke on the right, and BEGINS clean on the left. The maker joins the letters
-back together, so they must be cut apart (a gap between each) on the sheet.
+Mental model: write each lowercase row as ONE flowing cursive word, then separate
+the letters by cutting between them. When you cut, the connecting stroke that flows
+OUT toward the next letter stays attached to the RIGHT of the letter you just
+finished. So every letter ends with its outgoing stroke on the right, and BEGINS
+clean on the left. The maker joins the letters back together, so they must be
+separated (a gap between each) on the sheet.
 - ${style ? `Cursive style: ${style}. ` : ''}A clean, even cursive hand
 - Each lowercase letter carries ONE connecting stroke, on the RIGHT side only: a
-  short stroke that leaves the bottom-right of the letter and runs flat along the
-  baseline, pointing toward where the next letter would be. This outgoing stroke
-  is the ONLY connector on the letter
+  short stroke that leaves the bottom-right of the letter and trails toward where
+  the next letter would be. This outgoing stroke is the ONLY connector on the letter
 - The LEFT side of every letter is a CLEAN START: no incoming stroke, no lead-in,
   no hook, no tick. The previous letter's right stroke is what connects into it.
   Do NOT put a connecting stroke on the left of any letter
-- Every letter sits flat on the baseline and every right-hand stroke leaves at the
-  SAME baseline height, so the letters line up into one continuous straight line
-  through the whole row
+- Every letter sits on the baseline and every right-hand stroke leaves from the
+  SAME height, so the letters line up into one continuous line through the whole row
 - Keep each letter COMPACT with a small CLEAR GAP to its neighbour so they can be
-  told apart, and keep the right-hand stroke SHORT (it stays inside the letter's
-  own cell, it does NOT reach across the gap into the next letter)
+  told apart, and keep the right-hand stroke SHORT so it does NOT reach across the
+  gap into the next letter
 - Capitals, digits, and punctuation stand completely alone, with NO connecting stroke
 
 Other requirements:
 - Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
 - Even baseline across each row, consistent x-height
-- One character per cell with a clear gap between every character, all 7 rows exactly as listed
+- One character per position, evenly spaced, with a clear gap between every character, all 7 rows exactly as listed
 - High resolution: at least 2000px wide
 - Output: one clean PNG image, 7 rows as specified above`;
 
