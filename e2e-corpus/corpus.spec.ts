@@ -29,6 +29,13 @@ const OUT_DIR = join(ROOT, 'test-results');
 // design (V+A tails measure -166 in a healthy chancery), so their gate is
 // the over-kern crash signature, not the natural crossing.
 const STRUCTURAL_MAX = 70;
+// Connect mode joins on the dense BODY edge and lets each letter's real thin
+// connecting strokes ride across the seam into the neighbour. That intended
+// stroke crossing reads as x-height-strip "fusion" to the body-strip metric
+// (the healthy connect fixtures measure up to 93 while rendering as clean joins,
+// verified on the contact sheet), so connect gets a higher structural ceiling.
+// A true body-on-body collision is far deeper; the contact sheet is the eyeball.
+const STRUCTURAL_MAX_CONNECT = 120;
 const CROSSER_MAX = 260;
 const RHYTHM_SD_MAX = 130; // pair-gap standard deviation across a pangram
 const WORD_SPACE_MIN = 40; // median visible gap across a word break
@@ -40,7 +47,13 @@ const WORD_SPACE_MIN = 40; // median visible gap across a word break
 // is logged as a diagnostic but not gated: it is too per-pair noisy, the known-good
 // original spikes to 133 on one pair while reading clean.)
 const JOIN_GAP_MEDIAN_MAX = 60;
-const JOIN_GAP_MAX = 170;
+// The right "do they connect" gate for the body-edge model: every join pair must
+// come within this over its FULL height (a join counts wherever the connecting
+// ink rides — baseline, x-height, or an f-crossbar up high). The healthy fixtures
+// read 34 and 71; a pair that connects nowhere (the old flourished-f drop hit 210)
+// fails. This replaces the body-strip joinGap MAX gate, which measured dense-body
+// spacing the body-edge model intentionally keeps a connector apart.
+const FULL_JOIN_MAX = 110;
 // capOverhang: a cap with a right-reaching arm or bowl (F/P/R/E/B, and the
 // T/Y/V/W reaches) over-kerned onto the following lowercase so the arm welds
 // into the next letter's body. The metric the corpus already had could not
@@ -116,6 +129,8 @@ type Metrics = {
   connJoinMedian: number;
   connJoinMax: number;
   connJoinWorst: string;
+  fullJoinMax: number;
+  fullJoinWorst: string;
 };
 
 async function measure(page: Page, otfPath: string): Promise<Metrics> {
@@ -291,6 +306,34 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
         return isFinite(gap) ? gap : null;
       };
 
+      // Full-height connection: the closest approach over the ENTIRE shared
+      // height (no strip clamp), so a join counts no matter where the connecting
+      // ink rides — a baseline connector, an x-height stroke, or f's crossbar up
+      // in the ascender zone. This is the right "do they connect" gate for the
+      // body-edge model, where the dense bodies sit a gap apart and the real
+      // strokes bridge them at whatever height they happen to live.
+      const fullGap = (l: string, r: string) => {
+        const L = profile(l);
+        const R = profile(r);
+        if (!L || !R) return null;
+        const y0 = Math.max(L.yMin, R.yMin);
+        const y1 = Math.min(L.yMax, R.yMax);
+        if (y1 <= y0) return null;
+        const offset = L.adv + kern(l, r);
+        let gap = Infinity;
+        const spanL = Math.max(1, L.yMax - L.yMin);
+        const spanR = Math.max(1, R.yMax - R.yMin);
+        for (let s = 0; s <= 64; s++) {
+          const y = y0 + ((y1 - y0) * s) / 64;
+          const bL = Math.min(BANDS - 1, Math.max(0, Math.floor(((y - L.yMin) / spanL) * BANDS)));
+          const bR = Math.min(BANDS - 1, Math.max(0, Math.floor(((y - R.yMin) / spanR) * BANDS)));
+          if (!isFinite(L.right[bL]) || !isFinite(R.left[bR])) continue;
+          const g = offset + R.left[bR] - L.right[bL];
+          if (g < gap) gap = g;
+        }
+        return isFinite(gap) ? gap : null;
+      };
+
       // fusion: deepest interpenetration per pair class
       const worstOf = (pairs: string[]) => {
         let depth = 0;
@@ -371,6 +414,21 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
           connJoinWorst = x.p;
         }
 
+      // full-height connection: the WORST join pair's closest approach over its
+      // full height. <=0 means it touches somewhere; a large positive value is a
+      // pair that connects nowhere (a real disconnect). The body-edge connect gate.
+      let fullJoinMax = -Infinity;
+      let fullJoinWorst = '';
+      for (const p of joinPairs) {
+        const g = fullGap(p[0], p[1]);
+        if (g === null) continue;
+        if (g > fullJoinMax) {
+          fullJoinMax = g;
+          fullJoinWorst = p;
+        }
+      }
+      if (!isFinite(fullJoinMax)) fullJoinMax = 0;
+
       let glyphs = 0;
       for (let i = 0; i < font.glyphs.length; i++) {
         const g = font.glyphs.get(i);
@@ -389,6 +447,8 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
         connJoinMedian: Math.round(connJoinMedian),
         connJoinMax: Math.round(connJoinMax),
         connJoinWorst,
+        fullJoinMax: Math.round(fullJoinMax),
+        fullJoinWorst,
       };
     },
     { b: b64, structuralPairs: STRUCTURAL_PAIRS, crosserPairs: CROSSER_PAIRS, capPairs: CAP_PAIRS, pangram: PANGRAM, spacePairs: SPACE_PAIRS, joinPairs: JOIN_PAIRS },
@@ -423,7 +483,7 @@ for (const sheet of sheets) {
     const conn = await page.evaluate(() => (window as unknown as { __lastConnect?: { joined: number; broke: number } }).__lastConnect);
     const mode = isConnect ? `connect/${conn?.joined ?? '?'}j` : `${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'}`;
     console.log(
-      `CORPUS | ${sheet.name.padEnd(24)} | ${mode} glyphs=${m.glyphs} structural=${m.structural.depth}(${m.structural.worst || '-'}) crosser=${m.crosser.depth}(${m.crosser.worst || '-'}) capOverhang=${m.capOverhang.depth}(${m.capOverhang.worst || '-'}) rhythmSd=${m.rhythmSd} wordSpace=${m.wordSpaceMedian} joinGap=med${m.joinGapMedian}/max${m.joinGapMax} connJoin=med${m.connJoinMedian}/max${m.connJoinMax}(${m.connJoinWorst || '-'})`,
+      `CORPUS | ${sheet.name.padEnd(24)} | ${mode} glyphs=${m.glyphs} structural=${m.structural.depth}(${m.structural.worst || '-'}) crosser=${m.crosser.depth}(${m.crosser.worst || '-'}) capOverhang=${m.capOverhang.depth}(${m.capOverhang.worst || '-'}) rhythmSd=${m.rhythmSd} wordSpace=${m.wordSpaceMedian} joinGap=med${m.joinGapMedian}/max${m.joinGapMax}(${m.joinGapWorst || '-'}) connJoin=med${m.connJoinMedian}/max${m.connJoinMax}(${m.connJoinWorst || '-'}) fullJoin=${m.fullJoinMax}(${m.fullJoinWorst || '-'})`,
     );
 
     // render the contact-sheet strip for this face (real shaping, kern on)
@@ -440,7 +500,7 @@ for (const sheet of sheets) {
     await page.locator('#strip').screenshot({ path: join(OUT_DIR, 'corpus-strips', `${sheet.name}.png`) });
 
     expect(m.glyphs, 'built glyph count').toBeGreaterThanOrEqual(60);
-    expect(m.structural.depth, `structural fusion (worst pair ${m.structural.worst})`).toBeLessThanOrEqual(STRUCTURAL_MAX);
+    expect(m.structural.depth, `structural fusion (worst pair ${m.structural.worst})`).toBeLessThanOrEqual(isConnect ? STRUCTURAL_MAX_CONNECT : STRUCTURAL_MAX);
     expect(m.crosser.depth, `crosser over-kern (worst pair ${m.crosser.worst})`).toBeLessThanOrEqual(CROSSER_MAX);
     // Cap-zone over-kern only makes sense for upright faces; a script cap
     // legitimately swashes into the cap/ascender zone this metric watches.
@@ -450,9 +510,10 @@ for (const sheet of sheets) {
     expect(m.rhythmSd, 'pair-gap rhythm spread').toBeLessThanOrEqual(RHYTHM_SD_MAX);
     expect(m.wordSpaceMedian, 'word-break visibility').toBeGreaterThanOrEqual(WORD_SPACE_MIN);
     if (isConnect) {
-      // stays connected (not drifted back to word spacing); connJoin is logged above
+      // stays connected (median body-strip gap negative/tight, not drifted back to
+      // word spacing) AND every join pair meets somewhere over its full height.
       expect(m.joinGapMedian, `connect join gap median (worst ${m.joinGapWorst})`).toBeLessThanOrEqual(JOIN_GAP_MEDIAN_MAX);
-      expect(m.joinGapMax, `connect join gap max (worst ${m.joinGapWorst})`).toBeLessThanOrEqual(JOIN_GAP_MAX);
+      expect(m.fullJoinMax, `connect full-height join gap (worst ${m.fullJoinWorst})`).toBeLessThanOrEqual(FULL_JOIN_MAX);
     }
   });
 }
