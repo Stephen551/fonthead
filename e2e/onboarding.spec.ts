@@ -32,10 +32,10 @@ test('walkthrough shows, dismisses, retriggers; prompt builder reflects the styl
   await page.locator('#gen-extra').fill('charcoal, red, cream');
   await expect(page.locator('#gen-prompt')).toContainText('charcoal, red, cream');
 
-  // the script preset prompts for a cursive whose connecting stroke is on the
-  // RIGHT side only, with a clean left start (the maker joins the letters)
+  // the script preset prompts for a natural flowing cursive whose letters stay
+  // SEPARATE with a clear gap (the maker joins them itself)
   await page.getByRole('button', { name: 'script', exact: true }).click();
   await expect(page.locator('#gen-prompt')).toContainText('cursive');
-  await expect(page.locator('#gen-prompt')).toContainText('RIGHT side only');
-  await expect(page.locator('#gen-prompt')).toContainText('CLEAN START');
+  await expect(page.locator('#gen-prompt')).toContainText('flowing cursive hand');
+  await expect(page.locator('#gen-prompt')).toContainText('SEPARATELY');
 });
