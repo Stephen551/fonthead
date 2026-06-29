@@ -21,9 +21,16 @@
  * ============================================================ */
 'use strict';
 
-/* Cache-bust ?v=0.8.x on every importScripts. Bumped in lockstep with the
-   masthead version in tracer.html so Stephen can verify a fresh build
-   loaded by checking the visible version (and devtools network tab). */
+/* Cache-bust every importScripts with the SAME content-hash token the page passes
+   on this worker's own URL (?v=<hash>, from astro.config engineVersion()). Reading
+   it off self.location.search and reusing it means any engine edit re-fetches the
+   worker AND all its modules automatically — no hand-bumped version that goes stale
+   and serves a cached old module to already-visited browsers (the trap that hid a
+   real kern fix behind an immutable 1yr cache). Falls back to a literal if absent. */
+var __V = (function () {
+  try { return new URLSearchParams(self.location.search).get('v') || '0.8.59'; }
+  catch (e) { return '0.8.59'; }
+})();
 
 /* opentype.js is loaded FIRST, before any module/exports shim is in scope.
    Its UMD prelude reads:
@@ -36,7 +43,7 @@
    module.exports instead, so self.opentype was undefined inside the
    worker. The bug was masked until the CSP fix because wawoff2 crashed
    earlier in the chain. */
-importScripts('/assets/vendor/opentype.min.js?v=0.8.59');
+importScripts('/assets/vendor/opentype.min.js?v=' + __V);
 
 /* NOW set up the CJS shim — cubic2quad ships as `module.exports = ...`
    and also writes self.cubic2quad as a courtesy. We use self.cubic2quad
@@ -44,7 +51,7 @@ importScripts('/assets/vendor/opentype.min.js?v=0.8.59');
    from throwing a ReferenceError at the top of its IIFE. */
 var module = { exports: {} };
 var exports = module.exports;
-importScripts('/assets/vendor/cubic2quad.js?v=0.8.59');
+importScripts('/assets/vendor/cubic2quad.js?v=' + __V);
 
 /* Pre-define Module for Emscripten — wawoff2_compress.js detects the
    global and uses it. Set up the ready promise BEFORE the script loads
@@ -55,46 +62,46 @@ var wawoff2Ready = new Promise(function(resolve, reject){
   Module.onRuntimeInitialized = resolve;
   Module.onAbort = function(what){ reject(new Error('wawoff2 init failed: ' + what)); };
 });
-importScripts('/assets/vendor/wawoff2_compress.js?v=0.8.59');
+importScripts('/assets/vendor/wawoff2_compress.js?v=' + __V);
 
 /* Font-engine modules (order matters: builder first because the
    others reference its helpers; tables before formats because
    inject is called from the orchestrator. Features and autokern are
    peers — builder calls compileFeatures + analyzeAutoKern via the
    typeof === 'function' guards inside buildFontForStyle). */
-importScripts('/assets/vendor/font-engine-builder.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-features.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-autokern.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-gpos.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-tables.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-hinting.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-cff-hints.js?v=0.8.59');
+importScripts('/assets/vendor/font-engine-builder.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-features.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-autokern.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-gpos.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-tables.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-hinting.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-cff-hints.js?v=' + __V);
 /* CFF→TTF converter (v0.8.40): turns opentype.js's CFF output into
    a real TrueType font with glyf+loca tables. Re-enables the TTF
    format option that was dropped honestly in v0.8.39. Phase 5 TT
    hint modules still on disk; reactivate when 5b/5c land. */
-importScripts('/assets/vendor/font-engine-glyf-encoder.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-glyf-parser.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-cff-to-tt.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-validate.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-sidebearings.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-fvar.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-gvar.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-vf-compat.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-stat.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-name-extend.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-variable.js?v=0.8.59');
+importScripts('/assets/vendor/font-engine-glyf-encoder.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-glyf-parser.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-cff-to-tt.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-validate.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-sidebearings.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-fvar.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-gvar.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-vf-compat.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-stat.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-name-extend.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-variable.js?v=' + __V);
 /* Phase 5b/c (v0.8.43): re-enable the TT bytecode/tables/surgery
    modules now that a real TTF output path exists + per-glyph hint
    generator emits SNAP_Y_TO_CVT calls. tt-tables builds cvt/fpgm/prep
    from telemetry; tt-surgery inserts those into the SFNT directory;
    tt-glyph-hints emits per-glyph instructions that get embedded in
    glyf by cff-to-tt's hintCallback hook. */
-importScripts('/assets/vendor/font-engine-tt-bytecode.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-tt-tables.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-tt-surgery.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-tt-glyph-hints.js?v=0.8.59');
-importScripts('/assets/vendor/font-engine-formats.js?v=0.8.59');
+importScripts('/assets/vendor/font-engine-tt-bytecode.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-tt-tables.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-tt-surgery.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-tt-glyph-hints.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-formats.js?v=' + __V);
 
 async function generateFonts(payload) {
   const { glyphs, family, style, upm, formats, useCellWidth, tightAdvance, sideBearingPct, id } = payload;

@@ -115,7 +115,12 @@ export function parseCharset(text: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-const ENGINE_VERSION = '0.8.59';
+// Cache-buster for the vendored engine: the content hash injected at build
+// (astro.config.mjs engineVersion(), same token the make.astro <script> tags use),
+// so any engine edit busts the worker too. The worker reads this ?v off its own URL
+// and propagates it to every importScripts — never hand-bump a version again.
+declare const __ENGINE_V__: string;
+const ENGINE_VERSION = typeof __ENGINE_V__ === 'string' ? __ENGINE_V__ : '0.8.59';
 
 /** Resolve once the vendored engine globals are present on window. */
 export function waitForEngine(timeoutMs = 15000): Promise<void> {
