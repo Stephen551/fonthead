@@ -50,6 +50,7 @@ left out — they live in CLAUDE.md, not here.
 | [0035](0035-connect-no-engine-files-pure-core-tests.md) | Connect touches no vendored engine file; pure decision core is unit-tested, raster gated by corpus/e2e | Accepted |
 | [0036](0036-natural-variation-gsub-calt-palette.md) | Natural variation: a 3-sheet same-hand palette cycled by GSUB calt, metrically transparent | Accepted |
 | [0037](0037-baseline-hardening-for-imperfect-hands.md) | Harden the auto baseline for imperfect hands (compression, body-anchor, weight floor, baseline leveling), gated so good hands are untouched | Accepted |
+| [0038](0038-connector-height-snap-exit-entry-mismatch-gate.md) | Connector-height snap: lower high exit flicks onto the entry join line, gated on the exit-vs-entry mismatch (resolves 0037's rejected stub-snap) | Accepted |
 
 ## Format
 
