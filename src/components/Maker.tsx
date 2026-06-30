@@ -4,6 +4,7 @@ import {
   waitForEngine,
   traceSheet,
   buildFont,
+  mergeVariantSheets,
   downloadFont,
   makeSampleSheet,
   makeTemplateSheet,
@@ -33,6 +34,7 @@ import {
   type SheetGeometry,
   type MonoRowInfo,
   type SlicerKind,
+  type Glyph,
 } from '../lib/maker';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
@@ -144,6 +146,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // synthetic italic: the engine shears -14° and writes the italic metadata when
   // the build style says "Italic". Mono only for now (the color path is separate).
   const [italic, setItalic] = useState(false);
+  // natural variation: trace 2-3 sheets of the SAME hand and cycle a repeated
+  // letter through them (GSUB calt), so the type reads handwritten instead of
+  // typeset. Mono only, mutually exclusive with connect. The base sheet is the
+  // main drop; the extra sheets live in variationImgsRef (kept off React state so
+  // the run() closure reads the latest without a re-render dependency).
+  const [naturalVariation, setNaturalVariation] = useState(false);
+  const variationImgsRef = useRef<(HTMLImageElement | ImageBitmap | null)[]>([null, null]);
+  const [variationNames, setVariationNames] = useState<(string | null)[]>([null, null]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
   // the build readout / result column, scrolled into view on a phone when a build
@@ -252,6 +262,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       let colr = '';
       let warn = '';
       let rep: GlyphReport[] = [];
+      let variantSheetCount = 0;
       if (isColor) {
         await waitForColorEngine();
         const img = await getImage();
@@ -287,17 +298,36 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         // intended mode (it drives the toggle explicitly) rather than relying on
         // auto-detect.
         const noAuto = typeof localStorage !== 'undefined' && localStorage.getItem('fh-test-no-autoconnect') === '1';
-        const useConnect = connectTouched ? connect : noAuto ? false : isScriptFace(trace.glyphs);
-        if (!connectTouched && useConnect !== connect) setConnect(useConnect);
+        // natural variation forces connect OFF (mutually exclusive); otherwise a
+        // script face auto-connects until the user touches the toggle.
+        const useConnect = naturalVariation ? false : connectTouched ? connect : noAuto ? false : isScriptFace(trace.glyphs);
+        if (!naturalVariation && !connectTouched && useConnect !== connect) setConnect(useConnect);
+        // natural variation: trace each extra sheet against the SAME charset and
+        // merge into one glyph list (bases + .cv01/.cv02) before building, so a
+        // repeated letter cycles through its variants.
+        let glyphsForBuild = trace.glyphs;
+        if (naturalVariation) {
+          const variantSheets: Glyph[][] = [];
+          for (const vimg of variationImgsRef.current) {
+            if (!vimg) continue;
+            const vtrace = await traceSheet(vimg, rows, traceOpts);
+            if (vtrace.glyphs.length) variantSheets.push(vtrace.glyphs);
+          }
+          if (variantSheets.length) {
+            glyphsForBuild = mergeVariantSheets([trace.glyphs, ...variantSheets]);
+            variantSheetCount = variantSheets.length;
+          }
+        }
         res = await buildFont(
-          trace.glyphs,
+          glyphsForBuild,
           {
             family: fam,
-            style: italic && !useConnect ? 'Italic' : 'Regular',
+            style: italic && !useConnect && !naturalVariation ? 'Italic' : 'Regular',
             formats: ['otf', 'ttf', 'woff2'],
-            spacingPct: spacing,
-            trimFlourishes: useConnect ? false : trimFlourishes,
+            spacingPct: naturalVariation ? 0 : spacing,
+            trimFlourishes: useConnect || naturalVariation ? false : trimFlourishes,
             connect: useConnect,
+            naturalVariation,
           },
           (step, message) => setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
@@ -316,6 +346,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         otf: res.otf?.length ?? 0,
         ttf: res.ttf?.length ?? 0,
         woff2: res.woff2?.length ?? 0,
+        variants: variantSheetCount,
       };
       // live preview from the built woff2 (fall back to otf); COLR renders in color
       const previewBytes = res.woff2 || res.otf;
@@ -568,6 +599,35 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     }
   };
 
+  // Natural variation: a 2nd/3rd sheet of the SAME hand. Stored off React state
+  // (variationImgsRef) so run() reads the latest without a render dependency.
+  // Adding one rebuilds from the base sheet so the cycling shows immediately.
+  const onVariationFile = async (slot: number, file: File | undefined) => {
+    if (!file) {
+      variationImgsRef.current[slot] = null;
+      setVariationNames((n) => {
+        const c = [...n];
+        c[slot] = null;
+        return c;
+      });
+      return;
+    }
+    try {
+      await waitForEngine();
+      variationImgsRef.current[slot] = await fileToImage(file);
+      setVariationNames((n) => {
+        const c = [...n];
+        c[slot] = file.name;
+        return c;
+      });
+      // Don't auto-build per drop (that re-traces the base for each sheet). The
+      // user loads the palette, then hits rebuild once for the merged build.
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'could not read that image');
+      setPhase('error');
+    }
+  };
+
   const stageStateOf = (i: number): StageState =>
     stageIdx > i ? 'done' : stageIdx === i ? 'active' : 'queued';
 
@@ -783,7 +843,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </div>
               )}
               <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                <RangeRow label="spacing" min={0} max={12} value={spacing} onChange={setSpacing} fmt={(v) => (v === 0 ? 'auto' : String(v))} disabled={!isColor && connect} />
+                <RangeRow label="spacing" min={0} max={12} value={spacing} onChange={setSpacing} fmt={(v) => (v === 0 ? 'auto' : String(v))} disabled={!isColor && (connect || naturalVariation)} />
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', margin: '7px 0 11px', lineHeight: 1.5 }}>
                   auto keeps the sheet's own letter pitch. Higher numbers rebuild every letter with an even gap, looser as it grows.
                 </p>
@@ -793,7 +853,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </p>
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="connected cursive" on={connect} onChange={(v) => { setConnect(v); setConnectTouched(true); }} />
+                    <ToggleRow label="connected cursive" on={naturalVariation ? false : connect} onChange={(v) => { setConnect(v); setConnectTouched(true); }} disabled={naturalVariation} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       joins the letters into a connected script. Auto for cursive sheets. Turns off flourish overhang, spacing, and italic while on.
                     </p>
@@ -801,7 +861,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="flourish overhang" on={connect ? false : trimFlourishes} onChange={setTrimFlourishes} disabled={connect} />
+                    <ToggleRow label="flourish overhang" on={connect || naturalVariation ? false : trimFlourishes} onChange={setTrimFlourishes} disabled={connect || naturalVariation} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       spaces each letter by its body and lets thin tails overlap the next letter, like a real italic. For script faces with long swashes.
                     </p>
@@ -809,10 +869,46 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="italic" on={connect ? false : italic} onChange={setItalic} disabled={connect} />
+                    <ToggleRow label="italic" on={connect || naturalVariation ? false : italic} onChange={setItalic} disabled={connect || naturalVariation} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       slant it into an italic. Build again with this off for the upright.
                     </p>
+                  </div>
+                )}
+                {!isColor && (
+                  <div style={{ marginTop: 11 }}>
+                    <ToggleRow label="natural variation" on={connect ? false : naturalVariation} onChange={setNaturalVariation} disabled={connect} />
+                    <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
+                      cycles a repeated letter through a few versions of the same hand, so the type reads handwritten instead of typeset. Drop two more sheets of the same alphabet below.
+                    </p>
+                    {naturalVariation && (
+                      <div style={{ marginTop: 10, display: 'grid', gap: 7 }}>
+                        {[0, 1].map((slot) => (
+                          <label
+                            key={slot}
+                            className="fh-mono"
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: 10,
+                              fontSize: 11.5,
+                              padding: '8px 11px',
+                              border: '1px dashed var(--line-2)',
+                              borderRadius: 3,
+                              cursor: 'pointer',
+                              color: 'var(--ink-soft)',
+                            }}
+                          >
+                            <span>variation {slot + 2}</span>
+                            <span style={{ color: variationNames[slot] ? 'var(--ink)' : 'var(--ink-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '58%' }}>
+                              {variationNames[slot] ?? 'choose a sheet'}
+                            </span>
+                            <input id={`variation-file-${slot}`} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => onVariationFile(slot, e.target.files?.[0] ?? undefined)} />
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
