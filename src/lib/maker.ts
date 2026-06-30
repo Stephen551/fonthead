@@ -1479,6 +1479,25 @@ export function connectGlyphs(
     if (isFinite(minGap) && minGap < -maxPenPx && dL) dL.cellW += -minGap - maxPenPx;
   }
 
+  // Natural variation: a variant glyph (.cvNN) INHERITS its base letter's
+  // horizontal connection metrics — the shift and the advance — so a calt
+  // substitution is metrically TRANSPARENT. The body then connects exactly like
+  // the proven no-variation build (which is clean and even), and only the outline
+  // (the exit flick) varies. Without this each variant computes its own slightly-
+  // different advance and entry, so the calt swap jolts the spacing mid-word and
+  // drops or blobs letters. NOTE: baseY is NOT inherited — it lives in each
+  // glyph's own cell coordinates, so the variant keeps its own corrected baseline
+  // (copying the base's value would misplace the variant's ink vertically).
+  const baseIdxByChar = new Map<string, number>();
+  glyphs.forEach((g, i) => {
+    if (!g.variantSuffix && !baseIdxByChar.has(g.char)) baseIdxByChar.set(g.char, i);
+  });
+  glyphs.forEach((g, i) => {
+    if (!g.variantSuffix) return;
+    const bi = baseIdxByChar.get(g.char);
+    if (bi !== undefined) decisions[i] = decisions[bi]; // base advance + shift only
+  });
+
   // Apply the corrected baseline to every glyph so caps and lowercase share one
   // sit line, then the x placement on the joining glyphs.
   const out = glyphs.map((g, i) => {
