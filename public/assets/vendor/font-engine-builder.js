@@ -306,7 +306,9 @@
     });
 
     const byCodepoint = new Map();
+    const variantGlyphs = []; // natural-variation .cvNN sheets, appended unicode-less after the bases
     for (const g of glyphs) {
+      if (g.variantSuffix) { variantGlyphs.push(g); continue; }
       const cp = g.char.codePointAt(0);
       byCodepoint.set(cp, g);
     }
@@ -336,8 +338,12 @@
     const orderedCps = Array.from(byCodepoint.keys())
       .filter(cp => cp !== 0x20)
       .sort((a, b) => a - b);
-    for (const cp of orderedCps) {
-      const g = byCodepoint.get(cp);
+    /* Build one opentype.Glyph from a traced glyph (behavior-preserving
+       extraction of the former inline loop body). `unicode` is a number for
+       a base glyph and undefined for a natural-variation variant, which keeps
+       variants out of cmap so base glyph indices never move. Returns null when
+       the glyph has no ink (the former `continue`). */
+    function makeOtGlyph(g, name, unicode) {
       let inkMinX = Infinity, inkMaxX = -Infinity;
       for (const d of g.paths) {
         const bb = estimateBBox(d);
@@ -345,7 +351,7 @@
         if (bb.minX < inkMinX) inkMinX = bb.minX;
         if (bb.maxX > inkMaxX) inkMaxX = bb.maxX;
       }
-      if (inkMinX === Infinity) continue;
+      if (inkMinX === Infinity) return null;
 
       const inkWidthPx = inkMaxX - inkMinX;
       const inkWidthUnits = inkWidthPx * scale;
@@ -386,15 +392,27 @@
         for (const c of sub.commands) otPath.commands.push(c);
       }
 
+      const props = { name, advanceWidth: Math.max(1, advanceUnits), path: otPath };
+      if (typeof unicode === 'number') props.unicode = unicode;
+      return new opentype.Glyph(props);
+    }
+
+    for (const cp of orderedCps) {
+      const g = byCodepoint.get(cp);
       const rawName = glyphName(g.char);
       const name = rawName.replace(/[^a-zA-Z0-9_.]/g, '_') || 'glyph';
+      const og = makeOtGlyph(g, name, cp);
+      if (og) otGlyphs.push(og);
+    }
 
-      otGlyphs.push(new opentype.Glyph({
-        name,
-        unicode: cp,
-        advanceWidth: Math.max(1, advanceUnits),
-        path: otPath,
-      }));
+    /* Natural variation: append the .cvNN variant glyphs after every base,
+       unicode-less (name-only) so the cmap and base GIDs are untouched. The
+       GSUB calt writer (font-engine-gsub.js) cycles them by name. */
+    for (const g of variantGlyphs) {
+      const rawName = glyphName(g.char);
+      const baseName = rawName.replace(/[^a-zA-Z0-9_.]/g, '_') || 'glyph';
+      const og = makeOtGlyph(g, baseName + g.variantSuffix, undefined);
+      if (og) otGlyphs.push(og);
     }
 
     const subfamily = style;

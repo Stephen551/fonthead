@@ -1,0 +1,34 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`builder variant glyphs > a build with no variants is byte-identical to today (snapshot guard) 1`] = `
+[
+  {
+    "advanceWidth": 500,
+    "cmds": "",
+    "index": 0,
+    "name": ".notdef",
+    "unicode": undefined,
+  },
+  {
+    "advanceWidth": 280,
+    "cmds": "",
+    "index": 1,
+    "name": "space",
+    "unicode": 32,
+  },
+  {
+    "advanceWidth": 1000,
+    "cmds": "M:100,800 L:900,800 L:900,0 L:100,0 Z:",
+    "index": 2,
+    "name": "a",
+    "unicode": 97,
+  },
+  {
+    "advanceWidth": 1000,
+    "cmds": "M:200,750 L:800,750 L:800,50 L:200,50 Z:",
+    "index": 3,
+    "name": "b",
+    "unicode": 98,
+  },
+]
+`;
