@@ -86,7 +86,18 @@
         const norm = Array.isArray(pairs[0])
           ? pairs.map(p => ({ leftChar: p[0], rightChar: p[1], value: p[2] * (upm / 1000) }))
           : pairs;
-        const gpos = global.buildGposKern(norm, indexByChar);
+        // Natural variation: expand each base pair to its variant glyph-id
+        // combinations so the calt-substituted variant glyphs get the connect
+        // kern too (same hand, same value). Variant glyphs have no cmap entry,
+        // so they are addressed by gid via buildGposKernFromGidPairs.
+        let gpos;
+        if (featureOpts.naturalVariation
+            && typeof global.expandVariantKern === 'function'
+            && typeof global.buildGposKernFromGidPairs === 'function') {
+          gpos = global.buildGposKernFromGidPairs(global.expandVariantKern(norm, indexByChar, indexByName));
+        } else {
+          gpos = global.buildGposKern(norm, indexByChar);
+        }
         if (gpos) {
           font._customTables = font._customTables || {};
           font._customTables.GPOS = gpos;

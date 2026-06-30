@@ -4,9 +4,13 @@ import { join } from 'node:path';
 
 // Load the worker-style IIFE module into a sandbox.
 const code = readFileSync(join(__dirname, '..', 'public', 'assets', 'vendor', 'font-engine-gpos.js'), 'utf-8');
-const sandbox: { buildGposKern?: (pairs: unknown[], map: Map<number, number>) => Uint8Array | null } = {};
+const sandbox: {
+  buildGposKern?: (pairs: unknown[], map: Map<number, number>) => Uint8Array | null;
+  buildGposKernFromGidPairs?: (pairs: Array<{ l: number; r: number; value: number }>) => Uint8Array | null;
+} = {};
 new Function('self', code)(sandbox);
 const buildGposKern = sandbox.buildGposKern!;
+const buildGposKernFromGidPairs = sandbox.buildGposKernFromGidPairs!;
 
 const cmap = new Map<number, number>([
   ['A'.codePointAt(0)!, 34],
@@ -142,5 +146,25 @@ describe('buildGposKern', () => {
   it('clamps extreme values into int16', () => {
     const bytes = buildGposKern([{ leftChar: 'A', rightChar: 'V', value: -99999 }], cmap)!;
     expect(parseGpos(bytes).pairs.get('34:55')).toBe(-32768);
+  });
+});
+
+describe('buildGposKernFromGidPairs', () => {
+  it('writes a GPOS from raw gid pairs (the variant-kern core)', () => {
+    const bytes = buildGposKernFromGidPairs([
+      { l: 34, r: 55, value: -85 },
+      { l: 40, r: 55, value: -30 },
+    ])!;
+    const g = parseGpos(bytes);
+    expect(g.feature).toBe('kern');
+    expect(g.lookupType).toBe(2);
+    expect(g.pairs.get('34:55')).toBe(-85);
+    expect(g.pairs.get('40:55')).toBe(-30);
+    expect(g.pairs.size).toBe(2);
+  });
+
+  it('null when no usable pair survives', () => {
+    expect(buildGposKernFromGidPairs([])).toBeNull();
+    expect(buildGposKernFromGidPairs([{ l: 1, r: 2, value: 0 }])).toBeNull();
   });
 });

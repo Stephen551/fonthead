@@ -28,20 +28,21 @@
     for (let i = 0; i < 4; i++) view.setUint8(off + i, tag.charCodeAt(i));
   }
 
-  function buildGposKern(pairs, indexByChar) {
-    if (!pairs || !pairs.length || !indexByChar) return null;
+  /* GID-pair core: write a GPOS kern table directly from resolved glyph-id pairs
+     [{l, r, value}]. Shared by the char-based buildGposKern and the variant-kern
+     path — variant glyphs have no cmap entry, so they can only be addressed by
+     gid. */
+  function buildGposKernFromGidPairs(gidPairs) {
+    if (!gidPairs || !gidPairs.length) return null;
 
-    /* Resolve chars to glyph ids, clamp values, last-wins on duplicates. */
+    /* Clamp values, last-wins on duplicate gid pairs. */
     const byFirst = new Map();
-    for (const p of pairs) {
-      if (!p || !p.leftChar || !p.rightChar) continue;
-      const l = indexByChar.get(p.leftChar.codePointAt(0));
-      const r = indexByChar.get(p.rightChar.codePointAt(0));
-      if (typeof l !== 'number' || typeof r !== 'number') continue;
+    for (const p of gidPairs) {
+      if (!p || typeof p.l !== 'number' || typeof p.r !== 'number') continue;
       const v = Math.max(-32768, Math.min(32767, Math.round(p.value)));
       if (!v) continue;
-      if (!byFirst.has(l)) byFirst.set(l, new Map());
-      byFirst.get(l).set(r, v);
+      if (!byFirst.has(p.l)) byFirst.set(p.l, new Map());
+      byFirst.get(p.l).set(p.r, v);
     }
     if (byFirst.size === 0) return null;
 
@@ -155,5 +156,21 @@
     return out;
   }
 
+  /* Char-based entry: resolve each pair's chars to glyph ids via the cmap index,
+     then delegate to the gid core. */
+  function buildGposKern(pairs, indexByChar) {
+    if (!pairs || !pairs.length || !indexByChar) return null;
+    const gidPairs = [];
+    for (const p of pairs) {
+      if (!p || !p.leftChar || !p.rightChar) continue;
+      const l = indexByChar.get(p.leftChar.codePointAt(0));
+      const r = indexByChar.get(p.rightChar.codePointAt(0));
+      if (typeof l !== 'number' || typeof r !== 'number') continue;
+      gidPairs.push({ l: l, r: r, value: p.value });
+    }
+    return buildGposKernFromGidPairs(gidPairs);
+  }
+
   global.buildGposKern = buildGposKern;
+  global.buildGposKernFromGidPairs = buildGposKernFromGidPairs;
 })(typeof self !== 'undefined' ? self : this);

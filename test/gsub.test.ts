@@ -6,13 +6,20 @@ import { join } from 'node:path';
 const code = readFileSync(join(__dirname, '..', 'public', 'assets', 'vendor', 'font-engine-gsub.js'), 'utf-8');
 type Variant = { suffix: string; name: string; gid: number };
 type Group = { base: string; baseGid: number; variants: Variant[] };
+type GidPair = { l: number; r: number; value: number };
 const sandbox: {
   collectVariantGroups?: (indexByName: Map<string, number>) => Group[];
   buildGsubCalt?: (groups: Group[] | null, indexByName: Map<string, number>) => Uint8Array | null;
+  expandVariantKern?: (
+    pairs: Array<{ leftChar: string; rightChar: string; value: number }>,
+    indexByChar: Map<number, number>,
+    indexByName: Map<string, number>,
+  ) => GidPair[];
 } = {};
 new Function('self', code)(sandbox);
 const collectVariantGroups = sandbox.collectVariantGroups!;
 const buildGsubCalt = sandbox.buildGsubCalt!;
+const expandVariantKern = sandbox.expandVariantKern!;
 
 const grp = (base: string, baseGid: number, ...vs: Array<[string, number]>): Group => ({
   base,
@@ -233,5 +240,45 @@ describe('buildGsubCalt', () => {
     expect(ss0.map.get(5)).toBe(40);
     expect(ss0.map.get(20)).toBe(70);
     expect((g.lookups[2] as ChainLookup).inputCov).toEqual([5, 20]); // sorted by source gid
+  });
+});
+
+describe('expandVariantKern', () => {
+  const cp = (c: string) => c.codePointAt(0)!;
+
+  it('expands a base char pair to every variant glyph-id combination, same value', () => {
+    const indexByChar = new Map<number, number>([[cp('a'), 5], [cp('n'), 6]]);
+    const indexByName = new Map<string, number>([
+      ['a', 5],
+      ['n', 6],
+      ['a.cv01', 40],
+      ['a.cv02', 41],
+      ['n.cv01', 42],
+    ]);
+    const out = expandVariantKern([{ leftChar: 'a', rightChar: 'n', value: -30 }], indexByChar, indexByName);
+    // a in {5,40,41} x n in {6,42} = 6 pairs, all -30
+    const keys = out.map((p) => `${p.l}:${p.r}`).sort();
+    expect(keys).toEqual(['40:42', '40:6', '41:42', '41:6', '5:42', '5:6'].sort());
+    expect(out.every((p) => p.value === -30)).toBe(true);
+  });
+
+  it('a char with no variants stays a single pair', () => {
+    const out = expandVariantKern(
+      [{ leftChar: 'x', rightChar: 'y', value: -12 }],
+      new Map([[cp('x'), 9], [cp('y'), 10]]),
+      new Map([['x', 9], ['y', 10]]),
+    );
+    expect(out).toEqual([{ l: 9, r: 10, value: -12 }]);
+  });
+
+  it('keeps space pairs and expands only the lettered side', () => {
+    const indexByChar = new Map<number, number>([[cp('a'), 5], [cp(' '), 1]]);
+    const indexByName = new Map<string, number>([['a', 5], ['space', 1], ['a.cv01', 40]]);
+    const out = expandVariantKern([{ leftChar: 'a', rightChar: ' ', value: 20 }], indexByChar, indexByName);
+    expect(out.map((p) => `${p.l}:${p.r}`).sort()).toEqual(['40:1', '5:1'].sort());
+  });
+
+  it('drops a pair whose base char is absent from the cmap', () => {
+    expect(expandVariantKern([{ leftChar: 'a', rightChar: 'n', value: -30 }], new Map(), new Map())).toEqual([]);
   });
 });

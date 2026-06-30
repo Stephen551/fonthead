@@ -279,6 +279,44 @@
     return concatBytes([headerBytes, scriptListBytes, featureListBytes, lookupListBytes]);
   }
 
+  /**
+   * Expand char-keyed connect-kern pairs to cover the calt variant glyphs. A
+   * base glyph and its .cvNN variants share the hand, so a base pair's kern value
+   * applies to every combination of their variants — otherwise the calt-substituted
+   * variant glyphs (which have no cmap entry) ride the connect join UNKERNED, and
+   * the variant positions sit looser than the kerned base joins. Returns gid pairs
+   * [{l, r, value}] for buildGposKernFromGidPairs. A char absent from the cmap
+   * drops; a char with no variants stays a single pair.
+   */
+  function expandVariantKern(pairs, indexByChar, indexByName) {
+    if (!pairs || !pairs.length || !indexByChar) return [];
+
+    // base gid -> [base gid, ...its variant gids]
+    var variantsOf = new Map();
+    var groups = collectVariantGroups(indexByName);
+    for (var gi = 0; gi < groups.length; gi++) {
+      var grp = groups[gi];
+      var arr = [grp.baseGid];
+      for (var vi = 0; vi < grp.variants.length; vi++) arr.push(grp.variants[vi].gid);
+      variantsOf.set(grp.baseGid, arr);
+    }
+
+    var out = [];
+    for (var pi = 0; pi < pairs.length; pi++) {
+      var p = pairs[pi];
+      if (!p || !p.leftChar || !p.rightChar) continue;
+      var lBase = indexByChar.get(p.leftChar.codePointAt(0));
+      var rBase = indexByChar.get(p.rightChar.codePointAt(0));
+      if (typeof lBase !== 'number' || typeof rBase !== 'number') continue;
+      var ls = variantsOf.get(lBase) || [lBase];
+      var rs = variantsOf.get(rBase) || [rBase];
+      for (var a = 0; a < ls.length; a++)
+        for (var b = 0; b < rs.length; b++) out.push({ l: ls[a], r: rs[b], value: p.value });
+    }
+    return out;
+  }
+
   global.collectVariantGroups = collectVariantGroups;
   global.buildGsubCalt = buildGsubCalt;
+  global.expandVariantKern = expandVariantKern;
 })(typeof self !== 'undefined' ? self : this);
