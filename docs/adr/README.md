@@ -44,13 +44,14 @@ left out — they live in CLAUDE.md, not here.
 | [0029](0029-launch-wall-ofl-standins-no-fake-makers.md) | Cold-start the wall with open-license OFL stand-ins, no fabricated makers | Accepted |
 | [0030](0030-connect-mode-staged-two-stage.md) | Connected-cursive ships as a two-stage mode behind one flag (touch floor, then opt-in seamless overlap) | Accepted |
 | [0031](0031-connect-plug-to-plug-x-only-placement.md) | Connect via plug-to-plug x-only placement with a single shared anchor/advance origin | Accepted |
-| [0032](0032-connect-sibling-of-trim-mutually-exclusive.md) | connectGlyphs is a sibling of trim, mutually exclusive with it; connect-mode disables italic/spacing/kern/optical-sidebearings | Accepted |
+| [0032](0032-connect-sibling-of-trim-mutually-exclusive.md) | connectGlyphs is a sibling of trim, mutually exclusive with it; connect-mode disables italic/spacing/kern/optical-sidebearings | Accepted (kerning point superseded by 0039) |
 | [0033](0033-connect-no-synthesis-real-ink-join-classes.md) | Connect uses real ink only with position-independent join classes and a loosen-only weld pass | Accepted |
 | [0034](0034-connect-input-contract-preset-and-guide.md) | Input contract for seamless joins: a 'script' generate preset and a non-tracing connector guide | Accepted |
 | [0035](0035-connect-no-engine-files-pure-core-tests.md) | Connect touches no vendored engine file; pure decision core is unit-tested, raster gated by corpus/e2e | Accepted |
 | [0036](0036-natural-variation-gsub-calt-palette.md) | Natural variation: a 3-sheet same-hand palette cycled by GSUB calt, metrically transparent | Accepted |
 | [0037](0037-baseline-hardening-for-imperfect-hands.md) | Harden the auto baseline for imperfect hands (compression, body-anchor, weight floor, baseline leveling), gated so good hands are untouched | Accepted |
 | [0038](0038-connector-height-snap-exit-entry-mismatch-gate.md) | Connector-height snap: lower high exit flicks onto the entry join line, gated on the exit-vs-entry mismatch (resolves 0037's rejected stub-snap) | Accepted |
+| [0039](0039-connect-ships-gpos-kern-supersedes-0032.md) | Connect mode ships a GPOS kern table (kerning:true + connectKern); supersedes ADR 0032's kerning:false | Accepted |
 
 ## Format
 
