@@ -110,6 +110,27 @@
         console.warn('[font-engine] kerning requested but NOT written: a legacy `kern` table only applies in Safari (Chrome/Firefox ignore it), which overlaps letters cross-browser. Cross-browser kerning needs a GPOS writer (not yet implemented). Exporting un-kerned so all browsers match. Pass legacyKernTable:true to force the Safari-only table.');
       }
     }
+
+    /* Natural variation (2026-06-29): cycle repeated letters through their
+       .cvNN variant glyphs via a hand-written GSUB `calt` table (the same
+       custom-table path as GPOS). Gated on ligatures-off because opentype.js
+       owns GSUB whenever a 'liga' feature is added and injectCustomTables
+       won't overwrite an existing tag — so calt would be silently dropped. */
+    if (featureOpts.naturalVariation && typeof global.buildGsubCalt === 'function'
+        && typeof global.collectVariantGroups === 'function') {
+      if (featureOpts.ligatures) {
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('[font-engine] naturalVariation skipped: ligatures already own GSUB; the calt table would be dropped by injectCustomTables.');
+        }
+      } else {
+        const groups = global.collectVariantGroups(indexByName);
+        const gsub = global.buildGsubCalt(groups, indexByName);
+        if (gsub) {
+          font._customTables = font._customTables || {};
+          font._customTables.GSUB = gsub;
+        }
+      }
+    }
   }
 
   function buildIndexByChar(font) {
