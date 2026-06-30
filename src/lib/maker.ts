@@ -1305,7 +1305,14 @@ export function connectGlyphs(
   const xhPx = Math.max(1, fm.xhPx);
   const overlapPx = Math.round((opts.overlapPct ?? (opts.seamless ? OVERLAP_SEAMLESS : OVERLAP_PCT)) * xhPx);
   const minAdvPx = Math.max(1, Math.round((opts.minAdvPct ?? MIN_ADV_PCT) * xhPx));
-  const connectGapPx = Math.round(CONNECT_GAP_PCT * xhPx);
+  // Natural-variation builds carry the .cvNN palette glyphs. A varied face is
+  // often a lighter, more upright hand whose thin connecting strokes ride high
+  // and fade at text size, so the body gap is tightened for variation builds: the
+  // dense bodies carry the join (solid ink) and the thin strokes ride over it,
+  // instead of relying on the hairlines to bridge the wider default gap. Scoped
+  // to variation so the corpus (non-variation) keeps its calibrated 0.16 gap.
+  const hasVariants = glyphs.some((g) => !!g.variantSuffix);
+  const connectGapPx = Math.round((hasVariants ? 0.05 : CONNECT_GAP_PCT) * xhPx);
   const leftPadPx = Math.max(LEFT_PAD_FLOOR, Math.round((0.1 / 100) * (fm.maxAscBBox / 0.8)));
   const maxPenPx = Math.max(3, Math.round((0.018 * fm.maxAscBBox) / 0.8));
 
