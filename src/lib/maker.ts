@@ -867,6 +867,24 @@ export function translatePathX(d: string, dx: number): string {
   });
 }
 
+/** Scale + translate a Potrace path d-string along x only (x -> x*sx + tx); y is
+ *  untouched. Used to register a natural-variation variant's body onto its base's
+ *  body so the variant fills the base metric box (the palette sheets are not
+ *  perfectly aligned). */
+export function scaleTranslatePathX(d: string, sx: number, tx: number): string {
+  if (sx === 1 && !tx) return d;
+  let xNext = true;
+  return d.replace(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?|[A-Za-z]/g, (tok) => {
+    if (/[A-Za-z]/.test(tok)) {
+      xNext = true;
+      return tok;
+    }
+    const isX = xNext;
+    xNext = !xNext;
+    return isX ? String(Math.round((parseFloat(tok) * sx + tx) * 1000) / 1000) : tok;
+  });
+}
+
 /** Rasterize a glyph's paths (one Path2D, evenodd so counters subtract) and
  *  measure each x column (filled pixel count + the column's ink y-span as a
  *  fraction of the glyph's full ink height — the tail-vs-aperture signal),
@@ -1492,19 +1510,36 @@ export function connectGlyphs(
   glyphs.forEach((g, i) => {
     if (!g.variantSuffix && !baseIdxByChar.has(g.char)) baseIdxByChar.set(g.char, i);
   });
+  // Registered (body-aligned) paths, only for variant glyphs.
+  const regPaths: (string[] | null)[] = glyphs.map(() => null);
   glyphs.forEach((g, i) => {
     if (!g.variantSuffix) return;
     const bi = baseIdxByChar.get(g.char);
-    if (bi !== undefined) decisions[i] = decisions[bi]; // base advance + shift only
+    if (bi === undefined) return;
+    decisions[i] = decisions[bi]; // base advance + shift = metrically transparent calt swap
+    // REGISTER the variant's BODY onto the base's body (map the variant's body
+    // x-range onto the base's), so the variant fills the base metric box. The 3
+    // palette sheets are not perfectly aligned in scale/position, so a variant
+    // traced a touch narrow or shifted would gap (its body ends before the base
+    // advance) or overlap. Clamped so a mis-traced variant can't distort wildly;
+    // for a well-matched variant (subtle variation) this is ~identity.
+    const pb = profiles[bi] ? bodyBoundsFromColumns(profiles[bi]!.cols, BODY_CONNECT_OPTS, profiles[bi]!.spans) : null;
+    const pv = profiles[i] ? bodyBoundsFromColumns(profiles[i]!.cols, BODY_CONNECT_OPTS, profiles[i]!.spans) : null;
+    if (pb && pv && pv.max > pv.min && pb.max > pb.min) {
+      const sx = Math.max(0.7, Math.min(1.4, (pb.max - pb.min) / (pv.max - pv.min)));
+      const tx = pb.min - pv.min * sx;
+      regPaths[i] = g.paths.map((p) => scaleTranslatePathX(p, sx, tx));
+    }
   });
 
   // Apply the corrected baseline to every glyph so caps and lowercase share one
   // sit line, then the x placement on the joining glyphs.
   const out = glyphs.map((g, i) => {
     const base = baseY[i] !== g.baselineYInCell ? { baselineYInCell: baseY[i] } : null;
+    const src = regPaths[i] ?? g.paths;
     const d = decisions[i];
-    if (!d) return base ? { ...g, ...base } : g;
-    return { ...g, ...base, paths: g.paths.map((p) => translatePathX(p, d.dx)), cellW: d.cellW };
+    if (!d) return base || regPaths[i] ? { ...g, ...base, paths: src } : g;
+    return { ...g, ...base, paths: src.map((p) => translatePathX(p, d.dx)), cellW: d.cellW };
   });
   return { glyphs: out, joined, broke, breaks };
 }
