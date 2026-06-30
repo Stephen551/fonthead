@@ -32,10 +32,11 @@ test('walkthrough shows, dismisses, retriggers; prompt builder reflects the styl
   await page.locator('#gen-extra').fill('charcoal, red, cream');
   await expect(page.locator('#gen-prompt')).toContainText('charcoal, red, cream');
 
-  // the script preset prompts for a natural flowing cursive whose letters stay
-  // SEPARATE with a clear gap (the maker joins them itself)
+  // the script preset prompts for a natural cursive drawn as THREE versions of the
+  // same hand (natural variation), whose letters stay SEPARATE with a clear gap (the
+  // maker joins them itself)
   await page.getByRole('button', { name: 'script', exact: true }).click();
   await expect(page.locator('#gen-prompt')).toContainText('cursive');
-  await expect(page.locator('#gen-prompt')).toContainText('flowing cursive hand');
-  await expect(page.locator('#gen-prompt')).toContainText('SEPARATELY');
+  await expect(page.locator('#gen-prompt')).toContainText('THREE versions of the SAME hand');
+  await expect(page.locator('#gen-prompt')).toContainText('SEPARATE');
 });
