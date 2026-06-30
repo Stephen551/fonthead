@@ -107,4 +107,27 @@ test.describe('natural variation mode', () => {
     const mIds = shapeIds(otf, 'mmmmmm');
     expect(new Set(mIds).size, `repeated m cycles (ids ${mIds.join(',')})`).toBeGreaterThanOrEqual(2);
   });
+
+  test('choosing all three sheets at once builds the cycling palette in one action', async ({ page }) => {
+    test.setTimeout(220_000);
+    await page.goto('/make');
+
+    // No advanced panel, no toggle, no variation slots: selecting all three
+    // same-hand sheets at once on the MAIN input loads the first as the base and
+    // the next two as variations, auto-enables natural variation, and builds the
+    // merged cycling palette in a single action.
+    await page.locator('#sheet-file').setInputFiles([BASE, VAR2, VAR3]);
+    // One build only (base + 2 variations merged in a single pass), so wait for
+    // it to finish, then assert the palette merged — no intermediate plain build.
+    await buildDone(page);
+    const lb = await lastBuild(page);
+    expect(lb.variants, 'one-shot load merged all three sheets').toBe(2);
+    expect(lb.kind).toBe('mono');
+    const otf = await captureOtf(page);
+    assertValidFont(otf, lb.glyphCount);
+
+    // Same headline proof: the one-shot build cycles a repeated letter.
+    const aIds = shapeIds(otf, 'aaaaaa');
+    expect(new Set(aIds).size, `repeated a cycles (ids ${aIds.join(',')})`).toBeGreaterThanOrEqual(2);
+  });
 });

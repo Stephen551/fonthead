@@ -305,9 +305,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         if (!connectTouched && useConnect !== connect) setConnect(useConnect);
         // natural variation: trace each extra sheet against the SAME charset and
         // merge into one glyph list (bases + .cv01/.cv02) before building, so a
-        // repeated letter cycles through its variants.
+        // repeated letter cycles through its variants. Driven by whether variation
+        // sheets are actually loaded (not just the toggle), so a one-shot drop of
+        // all 3 sheets builds varied even before the toggle state propagates.
+        const useVariation = naturalVariation || variationImgsRef.current.some(Boolean);
         let glyphsForBuild = trace.glyphs;
-        if (naturalVariation) {
+        if (useVariation) {
           const variantSheets: Glyph[][] = [];
           for (const vimg of variationImgsRef.current) {
             if (!vimg) continue;
@@ -328,7 +331,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             spacingPct: spacing,
             trimFlourishes: useConnect ? false : trimFlourishes,
             connect: useConnect,
-            naturalVariation,
+            naturalVariation: useVariation,
           },
           (step, message) => setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
@@ -600,6 +603,38 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     }
   };
 
+  // One-shot multi-sheet load. The script generate preset hands the user a
+  // 3-version palette of the same hand; dropping or choosing more than one sheet
+  // at once loads the first as the base and the next two as variation sheets,
+  // flips natural variation on, and builds the cycling font in a single action
+  // instead of three separate drops. Mono only (variation is a mono feature), so
+  // a color build falls back to the single-sheet path.
+  const onFiles = async (files: FileList | null | undefined, source: 'file' | 'camera' = 'file') => {
+    const list = files ? Array.from(files) : [];
+    if (list.length <= 1 || isColor) {
+      await onFile(list[0], source);
+      return;
+    }
+    setNaturalVariation(true);
+    try {
+      await waitForEngine();
+      const names: (string | null)[] = [null, null];
+      for (let slot = 0; slot < 2; slot++) {
+        const f = list[slot + 1];
+        variationImgsRef.current[slot] = f ? await fileToImage(f) : null;
+        names[slot] = f ? f.name : null;
+      }
+      setVariationNames(names);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'could not read those images');
+      setPhase('error');
+      return;
+    }
+    // run() merges the loaded variation sheets via its ref-driven useVariation,
+    // so the base build cycles even before the toggle state propagates.
+    await onFile(list[0], source);
+  };
+
   // Natural variation: a 2nd/3rd sheet of the SAME hand. Stored off React state
   // (variationImgsRef) so run() reads the latest without a render dependency.
   // Adding one rebuilds from the base sheet so the cycling shows immediately.
@@ -679,7 +714,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           onDrop={(e) => {
             e.preventDefault();
             dropRef.current?.style.setProperty('border-color', 'var(--line-2)');
-            onFile(e.dataTransfer.files?.[0]);
+            onFiles(e.dataTransfer.files);
           }}
           style={{
             border: '1px dashed var(--line-2)',
@@ -696,6 +731,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 6 }}>
             png or jpg · rows of A–Z, a–z, 0–9
           </div>
+          <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
+            drop all three versions of one hand together for natural variation
+          </div>
           <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
             <label className="fh-btn fh-btn--ghost" style={{ cursor: 'pointer', display: 'inline-flex' }}>
               choose a file
@@ -703,8 +741,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 id="sheet-file"
                 type="file"
                 accept="image/*"
+                multiple
                 style={{ display: 'none' }}
-                onChange={(e) => onFile(e.target.files?.[0] ?? undefined)}
+                onChange={(e) => onFiles(e.target.files)}
               />
             </label>
             {/* phones get a straight-to-camera path: photograph the sheet flat
