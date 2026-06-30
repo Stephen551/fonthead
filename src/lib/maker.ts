@@ -75,6 +75,39 @@ export interface Glyph {
   cellW: number;
   cellH: number;
   baselineYInCell: number;
+  /**
+   * Optional OpenType-style variant tag (`.cv01`, `.cv02`, ...) for the natural
+   * variation build. Bases carry none; variant sheets are merged in carrying one.
+   * Variant glyphs are appended unicode-less so the cmap and base GIDs stay stable.
+   */
+  variantSuffix?: string;
+}
+
+/**
+ * Merge a natural-variation palette (the same hand drawn N times, differing only
+ * in the exit flick) into one glyph list for a single build.
+ *
+ * `sheets[0]` is the base (carried through with no suffix). Each later sheet `i`
+ * contributes `.cv0i` variants, but only for chars that exist in the base — an
+ * orphan variant (no matching base letter) is dropped, and a base letter missing
+ * from a variant sheet simply gets fewer variants. A single sheet is returned
+ * unchanged, so the default one-sheet build never grows a variant. Pure: never
+ * mutates the input glyphs.
+ */
+export function mergeVariantSheets(sheets: Glyph[][]): Glyph[] {
+  if (sheets.length === 0) return [];
+  const base = sheets[0];
+  if (sheets.length === 1) return base;
+
+  const baseChars = new Set(base.map((g) => g.char));
+  const out: Glyph[] = [...base];
+  for (let i = 1; i < sheets.length; i++) {
+    const suffix = '.cv' + String(i).padStart(2, '0');
+    for (const g of sheets[i]) {
+      if (baseChars.has(g.char)) out.push({ ...g, variantSuffix: suffix });
+    }
+  }
+  return out;
 }
 
 export interface FontResult {
