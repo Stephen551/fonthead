@@ -202,17 +202,18 @@ describe('buildGsubCalt', () => {
     expect(c0.inputCov).toEqual([5, 6]);
     expect(c0.seq).toEqual([{ seqIndex: 0, lookupIndex: 0 }]);
 
-    // Chain 1: 2 backtrack, fires on cv01 glyphs, nests lookup 1.
+    // Chain 1 (rotation): 1 backtrack on the cv01 glyphs (a cv01 predecessor ->
+    // cv02), nests lookup 1. This makes a repeated run alternate cv01/cv02 rather
+    // than settle into cv02, so no two adjacent repeats are the same glyph.
     const c1 = g.lookups[3] as ChainLookup;
-    expect(c1.backtrackLen).toBe(2);
+    expect(c1.backtrackLen).toBe(1);
     expect(c1.inputCov).toEqual([40, 42]);
     expect(c1.seq).toEqual([{ seqIndex: 0, lookupIndex: 1 }]);
+    expect(c1.btCovs[0]).toEqual([40, 42]); // backtrack = the cv01 source glyphs
 
-    // Both chains backtrack over bases UNION all variants (must include cv02).
+    // Chain 0 backtracks over the whole letter set (any preceding letter -> cv01).
     const letterSet = [5, 6, 40, 41, 42, 43];
     expect(c0.btCovs[0]).toEqual(letterSet);
-    expect(c1.btCovs[0]).toEqual(letterSet);
-    expect(c1.btCovs[1]).toEqual(letterSet);
   });
 
   it('handles a 2-sheet palette (cv02 absent) with a single level', () => {

@@ -205,7 +205,14 @@
       var covGids = pairs.map(function (p) { return p[0]; });
       var substGids = pairs.map(function (p) { return p[1]; });
       singleSubts.push(singleSubst2Bytes(covGids, substGids));
-      chains.push(chainContext3Bytes(lvl + 1, covGids, letterSet, lvl));
+      // Rotation: every chain backtracks just ONE glyph. Level 0 fires on any
+      // preceding letter (base -> cv01); level k>0 fires only when the immediate
+      // predecessor is the previous rung (a cv0k glyph -> cv0(k+1)). So a repeated
+      // run alternates through the variants (a a1 a2 a1 a2 ...) instead of settling
+      // on the last variant (a a1 a2 a2 ...) — no two adjacent repeats are the same
+      // glyph, which is what makes the variation read at a glance.
+      var btCov = lvl === 0 ? letterSet : covGids;
+      chains.push(chainContext3Bytes(1, covGids, btCov, lvl));
     }
 
     // Lookups: [ss0..ss(L-1), chain0..chain(L-1)]; chain k nests single-sub k.
