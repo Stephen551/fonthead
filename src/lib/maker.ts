@@ -784,6 +784,11 @@ export interface BuildOpts {
   /** Seamless overlap as a fraction of x-height. 0 (default) is the consistent
    *  touch floor; a small positive value merges the strokes. */
   connectOverlapPct?: number;
+  /** Natural variation: build from a merged same-hand palette (bases plus
+   *  .cv01/.cv02 variant glyphs, see mergeVariantSheets) and emit a GSUB `calt`
+   *  table so a repeated letter cycles through its variants. Mutually exclusive
+   *  with connect/trimFlourishes (a plain mono build with cycling variants). */
+  naturalVariation?: boolean;
 }
 
 // ---- flourish trim: body advances with overhang -----------------------------
@@ -1546,7 +1551,13 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   let glyphsIn = glyphs;
   let spaceAdvance: number | undefined;
   let styleOut = opts.style ?? 'Regular';
-  if (opts.connect) {
+  if (opts.naturalVariation) {
+    // Natural variation: a plain mono build that ALSO carries the .cv01/.cv02
+    // palette glyphs; the worker's GSUB calt writer cycles them so a repeated
+    // letter differs. Mutually exclusive with connect/trim in the UI, so neither
+    // join nor flourish-trim runs and the merged glyph list passes through as-is.
+    onProgress?.('variation', 'natural variation · cycling letter variants');
+  } else if (opts.connect) {
     // Connected cursive: cellW carries the plug-to-plug advance verbatim
     // (useCellWidth, shiftX=0), so tight advance must stay off or the worker
     // re-measures the bbox and adds a side bearing, voiding the join.
@@ -1589,6 +1600,8 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
       cellW: g.cellW,
       cellH: g.cellH,
       baselineYInCell: g.baselineYInCell,
+      // carried so the builder can append it unicode-less; undefined on a base
+      variantSuffix: g.variantSuffix,
     })),
     family: opts.family,
     style: styleOut,
@@ -1604,7 +1617,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // CONNECT-specific kern (analyzeConnectKern): it evens every pair to one gap
     // and breaks descender-loop collisions, refining the body-edge placement
     // rather than fighting it.
-    features: { kerning: true, connectKern: opts.connect ? {} : undefined },
+    features: { kerning: true, connectKern: opts.connect ? {} : undefined, naturalVariation: opts.naturalVariation ? true : undefined },
     embedHints: false,
     embedTTHints: false,
     opticalSidebearings: false,

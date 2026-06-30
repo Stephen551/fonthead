@@ -73,6 +73,7 @@ importScripts('/assets/vendor/font-engine-builder.js?v=' + __V);
 importScripts('/assets/vendor/font-engine-features.js?v=' + __V);
 importScripts('/assets/vendor/font-engine-autokern.js?v=' + __V);
 importScripts('/assets/vendor/font-engine-gpos.js?v=' + __V);
+importScripts('/assets/vendor/font-engine-gsub.js?v=' + __V);
 importScripts('/assets/vendor/font-engine-tables.js?v=' + __V);
 importScripts('/assets/vendor/font-engine-hinting.js?v=' + __V);
 importScripts('/assets/vendor/font-engine-cff-hints.js?v=' + __V);
