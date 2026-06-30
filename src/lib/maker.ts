@@ -643,6 +643,49 @@ let _monoSession: MonoSession | null = null;
  *  row-mismatch warning when the detected row count differs from the charset
  *  (the loudest "this is misaligned" signal, mirroring the source tool).
  *  Keeps a per-row session so a mis-cut row can be re-sliced afterward. */
+const STROKE_FLOOR_FRAC = 0.07; // ·rowH — a median stroke thinner than this reads as a faint/thin hand
+const STROKE_FLOOR_MAX_WEIGHT = 2; // cap the dilation (iterations) so open counters survive
+
+/** Detect a too-thin hand and return the binarize WEIGHT (dilation iterations) that
+ *  thickens it to a readable floor; returns baseWeight unchanged for a normal or
+ *  bold hand, so the gate never touches a hand that is already solid. Stroke width
+ *  is the median horizontal ink-run across the inked scanlines, measured against the
+ *  median row height; a run longer than a row is a stroke LENGTH (a horizontal bar),
+ *  not a width, so it is ignored. */
+export function strokeWeightFloor(data: Uint8ClampedArray | Uint8Array, w: number, h: number, bands: number[][], baseWeight: number): number {
+  if (!bands.length) return baseWeight;
+  const heights = bands.map((b) => b[1] - b[0]).sort((a, b) => a - b);
+  const rowH = heights[Math.floor(heights.length / 2)];
+  if (rowH < 6) return baseWeight;
+  const cap = rowH;
+  const runs: number[] = [];
+  for (const [y0, y1] of bands) {
+    for (let y = Math.max(0, y0); y <= Math.min(h - 1, y1); y++) {
+      let run = 0;
+      const base = y * w;
+      for (let x = 0; x < w; x++) {
+        if (data[(base + x) * 4] === 0) run++;
+        else {
+          if (run > 0 && run <= cap) runs.push(run);
+          run = 0;
+        }
+      }
+      if (run > 0 && run <= cap) runs.push(run);
+    }
+  }
+  if (runs.length < 20) return baseWeight;
+  runs.sort((a, b) => a - b);
+  const strokePx = runs[Math.floor(runs.length / 2)];
+  const strokeFrac = strokePx / rowH;
+  let weight = baseWeight;
+  if (strokeFrac < STROKE_FLOOR_FRAC) {
+    const need = Math.ceil((STROKE_FLOOR_FRAC * rowH - strokePx) / 2);
+    weight = Math.max(baseWeight, Math.min(STROKE_FLOOR_MAX_WEIGHT, need));
+  }
+  (globalThis as unknown as { __lastWeightFloor?: object }).__lastWeightFloor = { rowH, strokePx, strokeFrac: +strokeFrac.toFixed(3), weight };
+  return weight;
+}
+
 export async function traceSheet(
   img: HTMLImageElement | ImageBitmap,
   rowChars: string[],
@@ -653,9 +696,18 @@ export async function traceSheet(
   const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
   const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
   onProgress?.('binarize', 'threshold · otsu adaptive');
-  const bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, opts.weight);
+  let bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, opts.weight);
   onProgress?.('slice', 'detecting rows + cells');
-  const bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+  let bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+  // Stroke-weight floor: a faint or thin-pen sheet traces to wispy strokes that
+  // break and fade at text size. If the hand reads too thin, re-binarize with a
+  // bounded dilation (the engine's existing weight knob) so the strokes come out
+  // solid. Gated, so a normal or bold hand never trips it and is left untouched.
+  const wFloor = strokeWeightFloor(bin.data, bin.w, bin.h, bands, opts.weight);
+  if (wFloor > opts.weight) {
+    bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, wFloor);
+    bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+  }
   const lines = rowChars.filter((r) => r.length > 0);
   const rowWarning =
     bands.length !== lines.length
