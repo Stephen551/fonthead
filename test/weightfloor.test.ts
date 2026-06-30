@@ -17,14 +17,14 @@ function raster(w: number, h: number, inkCols: number[]): Uint8ClampedArray {
 }
 
 describe('strokeWeightFloor', () => {
-  it('returns a positive dilation weight for a thin hand (stroke well under the floor)', () => {
-    // 2px stroke in a 40px row = 0.05 of the row height, below the 0.07 floor.
-    expect(strokeWeightFloor(raster(20, 40, [0, 1]), 20, 40, [[0, 39]], 0)).toBeGreaterThan(0);
+  it('returns a positive dilation weight for a wispy hand (stroke under the gate)', () => {
+    // 1px stroke in a 40px row = 0.025 of the row height, under the 0.05 gate.
+    expect(strokeWeightFloor(raster(20, 40, [0]), 20, 40, [[0, 39]], 0)).toBeGreaterThan(0);
   });
 
-  it('leaves a solid hand at the base weight (stroke above the floor)', () => {
-    // 6px stroke in a 40px row = 0.15, comfortably above the floor.
-    expect(strokeWeightFloor(raster(20, 40, [0, 1, 2, 3, 4, 5]), 20, 40, [[0, 39]], 0)).toBe(0);
+  it('spares a delicate-but-functional hand at the base weight (above the gate)', () => {
+    // 3px stroke in a 40px row = 0.075, like an intentionally delicate engrosser; untouched.
+    expect(strokeWeightFloor(raster(20, 40, [0, 1, 2]), 20, 40, [[0, 39]], 0)).toBe(0);
   });
 
   it('caps the dilation so a hairline hand cannot over-thicken', () => {

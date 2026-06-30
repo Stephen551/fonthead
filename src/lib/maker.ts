@@ -643,7 +643,8 @@ let _monoSession: MonoSession | null = null;
  *  row-mismatch warning when the detected row count differs from the charset
  *  (the loudest "this is misaligned" signal, mirroring the source tool).
  *  Keeps a per-row session so a mis-cut row can be re-sliced afterward. */
-const STROKE_FLOOR_FRAC = 0.07; // ·rowH — a median stroke thinner than this reads as a faint/thin hand
+const STROKE_FLOOR_GATE = 0.05; // ·rowH — only a hand THINNER than this is thickened (genuinely wispy, not an intentionally delicate engrosser, which measures ~0.057)
+const STROKE_FLOOR_TARGET = 0.07; // ·rowH — when it trips, thicken UP TO this readable weight (gate and target are decoupled so a delicate hand is spared but a wispy one comes out solid)
 const STROKE_FLOOR_MAX_WEIGHT = 2; // cap the dilation (iterations) so open counters survive
 
 /** Detect a too-thin hand and return the binarize WEIGHT (dilation iterations) that
@@ -678,8 +679,8 @@ export function strokeWeightFloor(data: Uint8ClampedArray | Uint8Array, w: numbe
   const strokePx = runs[Math.floor(runs.length / 2)];
   const strokeFrac = strokePx / rowH;
   let weight = baseWeight;
-  if (strokeFrac < STROKE_FLOOR_FRAC) {
-    const need = Math.ceil((STROKE_FLOOR_FRAC * rowH - strokePx) / 2);
+  if (strokeFrac < STROKE_FLOOR_GATE) {
+    const need = Math.ceil((STROKE_FLOOR_TARGET * rowH - strokePx) / 2);
     weight = Math.max(baseWeight, Math.min(STROKE_FLOOR_MAX_WEIGHT, need));
   }
   (globalThis as unknown as { __lastWeightFloor?: object }).__lastWeightFloor = { rowH, strokePx, strokeFrac: +strokeFrac.toFixed(3), weight };
@@ -1321,6 +1322,14 @@ const BODY_BASE_FRAC = 0.35;
 // The cap-float drift is moderate (~0.35 x-height); a descender drags the dense
 // bottom far further (~0.8+), so this ceiling keeps descenders on the traced line.
 const BASE_DOWN_TOL = 0.5;
+// ·xhPx — the largest UPWARD correction: a letter drawn HIGH (its body floats above
+// the line) is lifted onto its body bottom, but only by a moderate amount so a true
+// above-line form is never yanked down.
+const BASE_UP_TOL = 0.22;
+// ·xhPx — a letter is a NORMAL sit (safe to lift) only when its lowest ink is within
+// this of its dense body bottom; a top-heavy stem or a descender loop reaches further
+// below and must keep the traced line.
+const BASE_NORMAL_TOL = 0.12;
 
 export interface FaceMetrics {
   xhPx: number;
@@ -1498,7 +1507,20 @@ export function connectGlyphs(
     // letter (r's wide arm rides high while its narrow stem reaches the true
     // baseline, so denseBottom lands ABOVE traced) and a DESCENDER (f g j y, whose
     // loop is wide enough to count as body, so denseBottom lands FAR below traced).
-    return denseBottom >= traced && denseBottom - traced <= BASE_DOWN_TOL * xhPx ? denseBottom : traced;
+    if (denseBottom >= traced && denseBottom - traced <= BASE_DOWN_TOL * xhPx) return denseBottom;
+    // UP correction (drawn-high): a NORMAL letter whose dense bottom IS its ink bottom
+    // (nothing narrow reaches below it, unlike a top-heavy stem or a descender loop)
+    // is lifted onto its body bottom so it sits on the line instead of floating above
+    // it. This levels the residual baseline wobble of a hand drawn unevenly.
+    let inkBottom = -1;
+    for (let y = prof.rowLeft.length - 1; y >= 0; y--)
+      if (isFinite(prof.rowLeft[y])) {
+        inkBottom = y;
+        break;
+      }
+    const normalSit = inkBottom >= 0 && inkBottom - denseBottom <= BASE_NORMAL_TOL * xhPx;
+    if (denseBottom < traced && traced - denseBottom <= BASE_UP_TOL * xhPx && normalSit) return denseBottom;
+    return traced;
   });
 
   // plugs in a horizontal band: leftmost/rightmost ink across the band's rows,
