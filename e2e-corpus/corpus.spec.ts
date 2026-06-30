@@ -135,12 +135,13 @@ type Metrics = {
   connJoinWorst: string;
   fullJoinMax: number;
   fullJoinWorst: string;
+  probe?: unknown;
 };
 
-async function measure(page: Page, otfPath: string): Promise<Metrics> {
+async function measure(page: Page, otfPath: string, wantProbe = false): Promise<Metrics> {
   const b64 = readFileSync(otfPath).toString('base64');
   return page.evaluate(
-    ({ b, structuralPairs, crosserPairs, capPairs, pangram, spacePairs, joinPairs }) => {
+    ({ b, structuralPairs, crosserPairs, capPairs, pangram, spacePairs, joinPairs, wantProbe }) => {
       const bin = atob(b);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -438,8 +439,69 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
         const g = font.glyphs.get(i);
         if (g && g.path && g.path.commands && g.path.commands.length) glyphs++;
       }
+
+      // --- Step 1 probe: per-pair residual map (only when requested) -----------
+      // rawGap = the body-strip gap BEFORE the GPOS value (the placement gap);
+      // kernValue = the applied connect-kern correction; realizedGap = what the reader
+      // sees. The kern is a constant x-offset on every band, so rawGap = realizedGap -
+      // kernValue. saturated flags a pair pinned at the connect-kern's +/-650 clamp (a
+      // correction GPOS could not fully apply, which points at placement, not spacing).
+      let probe: unknown = null;
+      if (wantProbe) {
+        const CLAMP = 650; // MAX_UNITS in analyzeConnectKern
+        const rows = joinPairs.map((p) => {
+          const realized = pairGap(p[0], p[1]);
+          const kv = kern(p[0], p[1]);
+          const cn = connGap(p[0], p[1]);
+          const fl = fullGap(p[0], p[1]);
+          return {
+            pair: p,
+            rawGap: realized === null ? null : Math.round(realized - kv),
+            kernValue: Math.round(kv),
+            realizedGap: realized === null ? null : Math.round(realized),
+            connGap: cn === null ? null : Math.round(cn),
+            fullGap: fl === null ? null : Math.round(fl),
+            saturated: Math.abs(kv) >= CLAMP - 8,
+          };
+        });
+        const rv = rows.map((r) => r.realizedGap).filter((x): x is number => x !== null).sort((a, b) => a - b);
+        const rMed = rv.length ? rv[Math.floor(rv.length / 2)] : 0;
+        const rMean = rv.reduce((a, x) => a + x, 0) / Math.max(1, rv.length);
+        const rSd = Math.sqrt(rv.reduce((a, x) => a + (x - rMean) * (x - rMean), 0) / Math.max(1, rv.length));
+        const outliers = rows
+          .filter((r) => r.realizedGap !== null && r.realizedGap > rMed + rSd)
+          .sort((a, b) => (b.realizedGap as number) - (a.realizedGap as number));
+        // Context fork: for the loosest pairs, vary the LEFT glyph and re-measure the
+        // right glyph's raw gap. A spread explained by which left glyph it is means the
+        // spacing is PAIR-determined (PairPos covers it); a static glyph model has no
+        // third-glyph variable that only ChainContextPos could reach.
+        const ctxLefts = 'iwhbor'.split('');
+        const contextFork = outliers.slice(0, 3).map((o) => {
+          const right = o.pair[1];
+          const byLeft = ctxLefts.map((L) => {
+            const realized = pairGap(L, right);
+            const kv = kern(L, right);
+            return { left: L, rawGap: realized === null ? null : Math.round(realized - kv), realizedGap: realized === null ? null : Math.round(realized) };
+          });
+          const raws = byLeft.map((x) => x.rawGap).filter((x): x is number => x !== null);
+          const m2 = raws.reduce((a, x) => a + x, 0) / Math.max(1, raws.length);
+          const sd2 = Math.sqrt(raws.reduce((a, x) => a + (x - m2) * (x - m2), 0) / Math.max(1, raws.length));
+          return { rightGlyph: right, fromPair: o.pair, rawSpreadSd: Math.round(sd2), byLeft };
+        });
+        probe = {
+          upm,
+          realizedMedian: Math.round(rMed),
+          realizedSd: Math.round(rSd),
+          outlierPairs: outliers.map((o) => o.pair),
+          anySaturated: rows.some((r) => r.saturated),
+          rows,
+          contextFork,
+        };
+      }
+
       return {
         glyphs,
+        probe,
         structural,
         crosser,
         capOverhang,
@@ -455,7 +517,7 @@ async function measure(page: Page, otfPath: string): Promise<Metrics> {
         fullJoinWorst,
       };
     },
-    { b: b64, structuralPairs: STRUCTURAL_PAIRS, crosserPairs: CROSSER_PAIRS, capPairs: CAP_PAIRS, pangram: PANGRAM, spacePairs: SPACE_PAIRS, joinPairs: JOIN_PAIRS },
+    { b: b64, structuralPairs: STRUCTURAL_PAIRS, crosserPairs: CROSSER_PAIRS, capPairs: CAP_PAIRS, pangram: PANGRAM, spacePairs: SPACE_PAIRS, joinPairs: JOIN_PAIRS, wantProbe },
   );
 }
 
@@ -482,13 +544,25 @@ for (const sheet of sheets) {
     const otfPath = test.info().outputPath(`${sheet.name}.otf`);
     await download.saveAs(otfPath);
 
-    const m = await measure(page, otfPath);
+    const m = await measure(page, otfPath, isConnect && !!process.env.CORPUS_KERN_PROBE);
     const trim = await page.evaluate(() => (window as unknown as { __lastTrim?: { script: boolean; trimmed: number } }).__lastTrim);
     const conn = await page.evaluate(() => (window as unknown as { __lastConnect?: { joined: number; broke: number } }).__lastConnect);
     const mode = isConnect ? `connect/${conn?.joined ?? '?'}j` : `${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'}`;
     console.log(
       `CORPUS | ${sheet.name.padEnd(24)} | ${mode} glyphs=${m.glyphs} structural=${m.structural.depth}(${m.structural.worst || '-'}) crosser=${m.crosser.depth}(${m.crosser.worst || '-'}) capOverhang=${m.capOverhang.depth}(${m.capOverhang.worst || '-'}) rhythmSd=${m.rhythmSd} wordSpace=${m.wordSpaceMedian} joinGap=med${m.joinGapMedian}/max${m.joinGapMax}(${m.joinGapWorst || '-'}) connJoin=med${m.connJoinMedian}/max${m.connJoinMax}(${m.connJoinWorst || '-'}) fullJoin=${m.fullJoinMax}(${m.fullJoinWorst || '-'})`,
     );
+
+    // Step 1 kern probe: dump the per-pair residual map for the connect fixtures so
+    // the spacing-vs-placement and pair-vs-context forks are decided from data.
+    if (m.probe) {
+      mkdirSync(OUT_DIR, { recursive: true });
+      const probePath = join(OUT_DIR, `kern-residual-${sheet.name}.json`);
+      writeFileSync(probePath, JSON.stringify(m.probe, null, 2));
+      const pr = m.probe as { realizedMedian: number; realizedSd: number; outlierPairs: string[]; anySaturated: boolean };
+      console.log(
+        `KERN-PROBE | ${sheet.name.padEnd(24)} | realizedMed=${pr.realizedMedian} sd=${pr.realizedSd} outliers=${pr.outlierPairs.join(',') || '-'} saturated=${pr.anySaturated} -> ${probePath}`,
+      );
+    }
 
     // render the contact-sheet strip for this face (real shaping, kern on)
     const b64 = readFileSync(otfPath).toString('base64');
