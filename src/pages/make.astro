@@ -183,8 +183,14 @@ Requirements:
 - High resolution: at least 2000px wide
 - Output: one clean PNG image, 7 rows of letters as specified above`;
 
+    // The script preset generates a 3-version PALETTE of the SAME hand for natural
+    // variation. SEPARATION is hammered first (a fused row can't be sliced), and the
+    // only difference between versions is a SHORT exit flick that stops in empty space,
+    // never a join that reaches the neighbor. Generate the three, then drop them into
+    // the maker's natural-variation slots; the GSUB calt pipeline cycles the repeated
+    // letters. (Auto-filling the slots from this preset is a planned follow-up.)
     const SCRIPT = (style: string) =>
-      `Hand-drawn cursive alphabet sheet, 7 rows on white paper:
+      `Hand-drawn cursive alphabet, drawn as THREE versions of the SAME hand so a font tool can later pick the best-fitting form of each letter. Produce three sheets (Version 1, Version 2, Version 3), each the full 7 rows below on white paper:
 Row 1: capitals A B C D E F G H I J K L M
 Row 2: capitals N O P Q R S T U V W X Y Z
 Row 3: lowercase a b c d e f g h i j k l m
@@ -193,16 +199,19 @@ Row 5: digits 0 1 2 3 4 5 6 7 8 9
 Row 6: symbols ! ? @ # $ % ^ & * ( ) - _ + = [ ]
 Row 7: symbols { } ; : ' " , . < > / \\ |
 
+MOST IMPORTANT RULE — letters must be SEPARATE, never joined:
+- Every letter is its own island. Leave a WIDE white gap (at least one letter-width) between every pair of letters. NO part of any letter may touch, overlap, or run into the next one. Do NOT draw a continuous connected line. The tool joins the letters itself later; if they are already joined it cannot read them. This rule overrides everything below.
+
 Requirements:
-- A natural, flowing cursive hand${style ? ` in this style: ${style}` : ''}, the kind you would write by hand
+- A natural cursive hand${style ? ` in this style: ${style}` : ''}, the kind you would write by hand
+- KEEP THE SAME hand across all three versions: identical letter shapes, weight, slant, and proportions. The ONLY difference between versions is the short exit flick each letter ends on (below)
+- Each letter ends in a SHORT exit flick to the right that stops in EMPTY SPACE, well short of the next letter. It never reaches or touches the neighbor. Vary only the flick's direction across the versions: Version 1 the flick hooks DOWN to the baseline; Version 2 the flick points straight OUT to the right at mid x-height; Version 3 the flick curls UP toward the top of the x-height. Bowls, stems, and overall letter shapes stay identical in all three
 - Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
-- Draw each lowercase letter SEPARATELY with a CLEAR GAP between letters. The maker joins them itself, so they must not already run into one continuous line
-- Every letter's connecting stroke exits FORWARD, to the right toward where the next letter goes. No backward swash or flourish that curls away from the next letter
-- All letters rest on ONE steady baseline at a consistent x-height. Descenders drop below the line and ascenders rise above it, but the bodies sit on one line
+- All letters rest on ONE steady baseline at a consistent x-height. Descenders drop below the line, ascenders rise above it, bodies sit on one line
 - Clean single-stroke letterforms; no two strokes overprinting or tangling into a knot
-- One character per position, evenly spaced, all 7 rows as listed
-- High resolution: at least 2000px wide
-- Output: one clean PNG image, 7 rows as specified above`;
+- One character per position, evenly spaced with the wide white gap between them, all 7 rows in each version
+- High resolution: each sheet at least 2000px wide
+- Output: three clean sheet images (Version 1, 2, 3), the same hand in all three, every letter SEPARATE in all three`;
 
     const MONOLINE = () =>
       `Hand-drawn MONOLINE alphabet sheet, 7 rows on white paper:
