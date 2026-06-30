@@ -962,6 +962,37 @@ export function warpTailX(d: string, edge: number, scale: number, side: 'left' |
   });
 }
 
+/** Shift a Potrace path's y along the tail beyond `edge` by a ramped delta: 0 at
+ *  the body edge, full `dy` at the connector `tip`. `side` 'right' warps the exit
+ *  tail (x > edge, tip > edge), 'left' the entry tail (x < edge, tip < edge). Used
+ *  to lower a high connecting stub onto a shared low join line so a seam meets flush
+ *  instead of the exit of one letter crossing the entry of the next at a different
+ *  height. x is never touched, so the connector keeps its horizontal reach. */
+export function warpTailY(d: string, edge: number, tip: number, dy: number, side: 'left' | 'right'): string {
+  const span = tip - edge;
+  if (!dy || span === 0) return d;
+  let xNext = true;
+  let ramp = 0;
+  return d.replace(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?|[A-Za-z]/g, (tok) => {
+    if (/[A-Za-z]/.test(tok)) {
+      xNext = true;
+      return tok;
+    }
+    if (xNext) {
+      xNext = false;
+      const x = parseFloat(tok);
+      const onTail = side === 'right' ? x > edge : x < edge;
+      let t = onTail ? (x - edge) / span : 0;
+      if (t < 0) t = 0;
+      if (t > 1) t = 1;
+      ramp = t;
+      return tok; // x untouched
+    }
+    xNext = true;
+    return ramp ? String(Math.round((parseFloat(tok) + ramp * dy) * 1000) / 1000) : tok;
+  });
+}
+
 /** Rasterize a glyph's paths (one Path2D, evenodd so counters subtract) and
  *  measure each x column (filled pixel count + the column's ink y-span as a
  *  fraction of the glyph's full ink height — the tail-vs-aperture signal),
@@ -1433,6 +1464,118 @@ export function compressConnectorTails(
   return { glyphs: out, compressed, medianEntry };
 }
 
+// Connector-height snap. A hand can draw its EXIT connectors riding high above its
+// ENTRY connectors (an AI signature hand flicks every letter upward on the way out),
+// so the high exit of one letter crosses the low entry of the next without merging —
+// the visible dot at every seam — and the long high exit rides over the next letter.
+// Pull each abnormally-high exit (and any high entry) down onto a shared low join line
+// where the entries already sit, so each seam meets flush. Only the plain low-exit
+// letters are lowered: o/v/w/b/d/s/u/r (HIGH_EXIT) and g/j/q/y/z (DESC_EXIT) exit high
+// or via a descender by nature and keep their drawn stub. Gated on the hand's median
+// low-exit-vs-entry mismatch: a copperplate whose exits already meet its entries
+// (mismatch near zero) is skipped untouched, byte-for-byte.
+const SNAP_MISMATCH_GATE = 0.2; // ·xh — median plain-letter exit must ride this far above median entry to snap
+const SNAP_JOIN_LO = 0.08; // ·xh — clamp the join line to a low band, just above the baseline...
+const SNAP_JOIN_HI = 0.3; // ...and never above mid-x-height
+const SNAP_MAX = 0.5; // ·xh — cap one connector's downward move
+const SNAP_MIN_JOINERS = 4;
+
+export function snapConnectorHeights(
+  glyphs: Glyph[],
+  profilesIn?: (ReturnType<typeof glyphColumnAreas>)[],
+): { glyphs: Glyph[]; snapped: number; mismatch: number } {
+  const profiles = profilesIn ?? glyphs.map((g) => glyphColumnAreas(g));
+  const fm = faceMetrics(glyphs, profiles);
+  const xhPx = Math.max(1, fm.xhPx);
+  type M = {
+    i: number;
+    bodyMin: number;
+    bodyMax: number;
+    first: number;
+    last: number;
+    baseY: number;
+    lY: number;
+    rY: number;
+    snapExit: boolean;
+  };
+  const meas: M[] = [];
+  const entryFracs: number[] = [];
+  const lowExitFracs: number[] = [];
+  glyphs.forEach((g, i) => {
+    const prof = profiles[i];
+    if (!prof) return;
+    const cls = joinClass(g.char);
+    if (cls.kind !== 'join' || !cls.joinsLeft || !cls.joinsRight) return;
+    const body = bodyBoundsFromColumns(prof.cols, BODY_CONNECT_OPTS, prof.spans);
+    if (!body) return;
+    let first = -1,
+      last = -1;
+    for (let c = 0; c < prof.cols.length; c++)
+      if (prof.cols[c] > 0) {
+        if (first < 0) first = c;
+        last = c;
+      }
+    if (first < 0) return;
+    const baseY = g.baselineYInCell;
+    const botY = Math.min(g.cellH - 1, Math.max(0, Math.round(baseY - xhPx * CONNECT_BAND_LO)));
+    const topY = Math.min(g.cellH - 1, Math.max(0, Math.round(baseY - xhPx * CONNECT_BAND_HI)));
+    let left = Infinity,
+      right = -Infinity,
+      lY = -1,
+      rY = -1;
+    for (let y = topY; y <= botY; y++) {
+      if (!isFinite(prof.rowLeft[y]) || !isFinite(prof.rowRight[y])) continue;
+      if (prof.rowLeft[y] < left) {
+        left = prof.rowLeft[y];
+        lY = y;
+      }
+      if (prof.rowRight[y] > right) {
+        right = prof.rowRight[y];
+        rY = y;
+      }
+    }
+    if (lY < 0 || rY < 0) return;
+    const snapExit = !cls.highExit && !DESC_EXIT.has(g.char);
+    meas.push({ i, bodyMin: body.min, bodyMax: body.max, first, last, baseY, lY, rY, snapExit });
+    entryFracs.push((baseY - lY) / xhPx);
+    if (snapExit) lowExitFracs.push((baseY - rY) / xhPx);
+  });
+  if (meas.length < SNAP_MIN_JOINERS || lowExitFracs.length < 2) return { glyphs, snapped: 0, mismatch: 0 };
+  const med = (a: number[]) => {
+    const s = a.slice().sort((x, y) => x - y);
+    return s[Math.floor(s.length / 2)];
+  };
+  const medEntry = med(entryFracs);
+  const mismatch = med(lowExitFracs) - medEntry;
+  if (mismatch <= SNAP_MISMATCH_GATE) return { glyphs, snapped: 0, mismatch }; // exits already meet entries (copperplate)
+  const joinFrac = Math.min(SNAP_JOIN_HI, Math.max(SNAP_JOIN_LO, medEntry));
+  const cap = SNAP_MAX * xhPx;
+  const out = glyphs.map((g) => ({ ...g, paths: g.paths.slice() }));
+  let snapped = 0;
+  for (const m of meas) {
+    const joinY = m.baseY - joinFrac * xhPx;
+    let did = false;
+    // lower a high exit onto the join line (never raise one already at/below it)
+    if (m.snapExit && m.last > m.bodyMax) {
+      const dy = Math.min(cap, joinY - m.rY);
+      if (dy >= 1) {
+        out[m.i].paths = out[m.i].paths.map((d) => warpTailY(d, m.bodyMax, m.last, dy, 'right'));
+        did = true;
+      }
+    }
+    // lower a high entry onto the same line so the previous letter's snapped exit meets it
+    if (m.first < m.bodyMin) {
+      const dy = Math.min(cap, joinY - m.lY);
+      if (dy >= 1) {
+        out[m.i].paths = out[m.i].paths.map((d) => warpTailY(d, m.bodyMin, m.first, dy, 'left'));
+        did = true;
+      }
+    }
+    if (did) snapped++;
+  }
+  return { glyphs: out, snapped, mismatch };
+}
+
 /** Connected-cursive fit: place each glyph by its connection plugs so the exit
  *  of one letter meets the entry of the next, instead of trimming tails. A
  *  sibling of trimGlyphOverhangs (never a wrapper). Mutates paths via
@@ -1802,7 +1945,15 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
       compressed: comp.compressed,
       medianEntry: comp.medianEntry,
     };
-    const fit = connectGlyphs(comp.glyphs, { overlapPct: opts.connectOverlapPct });
+    // Lower abnormally-high exit flicks onto the entries' join line so each seam meets
+    // flush (self-gated inside on the hand's exit-vs-entry mismatch, so a copperplate
+    // whose exits already meet its entries is skipped byte-for-byte).
+    const snap = snapConnectorHeights(comp.glyphs);
+    (globalThis as unknown as { __lastSnap?: object | null }).__lastSnap = {
+      snapped: snap.snapped,
+      mismatch: snap.mismatch,
+    };
+    const fit = connectGlyphs(snap.glyphs, { overlapPct: opts.connectOverlapPct });
     glyphsIn = fit.glyphs;
     // connected runs read denser than upright; a touch more than the 0.28em
     // default keeps word breaks visible without gapping the join rhythm
