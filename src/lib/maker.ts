@@ -885,6 +885,30 @@ export function scaleTranslatePathX(d: string, sx: number, tx: number): string {
   });
 }
 
+/** Compress a connecting tail horizontally toward the body edge: for x on the tail
+ *  side of `edge`, x -> edge + (x - edge) * scale (0<scale<1 shortens it); the body
+ *  side and y are untouched. side 'left' compresses the entry tail (x < edge).
+ *  Used by compressConnectorTails to shorten a flashy hand's over-long entry sweeps
+ *  so the letter places tight. Absolute M/L/C/Q only, the translatePathX walker. */
+export function warpTailX(d: string, edge: number, scale: number, side: 'left' | 'right'): string {
+  if (scale === 1) return d;
+  let xNext = true;
+  return d.replace(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?|[A-Za-z]/g, (tok) => {
+    if (/[A-Za-z]/.test(tok)) {
+      xNext = true;
+      return tok;
+    }
+    if (!xNext) {
+      xNext = true;
+      return tok; // y untouched
+    }
+    xNext = false;
+    const x = parseFloat(tok);
+    const onTail = side === 'left' ? x < edge : x > edge;
+    return onTail ? String(Math.round((edge + (x - edge) * scale) * 1000) / 1000) : tok;
+  });
+}
+
 /** Rasterize a glyph's paths (one Path2D, evenodd so counters subtract) and
  *  measure each x column (filled pixel count + the column's ink y-span as a
  *  fraction of the glyph's full ink height — the tail-vs-aperture signal),
@@ -1288,6 +1312,64 @@ export function faceMetrics(glyphs: Glyph[], profiles?: (ReturnType<typeof glyph
   return { xhPx, maxAscRaster, maxAscBBox, capHpx };
 }
 
+const TAIL_GATE_FRAC = 0.6; // ·xhPx — a hand whose MEDIAN entry tail exceeds this is a long-sweep hand
+const TAIL_MAX_FRAC = 1.1; // ·xhPx — compress an over-long entry sweep down to this length; the contextual kern then fine-tunes each pair
+const TAIL_MIN_JOINERS = 4; // too few joiners to trust a median
+
+/** Connect pre-pass for a long-sweep hand. A flashy script draws entry connectors
+ *  reaching 2-3 x-heights left of the body; anchorAdvance anchors on the leftmost
+ *  ink (to protect a structural lead-in), so the whole sweep folds into the advance
+ *  and the letter floats (the round-letter "o-float"). This compresses each
+ *  over-long ENTRY tail horizontally toward the body so the letter places tight,
+ *  leaving the body and the flashy EXIT swash untouched. GATED on the hand's median
+ *  entry tail: a short-entry hand (a tidy copperplate measures ~0.24xh, and its long
+ *  strokes are exit swashes that already ride the seam) is skipped whole, so only a
+ *  genuinely long-entry hand is touched. Mutates paths via warpTailX only;
+ *  char/cellW/cellH/baselineYInCell untouched. Caller gates to variation builds. */
+export function compressConnectorTails(
+  glyphs: Glyph[],
+  profilesIn?: (ReturnType<typeof glyphColumnAreas>)[],
+): { glyphs: Glyph[]; compressed: number; medianEntry: number } {
+  const profiles = profilesIn ?? glyphs.map((g) => glyphColumnAreas(g));
+  const fm = faceMetrics(glyphs, profiles);
+  const xhPx = Math.max(1, fm.xhPx);
+  type M = { i: number; bodyMin: number; entry: number };
+  const meas: M[] = [];
+  const entries: number[] = [];
+  glyphs.forEach((g, i) => {
+    const prof = profiles[i];
+    if (!prof) return;
+    const cls = joinClass(g.char);
+    if (cls.kind !== 'join' || !cls.joinsLeft) return; // left-joiners only (caps connect right-only)
+    const body = bodyBoundsFromColumns(prof.cols, BODY_CONNECT_OPTS, prof.spans);
+    if (!body) return;
+    let first = -1;
+    for (let c = 0; c < prof.cols.length; c++)
+      if (prof.cols[c] > 0) {
+        first = c;
+        break;
+      }
+    if (first < 0) return;
+    const entry = (body.min - first) / xhPx;
+    meas.push({ i, bodyMin: body.min, entry });
+    entries.push(entry);
+  });
+  if (entries.length < TAIL_MIN_JOINERS) return { glyphs, compressed: 0, medianEntry: 0 };
+  entries.sort((a, b) => a - b);
+  const medianEntry = entries[Math.floor(entries.length / 2)];
+  if (medianEntry <= TAIL_GATE_FRAC) return { glyphs, compressed: 0, medianEntry }; // short-entry hand, leave it whole
+
+  const out = glyphs.map((g) => ({ ...g, paths: g.paths.slice() }));
+  let compressed = 0;
+  for (const m of meas) {
+    if (m.entry <= TAIL_MAX_FRAC) continue;
+    const scale = TAIL_MAX_FRAC / m.entry;
+    out[m.i].paths = out[m.i].paths.map((d) => warpTailX(d, m.bodyMin, scale, 'left'));
+    compressed++;
+  }
+  return { glyphs: out, compressed, medianEntry };
+}
+
 /** Connected-cursive fit: place each glyph by its connection plugs so the exit
  *  of one letter meets the entry of the next, instead of trimming tails. A
  *  sibling of trimGlyphOverhangs (never a wrapper). Mutates paths via
@@ -1623,7 +1705,16 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     flags.useCellWidth = true;
     flags.tightAdvance = false;
     onProgress?.('connect', opts.naturalVariation ? 'connected cursive · joining + cycling letters' : 'connected cursive · joining letters');
-    const fit = connectGlyphs(glyphs, { overlapPct: opts.connectOverlapPct });
+    // A long-sweep hand (a flashy script) draws entry connectors so long they fold
+    // into the advance and the round letters float. Compress those over-long entry
+    // sweeps toward the body first, so the letters place tight. Gated to variation
+    // builds and self-gated on the hand's median entry tail, so a short-entry hand
+    // (and the calibrated non-variation corpus) is untouched.
+    const comp = opts.naturalVariation ? compressConnectorTails(glyphs) : null;
+    (globalThis as unknown as { __lastCompress?: object | null }).__lastCompress = comp
+      ? { compressed: comp.compressed, medianEntry: comp.medianEntry }
+      : null;
+    const fit = connectGlyphs(comp ? comp.glyphs : glyphs, { overlapPct: opts.connectOverlapPct });
     glyphsIn = fit.glyphs;
     // connected runs read denser than upright; a touch more than the 0.28em
     // default keeps word breaks visible without gapping the join rhythm
