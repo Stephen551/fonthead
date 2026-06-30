@@ -184,14 +184,15 @@ Requirements:
 - Output: one clean PNG image, 7 rows of letters as specified above`;
 
     // The script preset generates a 3-version PALETTE of the SAME hand for natural
-    // variation. Two HARD rules: SEPARATION (a fused row can't be sliced) and letter
-    // STRUCTURE stays correct (vary the texture of the strokes, never the skeleton, or
-    // the variant degrades into a different/broken letter). Within those, each version
-    // varies the stroke SHAPE naturally so the cycling reads at a glance; width/height/
-    // proportion stay similar across versions so the engine's metric transparency holds
-    // (the connect build places a variant at its base letter's advance). Generate the
-    // three, drop them into the maker's natural-variation slots; the GSUB calt pipeline
-    // cycles the repeated letters. (Auto-filling the slots from the preset is a follow-up.)
+    // variation. The prompt pins the parts the connect engine eats: SEPARATION (a fused
+    // row can't be sliced), letter STRUCTURE stays correct (vary texture not skeleton),
+    // matched WIDTH/HEIGHT across versions (metric transparency places a variant at its
+    // base advance), and THE CONNECTING STROKES: every lowercase entry and exit rides one
+    // common low join height at full body weight (never a tapering hairline) so the
+    // body-edge join reads flush, the residual that capped a light hand at 94/94/95. A
+    // clean-white-page rule keeps ruled lines and stray text out of the trace. Generate
+    // the three and drop them into the maker's natural-variation slots (or all three at
+    // once on the main input); the GSUB calt pipeline cycles the repeated letters.
     const SCRIPT = (style: string) =>
       `Hand-drawn cursive alphabet, drawn as THREE versions of the SAME hand so a font tool can later pick the best-fitting form of each letter. Produce three sheets (Version 1, Version 2, Version 3), each the full 7 rows below on white paper:
 Row 1: capitals A B C D E F G H I J K L M
@@ -202,25 +203,33 @@ Row 5: digits 0 1 2 3 4 5 6 7 8 9
 Row 6: symbols ! ? @ # $ % ^ & * ( ) - _ + = [ ]
 Row 7: symbols { } ; : ' " , . < > / \\ |
 
-MOST IMPORTANT RULE — letters must be SEPARATE, never joined:
-- Every letter is its own island. Leave a WIDE white gap (at least one letter-width) between every pair of letters. NO part of any letter may touch, overlap, or run into the next one. Do NOT draw a continuous connected line. The tool joins the letters itself later; if they are already joined it cannot read them. This rule overrides everything below.
+MOST IMPORTANT RULE. Letters stay SEPARATE, never joined:
+- Every letter is its own island. Leave a WIDE white gap (at least one letter-width) between every pair of letters, a clean vertical strip of white separating each letter from the next on both sides. NO part of any letter may touch, overlap, or run into the neighbor. Do NOT draw a continuous connected line across the row. The tool joins the letters itself later; if they are already joined it cannot read them. This rule overrides everything below.
 
-JUST AS IMPORTANT — only the letters, no labels on the sheet:
-- Do NOT write any title, heading, caption, label, the word "Version", a version number, or any other text anywhere on a sheet. Each sheet shows ONLY the 7 rows of characters listed above and nothing else. The three versions are three SEPARATE image files; the version is which file it is, never text drawn on the page. Any stray word or number would be read as a letter and ruin the font.
+JUST AS IMPORTANT. Only the letters, no labels on the sheet:
+- Do NOT write any title, heading, caption, label, the word "Version", a version number, or any other text anywhere on a sheet. Each sheet shows ONLY the 7 rows of characters above and nothing else. The three versions are three SEPARATE image files; the version is which file it is, never text drawn on the page. Any stray word or number would be read as a letter and ruin the font.
+
+CLEAN WHITE PAGE. No lines, no grid:
+- Plain white background only. No ruled lines, no notebook or lined paper, no baseline rule, no dotted guides, no grid, no boxes or cells, no border around any letter. A ruled line or a cell border is read as ink and corrupts every letter near it. Lay the rows out as bare letters floating on white, evenly spaced, nothing drawn around them.
+
+THE CONNECTING STROKES. How the join is built, so draw them exactly:
+- Give every lowercase letter a short ENTRY stroke on its left and a short EXIT stroke on its right. Both ride one common low height just above the baseline, in the bottom strip of the x-height, roughly a tenth of the way up. Every lowercase letter enters and exits at that SAME low height, so the entry and exit strokes all sit at one level across the row, like points on a single invisible line, while each one still stops in the white gap and never reaches the next letter. A letter whose exit leaves high while the next letter's entry arrives low makes the seam read as a step once the tool pulls the letters together.
+- Draw the entry and exit strokes at the letter's OWN stroke weight, the same dark thickness as the body, solid black all the way to the tip. Do NOT let a connecting stroke taper to a thin wisp or a fading hairline; a connector that thins out drops below the tool's read threshold and the join vanishes while the bodies still read clean.
+- Keep each exit SHORT and roughly horizontal: it leaves the body at that low height, reaches partway into the white gap toward the next letter, then STOPS in empty space, clearly short of the neighbor, never reaching or touching it. Short and low, a level crossing at the connector height, not a long sweep and not a tall rising loop. Long high loops between letters are the single worst thing here, they collide when the tool pulls the letters together.
+- For descender letters (g j q y z): keep the x-height body sitting on the baseline with the same low entry and exit as every other letter, and let the loop hang straight DOWN within the letter's own width. Do not let a descender loop swing sideways into a neighbor.
 
 Requirements:
-- A natural cursive hand${style ? ` in this style: ${style}` : ''}, the kind you would write by hand
-- KEEP THE SAME HAND across all three versions: the same style, weight, slant, and x-height, the way one person writing the alphabet three times stays recognizably themselves. Each version is a SEPARATE, fresh writing, not a traced copy of the others
-- VARY each letter's SHAPE and STROKE naturally between the versions, the way real handwriting differs from one pass to the next: the roundness of a bowl, the width or curl of a loop, the bend of a stem, the aperture of an open counter (the eye of an e, the mouth of an a or c), and the entry and exit strokes. Make the differences clearly visible when the three are placed side by side, not a faint near-copy
-- NEVER change a letter's STRUCTURE, only its texture: an a stays a one-storey a, an e keeps its eye, an n keeps its two arches. Vary HOW the strokes are drawn, never WHAT letter it is, and never break, double, smear, or distort a letter into an unreadable or different shape
-- KEEP each letter's overall WIDTH and HEIGHT similar across the three versions, so every version sits the same on the line and takes the same space. Vary the stroke shape, not the size or proportion
-- Each letter still ends in a clean exit stroke to the right that stops in EMPTY SPACE, well short of the next letter, never reaching or touching it
-- Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
-- All letters rest on ONE steady baseline at a consistent x-height. Descenders drop below the line, ascenders rise above it, bodies sit on one line
-- Clean single-stroke letterforms; no two strokes overprinting or tangling into a knot
-- One character per position, evenly spaced with the wide white gap between them, all 7 rows in each version
-- High resolution: each sheet at least 2000px wide
-- Output: three clean sheet images as three separate files, the same hand in all three, every letter SEPARATE in all three, and NO version text, title, or label drawn anywhere on any sheet`;
+- An upright or only lightly slanted running cursive hand of one even medium weight${style ? `, in this style: ${style}` : ''}, the kind one person writes by hand. Open counters (keep the eye of an e, the mouth of an a and c, the bowl of an o clearly open), a tall clear x-height, simple clean letterforms. Monolinear: no thick-to-thin pointed-pen contrast and no fading hairline upstrokes, the whole hand at one confident weight. Any flourish belongs only on a capital, never between lowercase letters.
+- KEEP THE SAME HAND across all three versions: the same style, weight, slant, and x-height, the way one person writing the alphabet three times stays recognizably themselves. Each version is a SEPARATE, fresh writing, not a traced copy. Hold one hand from the first row to the last, do not let the weight or slant drift as the rows go on.
+- VARY each letter's stroke TEXTURE between versions the way real handwriting differs pass to pass: the roundness of a bowl, the curl of a loop, the bend of a stem, the aperture of an open counter, the shape of a terminal. Make the differences clearly visible side by side, not a faint near-copy.
+- NEVER change a letter's STRUCTURE, only its texture: an a stays a one-storey a, an e keeps its eye, an n keeps its two arches. Vary HOW the strokes are drawn, never WHAT the letter is, and never break, double, smear, or distort a letter into a different or unreadable shape.
+- KEEP each letter's overall WIDTH and HEIGHT the same across the three versions, and keep its entry and exit at the SAME low connector height and the same short reach in all three, so a version can swap in mid-word without shifting the join. Vary the texture, never the size, proportion, or join height.
+- Draw each letter as ONE continuous connected stroke-path: no detached islands, no stray dots or fragments above or beside a letter, no two strokes overprinting or tangling into a knot.
+- Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness, every stroke solid black to its tip.
+- All letters rest on ONE steady baseline at a consistent x-height: bodies on the line, ascenders above, descenders below, nothing floating high or low.
+- All 26 letters A to Z in each case, all 10 digits 0 to 9, complete and in the row order given, one character per position, evenly spaced with the wide white gap between them, all 7 rows in each version. Do not drop a character to fit, do not repeat one, do not add any extra or foreign character.
+- High resolution: each sheet at least 2400px wide, so the connecting strokes stay solid black at full size.
+- Output: three clean sheet images as three separate files, the same hand in all three, every letter SEPARATE in all three, every entry and exit at the one low connector height in all three, and NO version text, title, label, lines, or grid drawn anywhere on any sheet`;
 
     const MONOLINE = () =>
       `Hand-drawn MONOLINE alphabet sheet, 7 rows on white paper:
