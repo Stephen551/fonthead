@@ -1551,19 +1551,17 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   let glyphsIn = glyphs;
   let spaceAdvance: number | undefined;
   let styleOut = opts.style ?? 'Regular';
-  if (opts.naturalVariation) {
-    // Natural variation: a plain mono build that ALSO carries the .cv01/.cv02
-    // palette glyphs; the worker's GSUB calt writer cycles them so a repeated
-    // letter differs. Mutually exclusive with connect/trim in the UI, so neither
-    // join nor flourish-trim runs and the merged glyph list passes through as-is.
-    onProgress?.('variation', 'natural variation · cycling letter variants');
-  } else if (opts.connect) {
-    // Connected cursive: cellW carries the plug-to-plug advance verbatim
-    // (useCellWidth, shiftX=0), so tight advance must stay off or the worker
-    // re-measures the bbox and adds a side bearing, voiding the join.
+  if (opts.connect) {
+    // Connected cursive. COMPOSES with natural variation: connectGlyphs runs on
+    // the MERGED palette (it preserves variantSuffix), so the .cv01/.cv02 variant
+    // glyphs get the same per-glyph connection advances as their bases and join
+    // too; the calt feature then cycles them. A cursive hand joins AND varies.
+    // cellW carries the plug-to-plug advance verbatim (useCellWidth, shiftX=0), so
+    // tight advance must stay off or the worker re-measures the bbox and adds a
+    // side bearing, voiding the join.
     flags.useCellWidth = true;
     flags.tightAdvance = false;
-    onProgress?.('connect', 'connected cursive · joining letters');
+    onProgress?.('connect', opts.naturalVariation ? 'connected cursive · joining + cycling letters' : 'connected cursive · joining letters');
     const fit = connectGlyphs(glyphs, { overlapPct: opts.connectOverlapPct });
     glyphsIn = fit.glyphs;
     // connected runs read denser than upright; a touch more than the 0.28em
@@ -1573,6 +1571,10 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // and shears every glyph, un-meeting the joins, so force upright here
     styleOut = 'Regular';
     (globalThis as unknown as { __lastConnect?: object }).__lastConnect = { joined: fit.joined, broke: fit.broke, breaks: fit.breaks };
+  } else if (opts.naturalVariation) {
+    // Natural variation WITHOUT connect (an upright hand): a plain build that
+    // carries the .cv01/.cv02 palette; calt cycles the repeated letters.
+    onProgress?.('variation', 'natural variation · cycling letter variants');
   } else if (opts.trimFlourishes) {
     // body advances need cell-width mode: the trimmed cell IS the advance and
     // the tail rides outside it; tight advance would re-measure the full bbox

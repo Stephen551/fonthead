@@ -298,10 +298,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         // intended mode (it drives the toggle explicitly) rather than relying on
         // auto-detect.
         const noAuto = typeof localStorage !== 'undefined' && localStorage.getItem('fh-test-no-autoconnect') === '1';
-        // natural variation forces connect OFF (mutually exclusive); otherwise a
-        // script face auto-connects until the user touches the toggle.
-        const useConnect = naturalVariation ? false : connectTouched ? connect : noAuto ? false : isScriptFace(trace.glyphs);
-        if (!naturalVariation && !connectTouched && useConnect !== connect) setConnect(useConnect);
+        // A script face auto-connects until the user touches the toggle. Natural
+        // variation now COMPOSES with connect (a cursive hand joins AND cycles), so
+        // it no longer forces connect off.
+        const useConnect = connectTouched ? connect : noAuto ? false : isScriptFace(trace.glyphs);
+        if (!connectTouched && useConnect !== connect) setConnect(useConnect);
         // natural variation: trace each extra sheet against the SAME charset and
         // merge into one glyph list (bases + .cv01/.cv02) before building, so a
         // repeated letter cycles through its variants.
@@ -322,10 +323,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           glyphsForBuild,
           {
             family: fam,
-            style: italic && !useConnect && !naturalVariation ? 'Italic' : 'Regular',
+            style: italic && !useConnect ? 'Italic' : 'Regular',
             formats: ['otf', 'ttf', 'woff2'],
-            spacingPct: naturalVariation ? 0 : spacing,
-            trimFlourishes: useConnect || naturalVariation ? false : trimFlourishes,
+            spacingPct: spacing,
+            trimFlourishes: useConnect ? false : trimFlourishes,
             connect: useConnect,
             naturalVariation,
           },
@@ -843,7 +844,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </div>
               )}
               <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                <RangeRow label="spacing" min={0} max={12} value={spacing} onChange={setSpacing} fmt={(v) => (v === 0 ? 'auto' : String(v))} disabled={!isColor && (connect || naturalVariation)} />
+                <RangeRow label="spacing" min={0} max={12} value={spacing} onChange={setSpacing} fmt={(v) => (v === 0 ? 'auto' : String(v))} disabled={!isColor && connect} />
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', margin: '7px 0 11px', lineHeight: 1.5 }}>
                   auto keeps the sheet's own letter pitch. Higher numbers rebuild every letter with an even gap, looser as it grows.
                 </p>
@@ -853,7 +854,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </p>
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="connected cursive" on={naturalVariation ? false : connect} onChange={(v) => { setConnect(v); setConnectTouched(true); }} disabled={naturalVariation} />
+                    <ToggleRow label="connected cursive" on={connect} onChange={(v) => { setConnect(v); setConnectTouched(true); }} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       joins the letters into a connected script. Auto for cursive sheets. Turns off flourish overhang, spacing, and italic while on.
                     </p>
@@ -861,7 +862,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="flourish overhang" on={connect || naturalVariation ? false : trimFlourishes} onChange={setTrimFlourishes} disabled={connect || naturalVariation} />
+                    <ToggleRow label="flourish overhang" on={connect ? false : trimFlourishes} onChange={setTrimFlourishes} disabled={connect} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       spaces each letter by its body and lets thin tails overlap the next letter, like a real italic. For script faces with long swashes.
                     </p>
@@ -869,7 +870,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="italic" on={connect || naturalVariation ? false : italic} onChange={setItalic} disabled={connect || naturalVariation} />
+                    <ToggleRow label="italic" on={connect ? false : italic} onChange={setItalic} disabled={connect} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       slant it into an italic. Build again with this off for the upright.
                     </p>
@@ -877,9 +878,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="natural variation" on={connect ? false : naturalVariation} onChange={setNaturalVariation} disabled={connect} />
+                    <ToggleRow label="natural variation" on={naturalVariation} onChange={setNaturalVariation} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
-                      cycles a repeated letter through a few versions of the same hand, so the type reads handwritten instead of typeset. Drop two more sheets of the same alphabet below.
+                      cycles a repeated letter through a few versions of the same hand, so the type reads handwritten instead of typeset. Drop two more sheets of the same alphabet below. Works alongside connected cursive.
                     </p>
                     {naturalVariation && (
                       <div style={{ marginTop: 10, display: 'grid', gap: 7 }}>

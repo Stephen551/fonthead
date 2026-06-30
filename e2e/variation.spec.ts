@@ -20,9 +20,9 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
       localStorage.setItem('fh-maker-tour-seen', '1');
-      // a copperplate sheet would otherwise auto-connect; natural variation
-      // forces connect off, but pin the flag so the base build is plain too.
-      localStorage.setItem('fh-test-no-autoconnect', '1');
+      // No fh-test-no-autoconnect: the copperplate SHOULD auto-connect, so this
+      // exercises the real path — connected cursive AND natural variation together
+      // (the letters join AND a repeated letter cycles).
     } catch {
       /* private mode */
     }
@@ -92,6 +92,9 @@ test.describe('natural variation mode', () => {
 
     const lb = await lastBuild(page);
     expect(lb.kind).toBe('mono');
+    // connect ran on the MERGED palette, so the variant glyphs join too.
+    const lc = await page.evaluate(() => (window as unknown as { __lastConnect?: { joined: number } }).__lastConnect);
+    expect(lc?.joined ?? 0, 'connect joined the letters and their variants').toBeGreaterThan(20);
     const otf = await captureOtf(page);
     assertValidFont(otf, lb.glyphCount);
     writeFileSync('e2e/built-variation.otf', otf); // CI fontTools step asserts GSUB + calt on this
