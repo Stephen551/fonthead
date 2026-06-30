@@ -48,6 +48,8 @@ left out — they live in CLAUDE.md, not here.
 | [0033](0033-connect-no-synthesis-real-ink-join-classes.md) | Connect uses real ink only with position-independent join classes and a loosen-only weld pass | Accepted |
 | [0034](0034-connect-input-contract-preset-and-guide.md) | Input contract for seamless joins: a 'script' generate preset and a non-tracing connector guide | Accepted |
 | [0035](0035-connect-no-engine-files-pure-core-tests.md) | Connect touches no vendored engine file; pure decision core is unit-tested, raster gated by corpus/e2e | Accepted |
+| [0036](0036-natural-variation-gsub-calt-palette.md) | Natural variation: a 3-sheet same-hand palette cycled by GSUB calt, metrically transparent | Accepted |
+| [0037](0037-baseline-hardening-for-imperfect-hands.md) | Harden the auto baseline for imperfect hands (compression, body-anchor, weight floor, baseline leveling), gated so good hands are untouched | Accepted |
 
 ## Format
 
