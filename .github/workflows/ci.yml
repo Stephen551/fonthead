@@ -52,6 +52,7 @@ jobs:
         run: |
           pip install --quiet fonttools
           python -c "from fontTools.ttLib import TTFont; TTFont('e2e/built-sample.otf', checkChecksums=2); print('fontTools strict checksums: OK')"
+          python -c "from fontTools.ttLib import TTFont; v=TTFont('e2e/built-variation.otf', checkChecksums=2); assert 'GSUB' in v, 'natural-variation font missing GSUB'; tags=[f.FeatureTag for f in v['GSUB'].table.FeatureList.FeatureRecord]; assert 'calt' in tags, 'natural-variation font missing calt'; print('natural variation GSUB calt: OK')"
 
   deploy:
     needs: build-and-test

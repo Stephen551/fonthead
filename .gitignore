@@ -35,6 +35,7 @@ test-results/
 playwright-report/
 coverage/
 e2e/built-sample.otf
+e2e/built-variation.otf
 
 # lighthouse raw reports (the committed summary is docs/lighthouse/SCORES.md)
 docs/lighthouse/*.report.html
