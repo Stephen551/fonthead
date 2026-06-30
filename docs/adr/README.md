@@ -52,6 +52,7 @@ left out — they live in CLAUDE.md, not here.
 | [0037](0037-baseline-hardening-for-imperfect-hands.md) | Harden the auto baseline for imperfect hands (compression, body-anchor, weight floor, baseline leveling), gated so good hands are untouched | Accepted |
 | [0038](0038-connector-height-snap-exit-entry-mismatch-gate.md) | Connector-height snap: lower high exit flicks onto the entry join line, gated on the exit-vs-entry mismatch (resolves 0037's rejected stub-snap) | Accepted |
 | [0039](0039-connect-ships-gpos-kern-supersedes-0032.md) | Connect mode ships a GPOS kern table (kerning:true + connectKern); supersedes ADR 0032's kerning:false | Accepted |
+| [0040](0040-contextual-connect-kern-parked-needs-assembled-feedback.md) | Contextual connect-kern parked: no build-time measure separates the connector bridge from a weld; needs an assembled-glyph feedback pass | Accepted (parked) |
 
 ## Format
 
