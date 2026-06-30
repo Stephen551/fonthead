@@ -1315,6 +1315,8 @@ export function faceMetrics(glyphs: Glyph[], profiles?: (ReturnType<typeof glyph
 const TAIL_GATE_FRAC = 0.6; // ·xhPx — a hand whose MEDIAN entry tail exceeds this is a long-sweep hand
 const TAIL_MAX_FRAC = 1.1; // ·xhPx — compress an over-long entry sweep down to this length; the contextual kern then fine-tunes each pair
 const TAIL_MIN_JOINERS = 4; // too few joiners to trust a median
+const ROUND_BODY_ANCHOR = new Set('oce'); // round letters whose small bowl floats in a sweep-inflated advance
+const BODY_ANCHOR_MIN_TAIL = 0.5; // ·xhPx — body-anchor a round letter only when its entry tail is this long (a tight hand keeps the sweep anchor)
 
 /** Connect pre-pass for a long-sweep hand. A flashy script draws entry connectors
  *  reaching 2-3 x-heights left of the body; anchorAdvance anchors on the leftmost
@@ -1541,10 +1543,18 @@ export function connectGlyphs(
     // edge-to-edge fuses the thin strokes deep into the neighbour; the gap leaves
     // room for the real connecting stroke to ride across the seam without the
     // bodies themselves colliding.
+    // A round letter (o c e) with a long entry sweep FLOATS: anchoring its advance
+    // on the leftmost ink folds the whole sweep into the advance, so the small bowl
+    // sits off-centre with air around it. When the sweep is long, anchor the advance
+    // on the BODY instead: the bowl centres in a tight advance and the (already
+    // compressed) entry sweep rides left into the seam to meet the previous letter.
+    // A tight round letter (a copperplate, a contained hand) keeps the leftmost-ink
+    // anchor untouched, so only genuinely floating bowls move.
+    const roundFloat = !!body && ROUND_BODY_ANCHOR.has(g.char) && body.min - sp.first > BODY_ANCHOR_MIN_TAIL * xhPx;
     decisions[i] = anchorAdvance({
       leftPlug: entryX,
       rightPlug: exitX,
-      inkLeft: sp.first, // anchor on the true left ink so a crossbar or lead-in (f, t) is never clipped into the previous letter
+      inkLeft: roundFloat ? body!.min : sp.first, // float: anchor on the body so the bowl centres; else the true left ink so a lead-in (f, t) is never clipped
       overlapPx: -connectGapPx,
       minAdvPx,
       leftPadPx,
@@ -1710,11 +1720,15 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // sweeps toward the body first, so the letters place tight. Gated to variation
     // builds and self-gated on the hand's median entry tail, so a short-entry hand
     // (and the calibrated non-variation corpus) is untouched.
-    const comp = opts.naturalVariation ? compressConnectorTails(glyphs) : null;
-    (globalThis as unknown as { __lastCompress?: object | null }).__lastCompress = comp
-      ? { compressed: comp.compressed, medianEntry: comp.medianEntry }
-      : null;
-    const fit = connectGlyphs(comp ? comp.glyphs : glyphs, { overlapPct: opts.connectOverlapPct });
+    // Compress over-long entry sweeps on ANY connect build (self-gated inside on the
+    // hand's median entry tail, so a short-entry hand is skipped whole). Broadened
+    // from variation-only so a single-sheet flashy upload is hardened too.
+    const comp = compressConnectorTails(glyphs);
+    (globalThis as unknown as { __lastCompress?: object | null }).__lastCompress = {
+      compressed: comp.compressed,
+      medianEntry: comp.medianEntry,
+    };
+    const fit = connectGlyphs(comp.glyphs, { overlapPct: opts.connectOverlapPct });
     glyphsIn = fit.glyphs;
     // connected runs read denser than upright; a touch more than the 0.28em
     // default keeps word breaks visible without gapping the join rhythm
