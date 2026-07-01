@@ -1,11 +1,13 @@
 # Spec — Connection-point placement for connected cursive
 
-**Status:** Phase 3 route PROVEN and CONCRETIZED (2026-07-01, ADR 0043) — gated eye-body
-placement + kern deference measured rendered dense-body rhythm sd 69→26 on `handmade`.
-Parked on ONE remaining problem: bridge-vs-weld protection (ADR 0043 Findings 6). The
-tip-to-tip-on-normalized-terminals mechanism below is SUPERSEDED by eye-body-edge
-placement, which does not need Phase 1 height normalization. Thin-hand joins stay banked
-at ~B until the protection layer is built.
+**Status:** SHIPPED (2026-07-01, ADR 0044). The Phase 3 route (ADR 0043: gated eye-body
+placement + kern deference) is live with its protection layer: the exit-overhang cap
+(ARM_LAP_FRAC 0.12·xh, scan to 1.25·xh, f/t excluded) replaces the row-min weld on firing
+faces, and the corpus judges bridged fusion above the connect band (0.45·xh up). Shipped
+numbers: `handmade` rendered dense-body sd 69→32 (med 115→68), `light` 65→27, `cc-4`
+94→42; skip faces byte-stable; corpus 31/31, unit 158, e2e 54, fontTools strict. The
+tip-to-tip-on-normalized-terminals mechanism below stayed superseded; no Phase 1 height
+normalization and no assembled-glyph feedback loop were needed.
 **Date:** 2026-07-01
 **Supersedes the approach in:** ADR 0040, ADR 0041 (the per-pair connect-kern path)
 **Builds on:** ADR 0030–0035 (connect model), ADR 0037 (baseline hardening), ADR 0038 (connector-height snap)
