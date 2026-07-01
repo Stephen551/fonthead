@@ -347,7 +347,15 @@
    * realized color is uniform.
    *
    *   analyzeConnectKern(glyphs, scale, opts) -> [{leftChar,rightChar,value}]
-   *   opts: { collisionFloorPx, deadzonePx, maxUnits }
+   *   opts: { collisionFloorPx, deadzonePx, maxUnits, bridgedPlacement }
+   *   bridgedPlacement: the caller's placement already joins the lowercase with
+   *   even body gaps and DELIBERATE deep connector bridges (the maker's
+   *   entry-reach normalization, ADR 0043). Skip the per-pair rhythm evening
+   *   AND, for lowercase-lowercase pairs, the collision/body floors — a bridged
+   *   pair's full-height min is the connector crossing, not a crash, and the
+   *   bodies cannot collide (the placement separates them by construction).
+   *   Keeps the descender clearance (loops hang below the placed bodies), every
+   *   cap-pair floor (caps do not bridge), and the word-space evening.
    * -------------------------------------------------------------- */
   function analyzeConnectKern(glyphs, scale, opts) {
     opts = opts || {};
@@ -408,8 +416,10 @@
     const out = [];
     for (const m of measured) {
       /* even the BODY gap toward target (so ascenders/dots don't make a tight
-         pair read loose and get over-tightened into a fuse) ... */
-      let deltaPx = targetGap - m.bodyAvg;
+         pair read loose and get over-tightened into a fuse) ... bridgedPlacement
+         starts from zero so only the protections below emit. */
+      const bridged = !!opts.bridgedPlacement;
+      let deltaPx = bridged ? 0 : targetGap - m.bodyAvg;
       /* A swash/display CAP (Q-tail, etc.) leaves an orphan gap because the
          flourish blocks the lowercase and the normal floor won't let the letter
          tuck in. For cap->lowercase pairs, relax the floors so the lowercase
@@ -424,13 +434,18 @@
       const bFloor = bodyFloorPx;
       /* ... then guarantee the tightest scanline (ANY zone: body fuse, descender
          loop, cap weld) never sits below the collision floor. only ever ADDS
-         space, never invents a tighten. */
-      const minAfter = m.min + deltaPx;
-      if (minAfter < cFloor) deltaPx += cFloor - minAfter;
-      /* x-height body must not weld or pinch (the structural-fusion zone). */
-      if (m.bodyMin != null) {
-        const bodyAfter = m.bodyMin + deltaPx;
-        if (bodyAfter < bFloor) deltaPx += bFloor - bodyAfter;
+         space, never invents a tighten. Skipped for a bridged lowercase pair:
+         its min IS the deliberate connector crossing (bodies are separated by
+         the placement itself), so the floor would shove the join apart. */
+      const skipFloors = bridged && m.ll;
+      if (!skipFloors) {
+        const minAfter = m.min + deltaPx;
+        if (minAfter < cFloor) deltaPx += cFloor - minAfter;
+        /* x-height body must not weld or pinch (the structural-fusion zone). */
+        if (m.bodyMin != null) {
+          const bodyAfter = m.bodyMin + deltaPx;
+          if (bodyAfter < bFloor) deltaPx += bFloor - bodyAfter;
+        }
       }
       /* two stacked descender loops (gg, gy, gj, yg ...) must hold a positive
          clearance so the cluster reads as separate strokes, not a knot. */
