@@ -173,3 +173,86 @@ describe('connectGlyphs (geometry, injected profiles)', () => {
     expect(out.glyphs[1].cellW).toBe(21);
   });
 });
+
+describe('connectGlyphs (entry-reach normalization, ADR 0043)', () => {
+  // Synthetic profiles: a dense 24px-wide body (full x-height, so it passes the
+  // eye-body column criterion) behind a thin low entry tail of varying reach.
+  // xh = 30 (from the x glyph), so gap = round(0.16*30) = 5, armLap = 4.
+  const CW = 80;
+  const CH = 100;
+  const BASE = 80;
+  const BODY_W = 24;
+  const profWithEntry = (tail: number) => {
+    const bodyX0 = 4 + tail;
+    const bodyX1 = bodyX0 + BODY_W - 1;
+    const cols = new Array(CW).fill(0);
+    for (let x = 4; x < bodyX0; x++) cols[x] = 3; // thin entry tail
+    for (let x = bodyX0; x <= bodyX1; x++) cols[x] = 30; // dense body
+    const spans = cols.map((n) => (n > 0 ? (n > 10 ? 0.9 : 0.1) : 0));
+    const rowLeft = new Array(CH).fill(Infinity);
+    const rowRight = new Array(CH).fill(-Infinity);
+    for (let y = BASE - 30; y <= BASE; y++) {
+      rowLeft[y] = bodyX0;
+      rowRight[y] = bodyX1;
+    }
+    if (tail > 0) for (let y = BASE - 6; y <= BASE - 2; y++) rowLeft[y] = 4; // tail rides low
+    return { cols, spans, rowLeft, rowRight, inkTopRow: BASE - 30 };
+  };
+  const mk = (char: string, tail: number) => ({
+    char,
+    italic: false,
+    paths: [`M4 0`],
+    cellW: CW,
+    cellH: CH,
+    baselineYInCell: BASE,
+    _p: profWithEntry(tail),
+  });
+
+  it('fires on scattered reaches and anchors every joiner on its eye-body', () => {
+    // entry fracs [0, 0, .2, .4, .6]: sd 0.233 > 0.19 gate, median 0.2 <= 0.6
+    const gs = [mk('x', 0), mk('n', 0), mk('m', 6), mk('u', 12), mk('h', 18)];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.entryNorm).toBe(true);
+    // each glyph anchors at its BODY left edge (4 + tail), not its leftmost ink,
+    // so the tail rides left over the seam and daylight evens to the gap
+    expect(out.glyphs[3].paths[0]).toBe(`M${4 - (4 + 12)} 0`); // u, tail 12: dx = -16
+    expect(out.glyphs[4].cellW).toBe(BODY_W - 1 + 5); // h: eye body span + gap(5)
+  });
+
+  it('skips a consistent hand (reaches do not scatter)', () => {
+    const gs = [mk('x', 0), mk('n', 6), mk('m', 6), mk('u', 7), mk('h', 7)];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.entryNorm).toBe(false);
+    // ink anchor: leftmost ink at x=4 lands on the origin
+    expect(out.glyphs[1].paths[0]).toBe('M0 0');
+  });
+
+  it('exempts a long-sweep hand by median reach (the flashy park, ADR 0040)', () => {
+    // entry fracs [0, .5, .7, .9, 1.1]: sd 0.377 but median 0.7 > 0.6
+    const gs = [mk('x', 0), mk('n', 15), mk('m', 21), mk('u', 27), mk('h', 33)];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.entryNorm).toBe(false);
+  });
+
+  it('caps a deep exit over-ride past the advance (the arm guard)', () => {
+    // n carries an arm: thin ink riding 0.66-0.93 xh reaching x=60, far past
+    // its eye-body advance. maxOver = 60 + dx(-4) - cellW(28) = 28 > lap(4).
+    const armed = profWithEntry(0);
+    for (let y = BASE - 28; y <= BASE - 20; y++) armed.rowRight[y] = 60;
+    const gs = [mk('x', 0), { ...mk('n', 0), _p: armed }, mk('m', 6), mk('u', 12), mk('h', 18)];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.entryNorm).toBe(true);
+    // cellW = eye span (23) + gap (5) = 28, then grown so the arm laps only 4:
+    // 28 + (28 - 4) = 52
+    expect(out.glyphs[1].cellW).toBe(52);
+  });
+
+  it('does not cap an f crossbar riding above the strip (overhang by design)', () => {
+    const barred = profWithEntry(0);
+    for (let y = BASE - 40; y <= BASE - 36; y++) barred.rowRight[y] = 60; // 1.2-1.33 xh
+    const gs = [mk('x', 0), { ...mk('f', 0), _p: barred }, mk('m', 6), mk('u', 12), mk('h', 18)];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.entryNorm).toBe(true);
+    expect(out.glyphs[1].cellW).toBe(BODY_W - 1 + 5); // untouched: 28
+  });
+});
