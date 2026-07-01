@@ -138,10 +138,10 @@ type Metrics = {
   probe?: unknown;
 };
 
-async function measure(page: Page, otfPath: string, wantProbe = false): Promise<Metrics> {
+async function measure(page: Page, otfPath: string, wantProbe = false, bridged = false): Promise<Metrics> {
   const b64 = readFileSync(otfPath).toString('base64');
   return page.evaluate(
-    ({ b, structuralPairs, crosserPairs, capPairs, pangram, spacePairs, joinPairs, wantProbe }) => {
+    ({ b, structuralPairs, crosserPairs, capPairs, pangram, spacePairs, joinPairs, wantProbe, bridged }) => {
       const bin = atob(b);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -324,12 +324,17 @@ async function measure(page: Page, otfPath: string, wantProbe = false): Promise<
       };
 
       // closest approach of a pair inside the body strip; negative =
-      // interpenetration depth where it actually changes what a reader sees
-      const pairGap = (l: string, r: string, extraAdv = 0) => {
+      // interpenetration depth where it actually changes what a reader sees.
+      // stripBottom overrides the strip floor: a BRIDGED face (entry-reach
+      // normalization, ADR 0043) deliberately runs its thin entry hooks LOW
+      // through the neighbour's cell (the join by construction), so its fusion
+      // gate reads the UPPER strip only, where an arm riding through a stem is
+      // a real defect and a hook is not.
+      const pairGap = (l: string, r: string, extraAdv = 0, stripBottom = stripY0) => {
         const L = profile(l);
         const R = profile(r);
         if (!L || !R) return null;
-        const y0 = Math.max(L.yMin, R.yMin, stripY0);
+        const y0 = Math.max(L.yMin, R.yMin, stripBottom);
         const y1 = Math.min(L.yMax, R.yMax, stripY1);
         if (y1 <= y0) return null;
         const offset = L.adv + extraAdv + kern(l, r);
@@ -404,11 +409,11 @@ async function measure(page: Page, otfPath: string, wantProbe = false): Promise<
       };
 
       // fusion: deepest interpenetration per pair class
-      const worstOf = (pairs: string[]) => {
+      const worstOf = (pairs: string[], stripBottom?: number) => {
         let depth = 0;
         let worst = '';
         for (const p of pairs) {
-          const g = pairGap(p[0], p[1]);
+          const g = pairGap(p[0], p[1], 0, stripBottom);
           if (g === null) continue;
           const d = Math.max(0, -g);
           if (d > depth) {
@@ -418,7 +423,10 @@ async function measure(page: Page, otfPath: string, wantProbe = false): Promise<
         }
         return { depth: Math.round(depth), worst };
       };
-      const structural = worstOf(structuralPairs);
+      // Bridged face: fusion is judged above the connect band (0.45·xh up),
+      // where the exit-overhang cap bounds a real arm-through-stem ride; the
+      // low zone is the deliberate hook crossing (run-C eyeball on file).
+      const structural = worstOf(structuralPairs, bridged ? xh * 0.45 : undefined);
       const crosser = worstOf(crosserPairs);
       // Cap over-kern is measured in the SAME x-height body strip as the
       // other fusion classes, not full-height: the weld (an F/P arm or bowl
@@ -606,7 +614,7 @@ async function measure(page: Page, otfPath: string, wantProbe = false): Promise<
         fullJoinWorst,
       };
     },
-    { b: b64, structuralPairs: STRUCTURAL_PAIRS, crosserPairs: CROSSER_PAIRS, capPairs: CAP_PAIRS, pangram: PANGRAM, spacePairs: SPACE_PAIRS, joinPairs: JOIN_PAIRS, wantProbe },
+    { b: b64, structuralPairs: STRUCTURAL_PAIRS, crosserPairs: CROSSER_PAIRS, capPairs: CAP_PAIRS, pangram: PANGRAM, spacePairs: SPACE_PAIRS, joinPairs: JOIN_PAIRS, wantProbe, bridged },
   );
 }
 
@@ -633,14 +641,32 @@ for (const sheet of sheets) {
     const otfPath = test.info().outputPath(`${sheet.name}.otf`);
     await download.saveAs(otfPath);
 
-    const m = await measure(page, otfPath, isConnect && !!process.env.CORPUS_KERN_PROBE);
     const trim = await page.evaluate(() => (window as unknown as { __lastTrim?: { script: boolean; trimmed: number } }).__lastTrim);
     const conn = await page.evaluate(
-      () => (window as unknown as { __lastConnect?: { joined: number; broke: number; entrySd?: number; entryMed?: number } }).__lastConnect,
+      () =>
+        (window as unknown as { __lastConnect?: { joined: number; broke: number; entrySd?: number; entryMed?: number; entryNorm?: boolean } })
+          .__lastConnect,
     );
+    const m = await measure(page, otfPath, isConnect && !!process.env.CORPUS_KERN_PROBE, isConnect && !!conn?.entryNorm);
     const mode = isConnect
-      ? `connect/${conn?.joined ?? '?'}j entrySd=${conn?.entrySd === undefined ? '?' : conn.entrySd.toFixed(3)} entryMed=${conn?.entryMed === undefined ? '?' : conn.entryMed.toFixed(2)}`
+      ? `connect/${conn?.joined ?? '?'}j entrySd=${conn?.entrySd === undefined ? '?' : conn.entrySd.toFixed(3)} entryMed=${conn?.entryMed === undefined ? '?' : conn.entryMed.toFixed(2)}${conn?.entryNorm ? ' NORM' : ''}`
       : `${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'}`;
+    // Bridge-vs-weld calibration (ADR 0043 milestone): per-pair weld-strip
+    // penetration profile — minGap, deep rows / sampled rows, growth applied.
+    if (isConnect && process.env.CORPUS_KERN_PROBE) {
+      const weld = await page.evaluate(
+        () =>
+          (window as unknown as { __lastWeld?: { pairs: Array<{ pair: string; minGap: number; deepRows: number; rows: number; grew: number }>; maxPenPx: number } })
+            .__lastWeld,
+      );
+      if (weld) {
+        const deep = weld.pairs.filter((p) => p.deepRows > 0);
+        console.log(
+          `WELD-PROBE | ${sheet.name.padEnd(24)} | maxPen=${weld.maxPenPx} | ` +
+            (deep.map((p) => `${p.pair}:${p.minGap}/d${p.deepRows}of${p.rows}${p.grew ? `+${p.grew}` : ''}`).join(' ') || '(no deep pairs)'),
+        );
+      }
+    }
     console.log(
       `CORPUS | ${sheet.name.padEnd(24)} | ${mode} glyphs=${m.glyphs} structural=${m.structural.depth}(${m.structural.worst || '-'}) crosser=${m.crosser.depth}(${m.crosser.worst || '-'}) capOverhang=${m.capOverhang.depth}(${m.capOverhang.worst || '-'}) rhythmSd=${m.rhythmSd} wordSpace=${m.wordSpaceMedian} joinGap=med${m.joinGapMedian}/max${m.joinGapMax}(${m.joinGapWorst || '-'}) connJoin=med${m.connJoinMedian}/max${m.connJoinMax}(${m.connJoinWorst || '-'}) fullJoin=${m.fullJoinMax}(${m.fullJoinWorst || '-'})`,
     );
