@@ -1,12 +1,15 @@
 # Spec — Connection-point placement for connected cursive
 
-**Status:** Phase 1 investigated (2026-07-01, ADR 0042) — height normalization is a
-PREREQUISITE, not the fix. The open work is the placement rework (Phase 3, structural
-overlap). Thin-hand joins banked at ~B until it is built.
+**Status:** Phase 3 route PROVEN and CONCRETIZED (2026-07-01, ADR 0043) — gated eye-body
+placement + kern deference measured rendered dense-body rhythm sd 69→26 on `handmade`.
+Parked on ONE remaining problem: bridge-vs-weld protection (ADR 0043 Findings 6). The
+tip-to-tip-on-normalized-terminals mechanism below is SUPERSEDED by eye-body-edge
+placement, which does not need Phase 1 height normalization. Thin-hand joins stay banked
+at ~B until the protection layer is built.
 **Date:** 2026-07-01
 **Supersedes the approach in:** ADR 0040, ADR 0041 (the per-pair connect-kern path)
 **Builds on:** ADR 0030–0035 (connect model), ADR 0037 (baseline hardening), ADR 0038 (connector-height snap)
-**Refined by:** ADR 0042 (Phase 1-height verified insufficient alone)
+**Refined by:** ADR 0042 (Phase 1-height verified insufficient alone), ADR 0043 (the proven mechanism + the open crux)
 
 ## Why
 
@@ -81,7 +84,31 @@ the placement itself (Phase 3). The variance gate is a working prerequisite mech
 recorded here; it was reverted from the tree because it is a no-op (and a 3-face blast
 radius) on its own.
 
-## Phasing (revised — the placement rework is the crux, not a fallback)
+## The proven route (2026-07-01, ADR 0043 — supersedes the phasing below)
+
+The route was prototyped end to end and measured. The defect decomposes per-glyph, not
+per-pair: daylight = connector gap + the right letter's entry reach, plus the exit-side
+divergence between the thin-trim placement body and the body the eye reads. The fix:
+
+1. **Gate** on entry-reach scatter (sd > 0.19·xh over the left-joiners), with a
+   long-sweep exemption (median reach > 0.6·xh keeps `flashy` and `cc-2` untouched).
+   Fires `handmade`/`light`/`cc-4`; every other face byte-stable. Calibration in ADR 0043.
+2. **Eye-body placement** on firing faces: both advance edges and the anchor from the
+   dense columns (ink count > 0.45·xh, full cell resolution). Placement rhythm sd 73→26.
+   No Phase 1 height normalization needed — bodies and bridges carry the join.
+3. **Kern deference** on firing faces: drop the per-pair rhythm evening AND the lowercase
+   collision/body floors (they read the deliberate bridge as a crash: 27/29 joins shoved
+   apart, +18..+232 units); keep descender clearance, cap floors, word-space evening.
+   Rendered sd 69→26 (`handmade`), 65→46 (`light`), 94→70 (`cc-4`).
+4. **THE OPEN CRUX — bridge-vs-weld protection.** With the floors deferred and the
+   HIGH_EXIT-left weld exempted, real welds crash through (structural 269 `rl` / 298 /
+   207 — the ADR 0040 dead-end-5 signature). The milestone is a placement-aware guard
+   that tells a thin deliberate bridge from a body weld. Candidates in ADR 0043
+   (strip-row counting, a bridge-depth budget from the placement's own geometry, a local
+   assembled-raster seam check). Also re-derive the corpus rhythmSd/wordSpace gates for
+   bridged faces — a bridged placement legitimately shifts both.
+
+## Phasing (superseded by the proven route above; kept for history)
 
 - **Phase 1 — connection-height normalization (PREREQUISITE).** Normalize both terminals
   to one connection height, gated on the terminal-height VARIANCE (see the finding) so a
