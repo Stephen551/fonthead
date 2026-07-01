@@ -259,6 +259,70 @@ async function measure(page: Page, otfPath: string, wantProbe = false): Promise<
       const stripY0 = xh * 0.15;
       const stripY1 = xh * 1.1;
 
+      // Rendered DENSE-BODY edges: rasterize the glyph and keep only the TALL
+      // columns (ink spanning most of the x-height) — the dense body the eye reads
+      // for rhythm, with the thin connecting strokes excluded. This is the measure
+      // that matched the field read where the band-profile pairGap (connector-
+      // inclusive) did not: on a thin hand a connector rides into the strip so the
+      // profile calls a gapped pair tight. Cached per glyph.
+      const bodyCache = new Map<string, { bl: number; br: number; adv: number } | null>();
+      const bodyEdges = (ch: string) => {
+        if (bodyCache.has(ch)) return bodyCache.get(ch)!;
+        const g = font.charToGlyph(ch);
+        if (!g || !g.path || !g.path.commands || !g.path.commands.length) {
+          bodyCache.set(ch, null);
+          return null;
+        }
+        const bb = g.getBoundingBox();
+        const S = 60 / Math.max(1, xh); // ~60px x-height raster
+        const pad = 6;
+        const w = Math.ceil((bb.x2 - bb.x1) * S) + pad * 2;
+        const h = Math.ceil((bb.y2 - bb.y1) * S) + pad * 2;
+        const cv = new OffscreenCanvas(w, h);
+        const ctx = cv.getContext('2d')!;
+        ctx.fillStyle = '#000';
+        const tx = (x: number) => (x - bb.x1) * S + pad;
+        const ty = (y: number) => h - ((y - bb.y1) * S + pad);
+        ctx.beginPath();
+        for (const c of g.path.commands) {
+          if (c.type === 'M') ctx.moveTo(tx(c.x), ty(c.y));
+          else if (c.type === 'L') ctx.lineTo(tx(c.x), ty(c.y));
+          else if (c.type === 'C') ctx.bezierCurveTo(tx(c.x1), ty(c.y1), tx(c.x2), ty(c.y2), tx(c.x), ty(c.y));
+          else if (c.type === 'Q') ctx.quadraticCurveTo(tx(c.x1), ty(c.y1), tx(c.x), ty(c.y));
+          else if (c.type === 'Z') ctx.closePath();
+        }
+        ctx.fill('nonzero');
+        const img = ctx.getImageData(0, 0, w, h).data;
+        const th = 0.45 * xh * S; // a body column spans most of the x-height
+        let bl = -1;
+        let br = -1;
+        for (let x = 0; x < w; x++) {
+          let cnt = 0;
+          for (let y = 0; y < h; y++) if (img[(y * w + x) * 4 + 3] > 128) cnt++;
+          if (cnt > th) {
+            if (bl < 0) bl = x;
+            br = x;
+          }
+        }
+        if (bl < 0) {
+          bodyCache.set(ch, null);
+          return null;
+        }
+        const toFU = (px: number) => (px - pad) / S + bb.x1;
+        const out = { bl: toFU(bl), br: toFU(br), adv: g.advanceWidth };
+        bodyCache.set(ch, out);
+        return out;
+      };
+      // Dense-body gap: white space between L's body right edge and R's body left
+      // edge across the advance (optionally with the GPOS kern). Positive = daylight
+      // between bodies, negative = bodies overlapping — what the eye judges as rhythm.
+      const denseBodyGap = (l: string, r: string, wantKern: boolean) => {
+        const L = bodyEdges(l);
+        const R = bodyEdges(r);
+        if (!L || !R) return null;
+        return L.adv + (wantKern ? kern(l, r) : 0) + R.bl - L.br;
+      };
+
       // closest approach of a pair inside the body strip; negative =
       // interpenetration depth where it actually changes what a reader sees
       const pairGap = (l: string, r: string, extraAdv = 0) => {
@@ -454,6 +518,8 @@ async function measure(page: Page, otfPath: string, wantProbe = false): Promise<
           const kv = kern(p[0], p[1]);
           const cn = connGap(p[0], p[1]);
           const fl = fullGap(p[0], p[1]);
+          const dbK = denseBodyGap(p[0], p[1], true);
+          const dbN = denseBodyGap(p[0], p[1], false);
           return {
             pair: p,
             rawGap: realized === null ? null : Math.round(realized - kv),
@@ -461,9 +527,26 @@ async function measure(page: Page, otfPath: string, wantProbe = false): Promise<
             realizedGap: realized === null ? null : Math.round(realized),
             connGap: cn === null ? null : Math.round(cn),
             fullGap: fl === null ? null : Math.round(fl),
+            // dense-body gap = the eye's rhythm read: WITH the current kern (rendered)
+            // and WITHOUT it (the placement baseline). If the kern hurts, noKern is
+            // the tighter-spread of the two.
+            denseBodyKern: dbK === null ? null : Math.round(dbK),
+            denseBodyNoKern: dbN === null ? null : Math.round(dbN),
             saturated: Math.abs(kv) >= CLAMP - 8,
           };
         });
+        const spreadOf = (arr: number[]) => {
+          if (!arr.length) return 0;
+          const m = arr.reduce((a, x) => a + x, 0) / arr.length;
+          return Math.round(Math.sqrt(arr.reduce((a, x) => a + (x - m) * (x - m), 0) / arr.length));
+        };
+        const medOf = (arr: number[]) => {
+          if (!arr.length) return 0;
+          const s = [...arr].sort((a, b) => a - b);
+          return Math.round(s[Math.floor(s.length / 2)]);
+        };
+        const dbK = rows.map((r) => r.denseBodyKern).filter((x): x is number => x !== null);
+        const dbN = rows.map((r) => r.denseBodyNoKern).filter((x): x is number => x !== null);
         const rv = rows.map((r) => r.realizedGap).filter((x): x is number => x !== null).sort((a, b) => a - b);
         const rMed = rv.length ? rv[Math.floor(rv.length / 2)] : 0;
         const rMean = rv.reduce((a, x) => a + x, 0) / Math.max(1, rv.length);
@@ -492,6 +575,12 @@ async function measure(page: Page, otfPath: string, wantProbe = false): Promise<
           upm,
           realizedMedian: Math.round(rMed),
           realizedSd: Math.round(rSd),
+          // Rendered dense-body rhythm: the eye's measure. medianKern/sdKern are what
+          // ships now; sdNoKern is the placement baseline. sdKern > sdNoKern means the
+          // connect-kern is SCATTERING this hand (evening bodyAvg, not the render).
+          denseBodyMedianKern: medOf(dbK),
+          denseBodySdKern: spreadOf(dbK),
+          denseBodySdNoKern: spreadOf(dbN),
           outlierPairs: outliers.map((o) => o.pair),
           anySaturated: rows.some((r) => r.saturated),
           rows,
@@ -558,9 +647,17 @@ for (const sheet of sheets) {
       mkdirSync(OUT_DIR, { recursive: true });
       const probePath = join(OUT_DIR, `kern-residual-${sheet.name}.json`);
       writeFileSync(probePath, JSON.stringify(m.probe, null, 2));
-      const pr = m.probe as { realizedMedian: number; realizedSd: number; outlierPairs: string[]; anySaturated: boolean };
+      const pr = m.probe as {
+        realizedMedian: number;
+        realizedSd: number;
+        outlierPairs: string[];
+        anySaturated: boolean;
+        denseBodyMedianKern: number;
+        denseBodySdKern: number;
+        denseBodySdNoKern: number;
+      };
       console.log(
-        `KERN-PROBE | ${sheet.name.padEnd(24)} | realizedMed=${pr.realizedMedian} sd=${pr.realizedSd} outliers=${pr.outlierPairs.join(',') || '-'} saturated=${pr.anySaturated} -> ${probePath}`,
+        `KERN-PROBE | ${sheet.name.padEnd(24)} | realizedMed=${pr.realizedMedian} sd=${pr.realizedSd} | denseBody med=${pr.denseBodyMedianKern} sdKern=${pr.denseBodySdKern} sdNoKern=${pr.denseBodySdNoKern} | outliers=${pr.outlierPairs.join(',') || '-'} saturated=${pr.anySaturated} -> ${probePath}`,
       );
     }
 
