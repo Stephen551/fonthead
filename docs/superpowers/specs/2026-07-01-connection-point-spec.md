@@ -1,9 +1,12 @@
 # Spec — Connection-point placement for connected cursive
 
-**Status:** Scoped, not started
+**Status:** Phase 1 investigated (2026-07-01, ADR 0042) — height normalization is a
+PREREQUISITE, not the fix. The open work is the placement rework (Phase 3, structural
+overlap). Thin-hand joins banked at ~B until it is built.
 **Date:** 2026-07-01
 **Supersedes the approach in:** ADR 0040, ADR 0041 (the per-pair connect-kern path)
 **Builds on:** ADR 0030–0035 (connect model), ADR 0037 (baseline hardening), ADR 0038 (connector-height snap)
+**Refined by:** ADR 0042 (Phase 1-height verified insufficient alone)
 
 ## Why
 
@@ -54,34 +57,68 @@ defects at their source (connectors meeting inconsistently), and keep the good h
    connect (cap→lower, no-exit→lower, descender-loop clearance). Drop the
    even-every-pair connect-kern on connecting pairs (it is the wrong lever — ADR 0041).
 
-## Phasing (each phase gated + corpus-verified before the next)
+## Phase 1 finding (2026-07-01, ADR 0042) — height normalization is a prerequisite, not the fix
 
-- **Phase 1 — connection-height normalization (height only).** Extend the ADR 0038
-  snap to normalize BOTH entry and exit terminals to a single connection height (not
-  just lower high exits). Lowest-risk, and likely the biggest single win: handmade's
-  connectors ride at different heights, so meeting them on one line should make them
-  touch consistently. Verify on handmade + the full connect corpus.
-- **Phase 2 — connection angle.** Only if height-alone leaves visible seams: normalize
-  the approach angle so terminals meet tangentially, not just at the same height.
-- **Phase 3 — structural-overlap placement.** Move connecting-pair placement from the
-  dense-body edge to tip-to-tip-on-the-normalized-terminals with a deep-bridge overlap;
-  drop the connect-kern on connecting pairs. Higher risk (reworks the core placement),
-  so only if Phases 1–2 do not get there.
-- **Phase 4 — kern scope.** Restrict the connect GPOS kern to non-connecting
-  transitions.
+Phase 1 was prototyped and measured against `handmade`. Two results:
 
-Phases 1–2 may be sufficient. Stop at the first phase that clears the bar.
+1. **The variance gate works as a discriminator.** The ADR 0038 snap skips `handmade`
+   because its median exit-vs-entry mismatch (0.192) is a hair under the 0.2 gate — yet
+   its terminals SCATTER (entry-height sd 0.171). Gating the snap to also fire on high
+   terminal-height variance (`SNAP_VAR_GATE ~0.12`) engages the scattered hands and
+   spares the consistent ones. Calibration across the 11 connect faces (entry-height sd):
+   FIRE — `handmade` 0.171, `cc-5` 0.167, `cc-7` 0.16; SKIP (byte-stable) — `flashy`
+   0.073, `cc-2` 0.07, `cc-3` 0.053. Clean separation.
+2. **But firing it does nothing the eye reads.** `handmade`'s connectors ALREADY meet —
+   every join-band `connGap` is negative (the thin strokes cross in the band). Snapping
+   them onto one line (snapped 20 of 52) only made them overlap slightly more; the render
+   was unchanged. What the eye reads as "a and d don't touch" is the **dense-body**
+   daylight — the bodies sit a connector-width apart and a thin stroke bridges them.
+
+So terminal height was never the defect. Height normalization is a PREREQUISITE for
+tip-to-tip placement (which needs coincident terminal heights to not gap), not a
+standalone fix. The defect is per-pair BODY SPACING, and the only lever that moves it is
+the placement itself (Phase 3). The variance gate is a working prerequisite mechanism,
+recorded here; it was reverted from the tree because it is a no-op (and a 3-face blast
+radius) on its own.
+
+## Phasing (revised — the placement rework is the crux, not a fallback)
+
+- **Phase 1 — connection-height normalization (PREREQUISITE).** Normalize both terminals
+  to one connection height, gated on the terminal-height VARIANCE (see the finding) so a
+  scattered hand engages and a consistent one is byte-stable. This does not fix anything
+  alone; it makes Phase 3's tip-to-tip placement hold without the height-gap that made us
+  abandon tip-to-tip once (ADR history: the connection-POINT band model → body-edge model).
+  Ship it WITH Phase 3, not before.
+- **Phase 2 — connection angle.** Only if coincident height still leaves a visible kink:
+  normalize the approach angle so terminals meet tangentially.
+- **Phase 3 — structural-overlap placement (THE FIX).** Replace the dense-body-edge
+  advance for connecting pairs with tip-to-tip placement on the normalized terminals plus
+  a deep-bridge overlap (bodies overlap IN the connector, per professional practice), so
+  body spacing is even by construction. This is the change that moves what the eye reads,
+  and it re-attempts the tip-to-tip model we abandoned — so it must be verified hard
+  against that failure mode (tips gapping at mismatched heights, which Phase 1 now prevents)
+  AND the ADR 0038 flattening risk. Highest risk; a focused milestone of its own.
+- **Phase 4 — kern scope.** Restrict the connect GPOS kern to non-connecting transitions
+  (cap→lower, no-exit→lower, descender clearance); drop it on connecting pairs.
+
+Do NOT ship Phase 1 alone — it is a no-op that moves 3 faces for no visible gain. The
+milestone clears the bar only when Phase 3 lands.
 
 ## Success criteria (verifiable without reading code)
 
-- **Connection band:** `connGap` (the low connector-zone measure) reads ~0 across the
-  join pairs on handmade — connectors coincide, no daylight, no jam.
+The measure is BODY SPACING, not the connection band. The Phase 1 finding showed
+`handmade`'s `connGap` is already negative (connectors meet), so "connectors coincide"
+is not the target — even body rhythm is.
+
+- **Dense-body probe (the primary metric):** `handmade`'s dense-body relative spread
+  drops from 0.60 toward the clean-face range (0.24–0.31). Run `CORPUS_KERN_PROBE=1 npm
+  run test:corpus` and read `denseBody sdKern` / `med`.
 - **Render eyeball:** the `test-results/corpus-contact.png` contact sheet shows
-  handmade's joins even; `a`/`d` and `a`/`n` touch, `d`/`m` no longer jams.
-- **Dense-body probe (kept guardrail):** handmade's dense-body relative spread drops
-  from 0.60 toward the clean-face range (0.24–0.31).
-- **Byte-stability:** the good hands (copperplate, cc-2/3) stay byte-identical (the
-  normalization is self-gated so a hand already on one line is untouched).
+  `handmade`'s joins even; `a`/`d` and `a`/`n` touch, `d`/`m` no longer jams.
+- **Byte-stability:** the low-variance faces (`cc-2`, `cc-3`, `flashy`) stay
+  byte-identical (Phase 1's variance gate skips them; Phase 3 must self-gate the same
+  way). The high-variance faces (`cc-5`, `cc-7`) move WITH `handmade` — they must
+  improve or hold, never regress, on the corpus gates and the contact sheet.
 - Corpus, unit, e2e, and fontTools all green.
 
 ## Explicitly NOT in scope

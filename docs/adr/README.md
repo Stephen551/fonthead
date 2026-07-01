@@ -54,6 +54,8 @@ left out — they live in CLAUDE.md, not here.
 | [0039](0039-connect-ships-gpos-kern-supersedes-0032.md) | Connect mode ships a GPOS kern table (kerning:true + connectKern); supersedes ADR 0032's kerning:false | Accepted |
 | [0040](0040-contextual-connect-kern-parked-needs-assembled-feedback.md) | Contextual connect-kern parked: no build-time measure separates the connector bridge from a weld; needs an assembled-glyph feedback pass | Accepted (parked) |
 | [0041](0041-connect-rhythm-in-placement-not-kern-densebody-parked.md) | Even connect rhythm belongs in connector placement, not a per-pair kern; dense-body kern parked, superseded by a connection-point spec | Accepted (parked) |
+| [0042](0042-phase1-height-prerequisite-not-fix-thin-hand-joins-banked.md) | Connection-point Phase 1 (height normalization) is a prerequisite, not the fix; thin-hand joins banked at ~B pending the placement rework | Accepted (banked) |
+| [0042](0042-phase1-height-prerequisite-not-fix-thin-hand-joins-banked.md) | Connection-point Phase 1 (height normalization) is a prerequisite, not the fix; thin-hand joins banked at ~B pending the placement rework | Accepted (banked) |
 
 ## Format
 
