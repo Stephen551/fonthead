@@ -1404,6 +1404,31 @@ export function faceMetrics(glyphs: Glyph[], profiles?: (ReturnType<typeof glyph
   return { xhPx, maxAscRaster, maxAscBBox, capHpx };
 }
 
+// ·xh — entry-reach placement normalization gate (ADR 0043). The advance model
+// makes per-pair body daylight = the connector gap + the RIGHT letter's
+// entry-tail reach, so a hand whose reaches SCATTER carries that scatter
+// straight into the rendered rhythm (the thin-hand field failure). When the
+// spread of the face's entry reaches exceeds this, the face places by its
+// EYE-BODY (dense columns) on both edges; a consistent hand stays
+// byte-identical. Calibration (probe, 11 connect faces): FIRE handmade 0.242 /
+// cc-4 0.270 / light 0.212; SKIP signature 0.171 / cc-3 0.165 / copperplate
+// 0.146 / cc-7 0.127 / cc-5 0.121 / cc-6 0.112. A long-sweep hand (flashy
+// 1.00, cc-2 0.62) is exempted by the median test (TAIL_GATE_FRAC): its deep
+// reaches are intentional flourish (ADR 0040), not scatter.
+const ENTRY_REACH_SD_GATE = 0.19;
+// ·xh — the eye-body column criterion (the corpus probe's own body definition,
+// applied at full cell resolution): a column belongs to the dense body the eye
+// reads when its ink pixel count spans at least this share of the x-height.
+const EYE_BODY_FRAC = 0.45;
+// ·xh — the exit-overhang lap allowance on a normalized (bridged) face. The
+// next glyph's stem sits exactly at the advance, so ink overhanging the advance
+// laps that stem by the same amount. A lead-in arm (r) or exit flick may lap
+// this far onto the stem — the join — and any deeper ride-through grows the
+// advance by the excess. Per-glyph and constant, so within-letter rhythm stays
+// even; this REPLACES the row-min weld on bridged faces (whose formula reads
+// the deliberate bridge as a crash: ADR 0043, structural 269 on rl).
+const ARM_LAP_FRAC = 0.12;
+
 const TAIL_GATE_FRAC = 0.6; // ·xhPx — a hand whose MEDIAN entry tail exceeds this is a long-sweep hand
 const TAIL_MAX_FRAC = 1.1; // ·xhPx — compress an over-long entry sweep down to this length; the contextual kern then fine-tunes each pair
 const TAIL_MIN_JOINERS = 4; // too few joiners to trust a median
@@ -1592,6 +1617,7 @@ export function connectGlyphs(
   breaks: Array<{ char: string; reason: string }>;
   entrySd: number;
   entryMed: number;
+  entryNorm: boolean;
 } {
   // profilesIn lets tests inject column rasters (jsdom has no canvas, so
   // glyphColumnAreas returns null there); production always computes them.
@@ -1707,12 +1733,11 @@ export function connectGlyphs(
     return { left, right, rows, area: totalInk > 0 ? bandInk / totalInk : 0, lY, rY };
   };
 
-  // Entry-reach scatter DIAGNOSTIC (probe-only, no behavior): the advance model
-  // makes per-pair body daylight = the connector gap + the RIGHT letter's
-  // entry-tail reach, so the spread of these reaches is the placement's rhythm
-  // scatter on a thin hand (ADR 0043). Surfaced via __lastConnect and the corpus
-  // line; the normalization that acted on it is parked (ADR 0043 — the rhythm
-  // fix works but needs bridge-vs-weld protection before it can ship).
+  // Entry-reach scatter gate (ADR 0043): measure every left-joiner's entry-tail
+  // reach (dense-body left edge minus leftmost ink); when the face's reaches
+  // scatter, place by the eye-body instead. Also surfaced via __lastConnect and
+  // the corpus line as a permanent diagnostic. Variants are skipped (they
+  // inherit base metrics).
   const entryFracs: number[] = [];
   glyphs.forEach((g, i) => {
     if (g.variantSuffix) return;
@@ -1733,6 +1758,30 @@ export function connectGlyphs(
     const sorted = entryFracs.slice().sort((a, b) => a - b);
     entryMed = sorted[Math.floor(sorted.length / 2)];
   }
+  // Long-sweep exemption: a hand whose MEDIAN entry reach marks it a flourish
+  // hand (the compressConnectorTails gate) keeps the ink anchor — its reaches
+  // are drawn deep on purpose and body bounds under a 3-xh sweep are unreliable.
+  const normalizeEntry = entrySd > ENTRY_REACH_SD_GATE && entryMed <= TAIL_GATE_FRAC;
+  // On a firing face, place by the EYE-CONSISTENT dense body: the columns whose
+  // ink pixel count spans most of the x-height (EYE_BODY_FRAC, the corpus
+  // probe's own criterion, at full cell resolution). The thin-trim body
+  // under-reads a tall exit stroke (an r arm) that the eye — and the next
+  // letter — runs into, so normalizing only the entry side moves the scatter
+  // into weld growths instead of removing it (ADR 0043 Stage A). Dense columns
+  // on BOTH edges put the arm inside the advance and the daylight between
+  // eye-bodies collapses to the constant gap.
+  const eyeBody = (prof: NonNullable<ReturnType<typeof glyphColumnAreas>>) => {
+    const th = EYE_BODY_FRAC * xhPx;
+    let lo = -1,
+      hi = -1;
+    for (let i = 0; i < prof.cols.length; i++)
+      if (prof.cols[i] > th) {
+        if (lo < 0) lo = i;
+        hi = i;
+      }
+    return lo < 0 ? null : { min: lo, max: hi };
+  };
+
   const decisions: ({ dx: number; cellW: number } | null)[] = glyphs.map(() => null);
   let joined = 0,
     broke = 0;
@@ -1801,10 +1850,14 @@ export function connectGlyphs(
     // A tight round letter (a copperplate, a contained hand) keeps the leftmost-ink
     // anchor untouched, so only genuinely floating bowls move.
     const roundFloat = !!body && ROUND_BODY_ANCHOR.has(g.char) && body.min - sp.first > BODY_ANCHOR_MIN_TAIL * xhPx;
+    // normalizeEntry (scattered-reach hand): place this glyph by its eye-body on
+    // BOTH edges and anchor there, so per-pair daylight evens by construction and
+    // the entry/exit strokes ride over the seams as bearings (ADR 0043).
+    const eye = normalizeEntry ? eyeBody(prof) : null;
     decisions[i] = anchorAdvance({
-      leftPlug: entryX,
-      rightPlug: exitX,
-      inkLeft: roundFloat ? body!.min : sp.first, // float: anchor on the body so the bowl centres; else the true left ink so a lead-in (f, t) is never clipped
+      leftPlug: eye ? eye.min : entryX,
+      rightPlug: eye ? eye.max : exitX,
+      inkLeft: eye && cls.joinsLeft ? eye.min : roundFloat ? body!.min : sp.first, // float: anchor on the body so the bowl centres; else the true left ink so a lead-in (f, t) is never clipped
       overlapPx: -connectGapPx,
       minAdvPx,
       leftPadPx,
@@ -1814,13 +1867,50 @@ export function connectGlyphs(
     joined++;
   }
 
+  // Exit-overhang cap (bridged faces only): the placement-aware weld guard.
+  // The next glyph's stem sits at the advance by construction, so a glyph whose
+  // strip ink overhangs its advance beyond the lap allowance rides THROUGH the
+  // following letter (the r arm slicing the stem on rl/rb, corpus structural
+  // 269/298/207). Grow the advance so the overhang ends at the allowance; the
+  // arm still laps the stem — the join — and the growth is per-glyph constant,
+  // so the letter's own pairs stay even.
+  if (normalizeEntry) {
+    const armLapPx = Math.round(ARM_LAP_FRAC * xhPx);
+    for (let i = 0; i < glyphs.length; i++) {
+      const d = decisions[i];
+      const prof = profiles[i];
+      if (!d || !prof || glyphs[i].variantSuffix) continue;
+      const cls = joinClass(glyphs[i].char);
+      if (cls.kind !== 'join' || !cls.joinsRight) continue;
+      // Scan past the weld strip to 1.25·xh: a lead-in arm (r) rides AT and
+      // ABOVE the x-height, so a 1.1·xh ceiling misses its tip (run B: the cap
+      // grabbed 70 units and structural still read 198 on rl). f and t stay
+      // excluded above the strip — their crossbars overhang by design and
+      // capping them would over-extend the advance (the old trim lesson).
+      const scanTop = 'ft'.includes(glyphs[i].char) ? 1.1 : 1.25;
+      let maxOver = -Infinity;
+      for (let s = 0; s <= 36; s++) {
+        const y = xhPx * 0.15 + xhPx * (scanTop - 0.15) * (s / 36);
+        const row = Math.round(baseY[i] - y);
+        if (row < 0 || row >= prof.rowRight.length) continue;
+        if (!isFinite(prof.rowRight[row])) continue;
+        const over = prof.rowRight[row] + d.dx - d.cellW;
+        if (over > maxOver) maxOver = over;
+      }
+      if (isFinite(maxOver) && maxOver > armLapPx) d.cellW += maxOver - armLapPx;
+    }
+  }
+
   // loosen-only weld pass: grow a left glyph's advance where a misread-risk pair
   // penetrates the x-height body strip too deep. Mirrors trimGlyphOverhangs's
   // pairwise feedback; restores only ever grow advances, so one sweep is stable.
+  // On a bridged face the overhang cap above is the weld guard (this formula
+  // reads the deliberate bridge as a crash); the probe still measures.
   const byChar = new Map<string, number>();
   glyphs.forEach((g, i) => {
     if (profiles[i] && ink[i] && !byChar.has(g.char)) byChar.set(g.char, i);
   });
+  const weldProbe: Array<{ pair: string; minGap: number; deepRows: number; rows: number; grew: number }> = [];
   for (const [lc, rc] of FUSION_CHECK_PAIRS) {
     const li = byChar.get(lc);
     const ri = byChar.get(rc);
@@ -1834,17 +1924,28 @@ export function connectGlyphs(
     const GLoff = dL ? dL.dx : 0;
     const GRoff = dR ? dR.dx : 0;
     let minGap = Infinity;
+    let rows = 0,
+      deepRows = 0;
     for (let s = 0; s <= 32; s++) {
       const y = xhPx * 0.15 + xhPx * 0.95 * (s / 32);
       const rowL = Math.round(baseY[li] - y);
       const rowR = Math.round(baseY[ri] - y);
       if (rowL < 0 || rowL >= Lp.rowRight.length || rowR < 0 || rowR >= Rp.rowLeft.length) continue;
       if (!isFinite(Lp.rowRight[rowL]) || !isFinite(Rp.rowLeft[rowR])) continue;
+      rows++;
       const gap = GLadv + (Rp.rowLeft[rowR] + GRoff) - (Lp.rowRight[rowL] + GLoff);
+      if (gap < -maxPenPx) deepRows++;
       if (gap < minGap) minGap = gap;
     }
-    if (isFinite(minGap) && minGap < -maxPenPx && dL) dL.cellW += -minGap - maxPenPx;
+    const exempt = normalizeEntry; // bridged face: the overhang cap is the guard
+    let grew = 0;
+    if (isFinite(minGap) && minGap < -maxPenPx && dL && !exempt) {
+      grew = -minGap - maxPenPx;
+      dL.cellW += grew;
+    }
+    if (isFinite(minGap)) weldProbe.push({ pair: lc + rc, minGap: Math.round(minGap), deepRows, rows, grew: Math.round(grew) });
   }
+  (globalThis as unknown as { __lastWeld?: object }).__lastWeld = { pairs: weldProbe, maxPenPx };
 
   // Natural variation: a variant glyph (.cvNN) INHERITS its base letter's
   // horizontal connection metrics — the shift and the advance — so a calt
@@ -1890,7 +1991,7 @@ export function connectGlyphs(
     if (!d) return base || regPaths[i] ? { ...g, ...base, paths: src } : g;
     return { ...g, ...base, paths: src.map((p) => translatePathX(p, d.dx)), cellW: d.cellW };
   });
-  return { glyphs: out, joined, broke, breaks, entrySd, entryMed };
+  return { glyphs: out, joined, broke, breaks, entrySd, entryMed, entryNorm: normalizeEntry };
 }
 
 /** Does the face read as a connected/script hand? Mirrors trimGlyphOverhangs's
@@ -1954,6 +2055,15 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   let glyphsIn = glyphs;
   let spaceAdvance: number | undefined;
   let styleOut = opts.style ?? 'Regular';
+  // Set when connectGlyphs fires the entry-reach normalization: the placement
+  // already carries the rhythm (even body gaps, deliberate connector bridges),
+  // so the worker connect-kern must DEFER (ADR 0043). bridgedPlacement drops
+  // the per-pair rhythm evening (its silhouette body measure disagrees with the
+  // eye on tall-exit letters: handmade sdNoKern 26 re-scattered to sdKern 79)
+  // and the lowercase collision/body floors (they read the bridge as a crash
+  // and shoved 27/29 joins apart), keeping descender clearance, cap floors,
+  // and the word-space evening.
+  let connectBridged = false;
   if (opts.connect) {
     // Connected cursive. COMPOSES with natural variation: connectGlyphs runs on
     // the MERGED palette (it preserves variantSuffix), so the .cv01/.cv02 variant
@@ -1988,6 +2098,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     };
     const fit = connectGlyphs(snap.glyphs, { overlapPct: opts.connectOverlapPct });
     glyphsIn = fit.glyphs;
+    connectBridged = fit.entryNorm;
     // connected runs read denser than upright; a touch more than the 0.28em
     // default keeps word breaks visible without gapping the join rhythm
     spaceAdvance = 0.3;
@@ -2000,6 +2111,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
       breaks: fit.breaks,
       entrySd: fit.entrySd,
       entryMed: fit.entryMed,
+      entryNorm: fit.entryNorm,
     };
   } else if (opts.naturalVariation) {
     // Natural variation WITHOUT connect (an upright hand): a plain build that
@@ -2049,7 +2161,11 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // CONNECT-specific kern (analyzeConnectKern): it evens every pair to one gap
     // and breaks descender-loop collisions, refining the body-edge placement
     // rather than fighting it.
-    features: { kerning: true, connectKern: opts.connect ? {} : undefined, naturalVariation: opts.naturalVariation ? true : undefined },
+    features: {
+      kerning: true,
+      connectKern: opts.connect ? (connectBridged ? { bridgedPlacement: true } : {}) : undefined,
+      naturalVariation: opts.naturalVariation ? true : undefined,
+    },
     embedHints: false,
     embedTTHints: false,
     opticalSidebearings: false,
