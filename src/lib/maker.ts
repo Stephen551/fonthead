@@ -1585,7 +1585,14 @@ export function connectGlyphs(
   glyphs: Glyph[],
   opts: { overlapPct?: number; minAdvPct?: number; seamless?: boolean } = {},
   profilesIn?: (ReturnType<typeof glyphColumnAreas>)[],
-): { glyphs: Glyph[]; joined: number; broke: number; breaks: Array<{ char: string; reason: string }> } {
+): {
+  glyphs: Glyph[];
+  joined: number;
+  broke: number;
+  breaks: Array<{ char: string; reason: string }>;
+  entrySd: number;
+  entryMed: number;
+} {
   // profilesIn lets tests inject column rasters (jsdom has no canvas, so
   // glyphColumnAreas returns null there); production always computes them.
   const profiles = profilesIn ?? glyphs.map((g) => glyphColumnAreas(g));
@@ -1700,6 +1707,32 @@ export function connectGlyphs(
     return { left, right, rows, area: totalInk > 0 ? bandInk / totalInk : 0, lY, rY };
   };
 
+  // Entry-reach scatter DIAGNOSTIC (probe-only, no behavior): the advance model
+  // makes per-pair body daylight = the connector gap + the RIGHT letter's
+  // entry-tail reach, so the spread of these reaches is the placement's rhythm
+  // scatter on a thin hand (ADR 0043). Surfaced via __lastConnect and the corpus
+  // line; the normalization that acted on it is parked (ADR 0043 — the rhythm
+  // fix works but needs bridge-vs-weld protection before it can ship).
+  const entryFracs: number[] = [];
+  glyphs.forEach((g, i) => {
+    if (g.variantSuffix) return;
+    const prof = profiles[i];
+    const sp = ink[i];
+    if (!prof || !sp) return;
+    const cls = joinClass(g.char);
+    if (cls.kind !== 'join' || !cls.joinsLeft) return;
+    const body = bodyBoundsFromColumns(prof.cols, BODY_CONNECT_OPTS, prof.spans);
+    if (!body) return;
+    entryFracs.push((body.min - sp.first) / xhPx);
+  });
+  let entrySd = 0;
+  let entryMed = 0;
+  if (entryFracs.length >= TAIL_MIN_JOINERS) {
+    const m = entryFracs.reduce((a, x) => a + x, 0) / entryFracs.length;
+    entrySd = Math.sqrt(entryFracs.reduce((a, x) => a + (x - m) * (x - m), 0) / entryFracs.length);
+    const sorted = entryFracs.slice().sort((a, b) => a - b);
+    entryMed = sorted[Math.floor(sorted.length / 2)];
+  }
   const decisions: ({ dx: number; cellW: number } | null)[] = glyphs.map(() => null);
   let joined = 0,
     broke = 0;
@@ -1857,7 +1890,7 @@ export function connectGlyphs(
     if (!d) return base || regPaths[i] ? { ...g, ...base, paths: src } : g;
     return { ...g, ...base, paths: src.map((p) => translatePathX(p, d.dx)), cellW: d.cellW };
   });
-  return { glyphs: out, joined, broke, breaks };
+  return { glyphs: out, joined, broke, breaks, entrySd, entryMed };
 }
 
 /** Does the face read as a connected/script hand? Mirrors trimGlyphOverhangs's
@@ -1961,7 +1994,13 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // the worker slants on the STYLE NAME; a slant adds span to every advance
     // and shears every glyph, un-meeting the joins, so force upright here
     styleOut = 'Regular';
-    (globalThis as unknown as { __lastConnect?: object }).__lastConnect = { joined: fit.joined, broke: fit.broke, breaks: fit.breaks };
+    (globalThis as unknown as { __lastConnect?: object }).__lastConnect = {
+      joined: fit.joined,
+      broke: fit.broke,
+      breaks: fit.breaks,
+      entrySd: fit.entrySd,
+      entryMed: fit.entryMed,
+    };
   } else if (opts.naturalVariation) {
     // Natural variation WITHOUT connect (an upright hand): a plain build that
     // carries the .cv01/.cv02 palette; calt cycles the repeated letters.

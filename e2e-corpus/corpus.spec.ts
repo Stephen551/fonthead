@@ -635,8 +635,12 @@ for (const sheet of sheets) {
 
     const m = await measure(page, otfPath, isConnect && !!process.env.CORPUS_KERN_PROBE);
     const trim = await page.evaluate(() => (window as unknown as { __lastTrim?: { script: boolean; trimmed: number } }).__lastTrim);
-    const conn = await page.evaluate(() => (window as unknown as { __lastConnect?: { joined: number; broke: number } }).__lastConnect);
-    const mode = isConnect ? `connect/${conn?.joined ?? '?'}j` : `${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'}`;
+    const conn = await page.evaluate(
+      () => (window as unknown as { __lastConnect?: { joined: number; broke: number; entrySd?: number; entryMed?: number } }).__lastConnect,
+    );
+    const mode = isConnect
+      ? `connect/${conn?.joined ?? '?'}j entrySd=${conn?.entrySd === undefined ? '?' : conn.entrySd.toFixed(3)} entryMed=${conn?.entryMed === undefined ? '?' : conn.entryMed.toFixed(2)}`
+      : `${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'}`;
     console.log(
       `CORPUS | ${sheet.name.padEnd(24)} | ${mode} glyphs=${m.glyphs} structural=${m.structural.depth}(${m.structural.worst || '-'}) crosser=${m.crosser.depth}(${m.crosser.worst || '-'}) capOverhang=${m.capOverhang.depth}(${m.capOverhang.worst || '-'}) rhythmSd=${m.rhythmSd} wordSpace=${m.wordSpaceMedian} joinGap=med${m.joinGapMedian}/max${m.joinGapMax}(${m.joinGapWorst || '-'}) connJoin=med${m.connJoinMedian}/max${m.connJoinMax}(${m.connJoinWorst || '-'}) fullJoin=${m.fullJoinMax}(${m.fullJoinWorst || '-'})`,
     );
