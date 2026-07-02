@@ -50,6 +50,13 @@ const WORD_SPACE_MIN = 40; // median visible gap across a word break
 // is logged as a diagnostic but not gated: it is too per-pair noisy, the known-good
 // original spikes to 133 on one pair while reading clean.)
 const JOIN_GAP_MEDIAN_MAX = 60;
+// A BRIDGED face (entry-reach normalization) places bodies at the hand's own
+// natural pitch, so the band-measure median legitimately reads wider than the
+// body-edge model's ceiling; connection integrity is guarded by fullJoin and
+// the render. cc-4 (the widest-pitch hand, median reach 0.57·xh) rode the
+// 60 ceiling at 59 before the milestone and reads 67 at natural pitch with
+// structural/crosser/capOverhang all at zero.
+const JOIN_GAP_MEDIAN_MAX_BRIDGED = 75;
 // The right "do they connect" gate for the body-edge model: every join pair must
 // come within this over its FULL height (a join counts wherever the connecting
 // ink rides — baseline, x-height, or an f-crossbar up high). The healthy fixtures
@@ -648,9 +655,14 @@ for (const sheet of sheets) {
           .__lastConnect,
     );
     const m = await measure(page, otfPath, isConnect && !!process.env.CORPUS_KERN_PROBE, isConnect && !!conn?.entryNorm);
+    const wf = await page.evaluate(
+      () => (window as unknown as { __lastWeightFloor?: { strokeFrac: number; weight: number } }).__lastWeightFloor,
+    );
+    const fine = await page.evaluate(() => (window as unknown as { __lastFine?: { fine: boolean; rowH: number } }).__lastFine);
+    const traceTag = `wf=${wf ? `${wf.strokeFrac}/w${wf.weight}` : '?'} fine=${fine ? `${fine.fine ? 'on' : 'off'}@${fine.rowH}` : '?'}`;
     const mode = isConnect
-      ? `connect/${conn?.joined ?? '?'}j entrySd=${conn?.entrySd === undefined ? '?' : conn.entrySd.toFixed(3)} entryMed=${conn?.entryMed === undefined ? '?' : conn.entryMed.toFixed(2)}${conn?.entryNorm ? ' NORM' : ''}`
-      : `${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'}`;
+      ? `connect/${conn?.joined ?? '?'}j entrySd=${conn?.entrySd === undefined ? '?' : conn.entrySd.toFixed(3)} entryMed=${conn?.entryMed === undefined ? '?' : conn.entryMed.toFixed(2)}${conn?.entryNorm ? ' NORM' : ''} ${traceTag}`
+      : `${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'} ${traceTag}`;
     // Bridge-vs-weld calibration (ADR 0043 milestone): per-pair weld-strip
     // penetration profile — minGap, deep rows / sampled rows, growth applied.
     if (isConnect && process.env.CORPUS_KERN_PROBE) {
@@ -717,7 +729,9 @@ for (const sheet of sheets) {
     if (isConnect) {
       // stays connected (median body-strip gap negative/tight, not drifted back to
       // word spacing) AND every join pair meets somewhere over its full height.
-      expect(m.joinGapMedian, `connect join gap median (worst ${m.joinGapWorst})`).toBeLessThanOrEqual(JOIN_GAP_MEDIAN_MAX);
+      expect(m.joinGapMedian, `connect join gap median (worst ${m.joinGapWorst})`).toBeLessThanOrEqual(
+        conn?.entryNorm ? JOIN_GAP_MEDIAN_MAX_BRIDGED : JOIN_GAP_MEDIAN_MAX,
+      );
       expect(m.fullJoinMax, `connect full-height join gap (worst ${m.fullJoinWorst})`).toBeLessThanOrEqual(FULL_JOIN_MAX);
     }
   });
