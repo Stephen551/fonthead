@@ -55,7 +55,11 @@ left out — they live in CLAUDE.md, not here.
 | [0040](0040-contextual-connect-kern-parked-needs-assembled-feedback.md) | Contextual connect-kern parked: no build-time measure separates the connector bridge from a weld; needs an assembled-glyph feedback pass | Accepted (parked) |
 | [0041](0041-connect-rhythm-in-placement-not-kern-densebody-parked.md) | Even connect rhythm belongs in connector placement, not a per-pair kern; dense-body kern parked, superseded by a connection-point spec | Accepted (parked) |
 | [0042](0042-phase1-height-prerequisite-not-fix-thin-hand-joins-banked.md) | Connection-point Phase 1 (height normalization) is a prerequisite, not the fix; thin-hand joins banked at ~B pending the placement rework | Accepted (banked) |
-| [0042](0042-phase1-height-prerequisite-not-fix-thin-hand-joins-banked.md) | Connection-point Phase 1 (height normalization) is a prerequisite, not the fix; thin-hand joins banked at ~B pending the placement rework | Accepted (banked) |
+| [0043](0043-eye-body-placement-route-proven-parked-on-bridge-weld-protection.md) | Eye-body placement normalization proves the Phase 3 route; parked on bridge-vs-weld protection | Accepted (route proven) |
+| [0044](0044-bridged-placement-ships-overhang-cap-zone-split-fusion-gate.md) | Bridged placement ships: the exit-overhang cap is the weld guard, bridged fusion judged above the connect band | Accepted |
+| [0045](0045-fidelity-build-natural-pitch-judged-toward-award-bar.md) | The fidelity build: trace the hand at resolution, place it at its own pitch; judged toward the award bar | Accepted |
+| [0046](0046-generator-sheet-class-and-the-placement-mode-boundary.md) | Reading the generator sheet class, and the placement-mode boundary that floated the e | Accepted |
+| [0047](0047-variation-build-mode-boundary-not-registration.md) | The variation build joins classic: the mode boundary was the whole defect, not variant registration | Accepted |
 
 ## Format
 
