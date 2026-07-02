@@ -243,10 +243,10 @@ describe('connectGlyphs (entry-reach normalization, ADR 0043)', () => {
     const gs = [mk('x', 0), { ...mk('n', 0), _p: armed }, mk('m', 6), mk('u', 12), mk('h', 18)];
     const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
     expect(out.entryNorm).toBe(true);
-    // n has no drawn tail: span deficit min(11+2, halfBody 11) = 11 as a left
-    // bearing: anchor 15, cellW = 27 + 11 - 15 = 23, then grown so the arm
-    // (maxOver 60 - 15 - 23 = 22) laps only 4: 23 + (22 - 4) = 41
-    expect(out.glyphs[1].cellW).toBe(41);
+    // n has no drawn tail: span deficit min(11+2, gap-floor cap 11-5=6) = 6 as
+    // a left bearing: anchor 10, cellW = 27 + 11 - 10 = 28, then grown so the
+    // arm (maxOver 60 - 10 - 28 = 22) laps only 4: 28 + (22 - 4) = 46
+    expect(out.glyphs[1].cellW).toBe(46);
   });
 
   it('does not cap an f crossbar riding above the strip (overhang by design)', () => {
@@ -255,8 +255,8 @@ describe('connectGlyphs (entry-reach normalization, ADR 0043)', () => {
     const gs = [mk('x', 0), { ...mk('f', 0), _p: barred }, mk('m', 6), mk('u', 12), mk('h', 18)];
     const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
     expect(out.entryNorm).toBe(true);
-    // f: zero tail -> span deficit 11 as bearing (anchor 15), cellW 27+11-15;
-    // the crossbar above the scan stays uncapped
-    expect(out.glyphs[1].cellW).toBe(23);
+    // f: zero tail -> span deficit capped at 6 (gap floor), anchor 10, cellW
+    // 27+11-10; the crossbar above the scan stays uncapped
+    expect(out.glyphs[1].cellW).toBe(28);
   });
 });

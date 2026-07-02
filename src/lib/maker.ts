@@ -1809,6 +1809,8 @@ export function snapConnectorHeights(
       }
     }
     if (lY < 0 || rY < 0) return;
+    // Exit-snap class is decided AFTER the gates (a scattered hand overrides
+    // the HIGH_EXIT exemption); record the class here.
     const snapExit = !cls.highExit && !DESC_EXIT.has(g.char);
     meas.push({ i, bodyMin: body.min, bodyMax: body.max, first, last, baseY, lY, rY, snapExit });
     entryFracs.push((baseY - lY) / xhPx);
@@ -1838,7 +1840,13 @@ export function snapConnectorHeights(
     // move a mismatched exit onto the join line: lowering is the shipped move
     // (the signature flick); raising is bounded and only on a scattered hand,
     // so exit and entry coincide and merge instead of crossing.
-    if (m.snapExit && m.last > m.bodyMax) {
+    // On a SCATTERED hand the HIGH_EXIT exemption lifts (kept for DESC_EXIT):
+    // its high flicks are noise, and an exempted d exits high and short while
+    // the next e enters low — the strokes pass at different heights without
+    // meeting (the floating e). A mismatch-fired hand (the signature, whose
+    // flick is the design) keeps the exemption.
+    const doExit = m.snapExit || (scattered && !DESC_EXIT.has(glyphs[m.i].char));
+    if (doExit && m.last > m.bodyMax) {
       const raw = joinY - m.rY;
       const dy = raw >= 0 ? Math.min(cap, raw) : scattered ? Math.max(-raiseCap, raw) : 0;
       if (Math.abs(dy) >= 1) {
@@ -2022,10 +2030,16 @@ export function connectGlyphs(
     const sortedX = exitFracs.slice().sort((a, b) => a - b);
     exitMed = sortedX.length ? sortedX[Math.floor(sortedX.length / 2)] : 0;
   }
-  // Long-sweep exemption: a hand whose MEDIAN entry reach marks it a flourish
-  // hand (the compressConnectorTails gate) keeps the ink anchor — its reaches
-  // are drawn deep on purpose and body bounds under a 3-xh sweep are unreliable.
-  const normalizeEntry = entrySd > ENTRY_REACH_SD_GATE && entryMed <= TAIL_GATE_FRAC;
+  // Long-sweep exemption: a hand whose MEDIAN entry reach marks it a long-entry
+  // hand keeps the ink anchor — its reaches are drawn deep on purpose, its
+  // connectors are drawn to span its own pitch, and the classic body-edge path
+  // builds it well (the nano hand judged 80 there). The exemption sits at 0.5,
+  // WIDER than compressConnectorTails' 0.6: the nano hand's three sheets
+  // measured 0.574/0.593/0.614 and the 0.6 boundary sliced through them, so
+  // two of the three entered the bridged path, where a HIGH_EXIT letter's
+  // short high flick over a low entry left every e floating off its word.
+  const NORM_SWEEP_EXEMPT = 0.5;
+  const normalizeEntry = entrySd > ENTRY_REACH_SD_GATE && entryMed <= NORM_SWEEP_EXEMPT;
   // On a firing face, place by the EYE-CONSISTENT dense body: the columns whose
   // ink pixel count spans most of the x-height (EYE_BODY_FRAC, the corpus
   // probe's own criterion, at full cell resolution). The thin-trim body
@@ -2151,12 +2165,18 @@ export function connectGlyphs(
     // into the LEFT BEARING (anchor moves right), so the glyph's own advance to
     // its next letter is untouched.
     const tailPx = eye ? Math.max(0, eye.min - (eyeRead && eyeRead.bandFirst >= 0 ? eyeRead.bandFirst : sp.first)) : 0;
-    // The exit side is trusted at 0.75: the median overstates what a specific
-    // previous letter's exit covers (half the pairs sit below it), and full
-    // trust left one face's joins riding the gate (joinGap median 69 vs 60).
+    // The exit side is trusted at HALF the median: the median overstates what a
+    // specific previous letter's exit covers, and on a long-entry hand whose
+    // sheets straddle the exemption boundary (the nano hand: medians 0.57-0.61)
+    // 0.75 trust left every e floating off its word — d and s reach nowhere
+    // near the median. Half the median is what the SHORT half of the exit
+    // distribution can actually span.
+    // Capped so daylight never drops below the base connector gap — the old
+    // half-body cap bound NARROW letters first (the e: a small loop that needed
+    // a deep pull and was allowed a shallow one, so it floated off its word).
     const deficitPx =
       eye && cls.joinsLeft
-        ? Math.min(Math.max(0, bridgedGapPx - Math.round(0.75 * exitMed * xhPx) - tailPx + 2), Math.max(0, eye.max - eye.min) >> 1)
+        ? Math.min(Math.max(0, bridgedGapPx - Math.round(0.5 * exitMed * xhPx) - tailPx + 2), Math.max(0, bridgedGapPx - connectGapPx))
         : 0;
     const anchorX = eye ? eye.min + deficitPx : 0;
     decisions[i] = anchorAdvance({
