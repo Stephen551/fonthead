@@ -303,6 +303,61 @@ function supersampleMonoCell(
   return { data: d, w: ow, h: oh };
 }
 
+/** Cull a neighbour row's descender tip from a cell: the valley split of a
+ *  tightly-leaded sheet cuts where rows interleave, so the row above's g/j/y
+ *  tails can land as small stray marks at a cell's TOP edge (the breve-like
+ *  tick judged above m and u). The mono twin of color-core separateGlyph's
+ *  edge-strip cull. A foreign tip is DISCONNECTED, touches the top edge, stays
+ *  in the top zone, and is a small share of the ink; an i/j dot is detached but
+ *  never touches the top, an ascender runs deep, a counter (hole contour) sits
+ *  inside its parent's box, and a glyph that IS a small high mark (a quote)
+ *  keeps itself because it is most of its own ink. */
+function cullForeignTopTails<T extends { d: string; bb: { minX: number; maxX: number; minY: number; maxY: number }; area: number }>(
+  paths: T[],
+  cellH: number,
+): T[] {
+  const estimateBBox = w().estimateBBox;
+  if (!estimateBBox) return paths;
+  // Potrace emits ONE compound path per cell (several M subpaths in one d), so
+  // the foreign tail hides inside the letter's own path entry. Explode to
+  // subpaths, judge each, reassemble.
+  type Sub = { ei: number; d: string; bb: { minX: number; maxX: number; minY: number; maxY: number } | null; area: number };
+  const subs: Sub[] = [];
+  paths.forEach((p, ei) => {
+    for (const sd of p.d.split(/(?=M)/).map((s) => s.trim()).filter(Boolean)) {
+      const bb = estimateBBox(sd);
+      subs.push({ ei, d: sd, bb, area: bb ? Math.max(0, bb.maxX - bb.minX) * Math.max(0, bb.maxY - bb.minY) : 0 });
+    }
+  });
+  if (subs.length < 2) return paths;
+  const total = subs.reduce((s, x) => s + x.area, 0);
+  if (total <= 0) return paths;
+  const keptSubs = subs.filter((p, i) => {
+    const b = p.bb;
+    if (!b) return true;
+    const inside = subs.some(
+      (o, j) =>
+        j !== i && !!o.bb && b.minX >= o.bb.minX - 1 && b.maxX <= o.bb.maxX + 1 && b.minY >= o.bb.minY - 1 && b.maxY <= o.bb.maxY + 1,
+    );
+    if (inside) return true; // a counter, never foreign
+    // The tail's tip starts near (not exactly at) the band cut, so test the top
+    // ZONE: begins within the top 6% of the cell and stays within the top 30%.
+    // An i/j dot begins ~a third down its ascender-tall cell and is untouched.
+    const nearTop = b.minY <= cellH * 0.06;
+    const shallow = b.maxY <= cellH * 0.3;
+    const small = p.area / total < 0.2;
+    return !(nearTop && shallow && small);
+  });
+  if (keptSubs.length === subs.length) return paths;
+  if (!keptSubs.length) return paths;
+  const out: T[] = [];
+  paths.forEach((p, ei) => {
+    const mine = keptSubs.filter((s) => s.ei === ei);
+    if (mine.length) out.push({ ...p, d: mine.map((s) => s.d).join(' ') });
+  });
+  return out.length ? out : paths;
+}
+
 async function rowToGlyphs(
   data: Uint8ClampedArray,
   W: number,
@@ -367,7 +422,8 @@ async function rowToGlyphs(
       svg = await TC.traceCellBitmap(cell, opts.turdsize, opts.optcurve, opts.alphamax, opts.opttolerance);
     }
     const paths = TC.extractPathDFromSvg(svg);
-    const keep = filterFilledGlyphPaths(paths, rowH, map.baselineYInCell);
+    let keep = filterFilledGlyphPaths(paths, rowH, map.baselineYInCell);
+    keep = cullForeignTopTails(keep, cy1 - cy0);
     if (keep.length === 0) continue;
     glyphs.push({
       char: ch,
@@ -553,10 +609,20 @@ export function detectGeometry(
   }
   const threshold = isColor ? COLOR_GEOM_THRESHOLD : DEFAULT_TRACE.threshold;
   const bin = TC.binarizeFull(img, iw, ih, threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
-  const bands =
+  let bands =
     forceRows >= 2
       ? evenBands(bin.data, bin.w, bin.h, forceRows)
       : (TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
+  // Shadow-robust row pass for the mono probe (mirrors traceSheet): a soft
+  // generator shadow bridges row gaps at the standard cutoff and the charset
+  // guess then maps a 7-row sheet onto 4 lines. The dark-core read wins
+  // whenever it separates more rows.
+  if (!isColor && forceRows < 2) {
+    const strict = TC.binarizeFull(img, iw, ih, SHADOW_ROW_THRESHOLD, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
+    const strictBands = TC.detectRowsInBinary(strict.data, strict.w, strict.h) as number[][];
+    if (strictBands.length > bands.length) bands = strictBands;
+    bands = splitBandsAtValleys(inkRowProfile(strict.data, strict.w, strict.h), bands);
+  }
   const rows = bands.map(([y0, y1]) => {
     let cells: [number, number][] = [];
     try {
@@ -679,6 +745,69 @@ let _monoSession: MonoSession | null = null;
 // turned a script bold"). A delicate hand is the design; weight is the user's
 // call (the stroke-weight knob when it lands). Only ink too broken to trace
 // (strokes ~2px and crumbling) trips the floor now, and it takes ONE step.
+// Luminance cutoff for the shadow-robust ROW pass: keeps a pen's dark core
+// (and any genuinely gray pencil down to charcoal) while dropping the soft
+// shadow gradient a generator paints under strokes (measured: 1.3% of a Nano
+// Banana sheet's pixels sit at 16-127 as shadow, enough to bridge row gaps).
+const SHADOW_ROW_THRESHOLD = 64;
+// Valley split: a tightly-leaded sheet interleaves descenders into the next
+// row's ascenders, so NO scanline between the rows is empty and the gap-based
+// row detector fuses them (a Nano Banana sheet fused rows 1-4 into one band).
+// A true row boundary still reads as a deep VALLEY in the per-scanline ink
+// profile — the color path splits rows this way already; this is the mono twin.
+const VALLEY_FRAC = 0.12; // a valley this far under the flanking peaks is a row boundary
+const VALLEY_MIN_ROW = 40; // px — never produce a band shorter than this
+const VALLEY_EVEN_RATIO = 2.6; // guard: accept a split only if band heights stay plausibly even
+
+/** Pure: split fused row bands at prominent ink-profile valleys. `inkRows` is
+ *  the per-scanline ink pixel count for the whole image; bands are [y0,y1]. */
+export function splitBandsAtValleys(inkRows: number[], bands: number[][]): number[][] {
+  const smooth = (a: number[]) => a.map((_, i) => {
+    let s = 0, n = 0;
+    for (let k = -2; k <= 2; k++) {
+      const j = i + k;
+      if (j >= 0 && j < a.length) { s += a[j]; n++; }
+    }
+    return s / n;
+  });
+  const split = (y0: number, y1: number, out: number[][]) => {
+    const h = y1 - y0 + 1;
+    if (h < 2 * VALLEY_MIN_ROW) { out.push([y0, y1]); return; }
+    const prof = smooth(inkRows.slice(y0, y1 + 1));
+    const peak = Math.max(...prof);
+    if (peak <= 0) { out.push([y0, y1]); return; }
+    // deepest interior valley with real peaks on BOTH sides
+    let best = -1, bestVal = Infinity;
+    for (let i = VALLEY_MIN_ROW; i <= h - VALLEY_MIN_ROW; i++) {
+      if (prof[i] < bestVal) {
+        const peakL = Math.max(...prof.slice(0, i));
+        const peakR = Math.max(...prof.slice(i + 1));
+        if (prof[i] <= VALLEY_FRAC * Math.min(peakL, peakR)) { best = i; bestVal = prof[i]; }
+      }
+    }
+    if (best < 0) { out.push([y0, y1]); return; }
+    split(y0, y0 + best - 1, out);
+    split(y0 + best + 1, y1, out);
+  };
+  const out: number[][] = [];
+  for (const [y0, y1] of bands) split(y0, y1, out);
+  if (out.length <= bands.length) return bands;
+  // even-spacing guard: a real alphabet sheet's rows are roughly even; a wild
+  // height spread means the valleys cut through sparse glyph rows, not gaps.
+  const hs = out.map(([a, b]) => b - a + 1);
+  if (Math.max(...hs) / Math.max(1, Math.min(...hs)) > VALLEY_EVEN_RATIO) return bands;
+  return out;
+}
+
+/** Per-scanline ink counts from a binarized RGBA raster (0 = ink). */
+function inkRowProfile(data: Uint8ClampedArray | Uint8Array, w: number, h: number): number[] {
+  const rows = new Array<number>(h).fill(0);
+  for (let y = 0; y < h; y++) {
+    const base = y * w;
+    for (let x = 0; x < w; x++) if (data[(base + x) * 4] === 0) rows[y]++;
+  }
+  return rows;
+}
 const STROKE_FLOOR_GATE = 0.025; // ·rowH — genuinely disintegrating ink only; every intentional thin hand (light 0.038, engrosser 0.057) is spared
 const STROKE_FLOOR_TARGET = 0.04; // ·rowH — when it trips, nudge toward barely-solid, not restyled
 const STROKE_FLOOR_MAX_WEIGHT = 1; // one dilation step (+2px) — the minimal rescue; two steps restyled low-res hands
@@ -736,6 +865,23 @@ export async function traceSheet(
   let bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, opts.weight);
   onProgress?.('slice', 'detecting rows + cells');
   let bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+  // Shadow-robust row detection (the mono twin of detectColorGeometry's
+  // shadow-awareness): a generator's soft emboss shadow binarizes as ink at the
+  // standard cutoff and bridges the row gaps (a Nano Banana sheet merged 7 rows
+  // into 4, garbling the whole charset). Rows detected on the DARK CORE alone
+  // (strict cutoff) cannot be shadow-bridged, and shadow merging only ever
+  // REDUCES the row count, so the pass that finds more rows is the true read.
+  // Cells still slice on the standard binarize (the fringe hugs strokes and the
+  // inter-letter gaps stay white).
+  if (!opts.invert && opts.threshold > SHADOW_ROW_THRESHOLD) {
+    const strict = TC.binarizeFull(img, iw, ih, SHADOW_ROW_THRESHOLD, opts.invert, opts.weight);
+    const strictBands = TC.detectRowsInBinary(strict.data, strict.w, strict.h) as number[][];
+    if (strictBands.length > bands.length) bands = strictBands;
+    // and split any still-fused bands at profile valleys (tight leading leaves
+    // no empty scanline between rows; the dark-core profile keeps the valleys
+    // deep even where descenders interleave)
+    bands = splitBandsAtValleys(inkRowProfile(strict.data, strict.w, strict.h), bands);
+  }
   {
     const hs = bands.map((b) => b[1] - b[0]).sort((a, b) => a - b);
     (globalThis as unknown as { __lastFine?: object }).__lastFine = {
