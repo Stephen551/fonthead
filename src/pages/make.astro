@@ -208,18 +208,25 @@ MOST IMPORTANT RULE — letters must be SEPARATE, never joined:
 JUST AS IMPORTANT — only the letters, no labels on the sheet:
 - Do NOT write any title, heading, caption, label, the word "Version", a version number, or any other text anywhere on a sheet. Each sheet shows ONLY the 7 rows of characters listed above and nothing else. The three versions are three SEPARATE image files; the version is which file it is, never text drawn on the page. Any stray word or number would be read as a letter and ruin the font.
 
+CONNECTING STROKES — how every lowercase letter starts and ends (the tool joins letters by these):
+- Every lowercase letter BEGINS with a short entry stroke reaching in from the lower left, and ENDS with a short exit stroke reaching out to the lower right, each stopping in the white gap well short of its neighbor
+- ALL entries and exits sit at the SAME low height, just above the baseline, and run the SAME length, about a quarter of the letter body height, on every letter of the sheet
+- Draw them at the letter's own pen weight, never a fading hairline taper
+
 Requirements:
 - A natural cursive hand${style ? ` in this style: ${style}` : ''}, the kind you would write by hand
 - KEEP THE SAME HAND across all three versions: the same style, weight, slant, and x-height, the way one person writing the alphabet three times stays recognizably themselves. Each version is a SEPARATE, fresh writing, not a traced copy of the others
-- VARY each letter's SHAPE and STROKE naturally between the versions, the way real handwriting differs from one pass to the next: the roundness of a bowl, the width or curl of a loop, the bend of a stem, the aperture of an open counter (the eye of an e, the mouth of an a or c), and the entry and exit strokes. Make the differences clearly visible when the three are placed side by side, not a faint near-copy
+- VARY each letter's SHAPE and STROKE naturally between the versions, the way real handwriting differs from one pass to the next: the roundness of a bowl, the width or curl of a loop, the bend of a stem, the aperture of an open counter (the eye of an e, the mouth of an a or c). Make the differences clearly visible when the three are placed side by side, not a faint near-copy
 - NEVER change a letter's STRUCTURE, only its texture: an a stays a one-storey a, an e keeps its eye, an n keeps its two arches. Vary HOW the strokes are drawn, never WHAT letter it is, and never break, double, smear, or distort a letter into an unreadable or different shape
 - KEEP each letter's overall WIDTH and HEIGHT similar across the three versions, so every version sits the same on the line and takes the same space. Vary the stroke shape, not the size or proportion
-- Each letter still ends in a clean exit stroke to the right that stops in EMPTY SPACE, well short of the next letter, never reaching or touching it
+- Every capital is unmistakably a LETTER: the Q never resembling the digit 2, the Z never the digit 3, the S never the 5. Counters stay clearly OPEN: the eye of the e, the bowls of a and o, the cup of the u
+- ONE consistent pen weight across the whole sheet, every letter and every stroke; a delicate line is fine but keep it uniform, and never retrace, double, or touch up a stroke
 - Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
+- Perfectly FLAT ink: absolutely no drop shadow, no emboss, no 3D effect, no soft gray halo under or beside any stroke; every stroke is flat solid black on flat white
 - All letters rest on ONE steady baseline at a consistent x-height. Descenders drop below the line, ascenders rise above it, bodies sit on one line
 - Clean single-stroke letterforms; no two strokes overprinting or tangling into a knot
 - One character per position, evenly spaced with the wide white gap between them, all 7 rows in each version
-- High resolution: each sheet at least 2000px wide
+- High resolution: the full sheet at 4096px wide (4K), so every row of letters is drawn large and sharp
 - Output: three clean sheet images as three separate files, the same hand in all three, every letter SEPARATE in all three, and NO version text, title, or label drawn anywhere on any sheet`;
 
     const MONOLINE = () =>
