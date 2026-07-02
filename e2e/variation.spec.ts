@@ -108,6 +108,63 @@ test.describe('natural variation mode', () => {
     expect(new Set(mIds).size, `repeated m cycles (ids ${mIds.join(',')})`).toBeGreaterThanOrEqual(2);
   });
 
+  // The nano palette: a LONG-ENTRY hand (median entry reach 0.57-0.61·xh across
+  // its three sheets). The mode boundary must not slice through it: the merged
+  // build measures the BASE sheet's reaches (variants inherit base metrics and
+  // are skipped by the gate), lands over the 0.5 long-sweep exemption, and
+  // builds CLASSIC. Under the old 0.6 boundary the palette entered the bridged
+  // path, where a HIGH_EXIT letter's short high flick passed over the next
+  // letter's low entry without meeting it — "Handmad e", "d eed", gapped
+  // "dadada" (ADR 0047). The seam gate below reads the shaped run the way a
+  // reader does and fails that build at +24..+46 units of daylight.
+  test('a long-entry palette builds classic and every variant seam meets', async ({ page }) => {
+    test.setTimeout(220_000);
+    await page.goto('/make');
+
+    await page.locator('#sheet-file').setInputFiles([
+      'e2e/fixtures/corpus/connected-cursive-nano.png',
+      'e2e/fixtures/corpus/connected-cursive-nano-v2.png',
+      'e2e/fixtures/corpus/connected-cursive-nano-v3.png',
+    ]);
+    await buildDone(page);
+    const lb = await lastBuild(page);
+    expect(lb.variants, 'merged all three nano sheets').toBe(2);
+
+    // The mode-boundary regression bit: the palette exempts into the classic path.
+    const lc = await page.evaluate(
+      () => (window as unknown as { __lastConnect?: { entryNorm?: boolean; entryMed?: number } }).__lastConnect,
+    );
+    expect(lc?.entryNorm, `long-entry palette (entryMed ${lc?.entryMed?.toFixed(2)}) builds classic`).toBe(false);
+
+    const otf = await captureOtf(page);
+    assertValidFont(otf, lb.glyphCount);
+
+    // Seam gate on the shaped run (calt cycles the variants in, kern applies):
+    // between adjacent glyphs inside a word there is no horizontal daylight —
+    // one letter's ink reaches the next letter's ink. The pre-fix bridged build
+    // measured +24..+46 units on d>a / d>e / l>e; the classic build stays <= -12.
+    const font = fontkit.create(Buffer.from(otf));
+    let sawVariant = false;
+    for (const word of ['Handmade', 'deed', 'sleeves', 'dadada', 'minimum']) {
+      const run = font.layout(word, ['calt', 'kern']);
+      let pen = 0;
+      const items = run.glyphs.map((g: any, i: number) => {
+        const pos = run.positions[i];
+        const it = { g, x: pen + pos.xOffset };
+        pen += pos.xAdvance;
+        return it;
+      });
+      for (const it of items) if (/\.cv\d\d$/.test(it.g.name)) sawVariant = true;
+      for (let i = 0; i + 1 < items.length; i++) {
+        const a = items[i];
+        const b = items[i + 1];
+        const gap = b.x + b.g.bbox.minX - (a.x + a.g.bbox.maxX);
+        expect(gap, `seam ${a.g.name}>${b.g.name} in "${word}" has no daylight`).toBeLessThanOrEqual(5);
+      }
+    }
+    expect(sawVariant, 'the shaped runs actually exercised variant glyphs').toBe(true);
+  });
+
   test('choosing all three sheets at once builds the cycling palette in one action', async ({ page }) => {
     test.setTimeout(220_000);
     await page.goto('/make');
