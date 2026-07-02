@@ -340,13 +340,20 @@ function cullForeignTopTails<T extends { d: string; bb: { minX: number; maxX: nu
         j !== i && !!o.bb && b.minX >= o.bb.minX - 1 && b.maxX <= o.bb.maxX + 1 && b.minY >= o.bb.minY - 1 && b.maxY <= o.bb.maxY + 1,
     );
     if (inside) return true; // a counter, never foreign
+    const small = p.area / total < 0.2;
     // The tail's tip starts near (not exactly at) the band cut, so test the top
     // ZONE: begins within the top 6% of the cell and stays within the top 30%.
     // An i/j dot begins ~a third down its ascender-tall cell and is untouched.
     const nearTop = b.minY <= cellH * 0.06;
-    const shallow = b.maxY <= cellH * 0.3;
-    const small = p.area / total < 0.2;
-    return !(nearTop && shallow && small);
+    const shallowTop = b.maxY <= cellH * 0.3;
+    if (nearTop && shallowTop && small) return false;
+    // and the mirror: the row BELOW's ascender tip crossing UP through the
+    // band bottom (the dash judged under a cap B). A comma or period IS its
+    // whole glyph (never small); a descender's own tail is connected ink.
+    const nearBottom = b.maxY >= cellH * 0.94;
+    const shallowBottom = b.minY >= cellH * 0.7;
+    if (nearBottom && shallowBottom && small) return false;
+    return true;
   });
   if (keptSubs.length === subs.length) return paths;
   if (!keptSubs.length) return paths;
