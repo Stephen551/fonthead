@@ -253,6 +253,13 @@ export function detailScale(cellH: number): number {
   return Math.max(1, Math.min(CAP, Math.ceil(TARGET / Math.max(1, cellH))));
 }
 
+// ·px — a sheet whose MEDIAN row height is under this is under-resolved (a GPT
+// image tops out ~1024-1536px, so a 7-row sheet leaves ~80-160px cells whose
+// Potrace outlines come out lumpy). The maker auto-enables the fine-detail
+// supersample below this; the advanced toggle stays the off switch. Sheets at
+// or above ~320px cells are a detailScale no-op by construction.
+export const AUTO_FINE_ROWH = 200;
+
 function supersampleMonoCell(
   img: HTMLImageElement | ImageBitmap,
   cx0: number,
@@ -331,8 +338,30 @@ async function rowToGlyphs(
     const scale = opts.fineDetail && sourceImg ? detailScale(cy1 - cy0) : 1;
     let svg: string;
     if (scale > 1 && sourceImg) {
-      const ssCell = supersampleMonoCell(sourceImg, cx0, cy0, cx1, cy1, scale, opts.threshold, opts.invert, ownerFn, i);
-      svg = await TC.traceCellBitmap(ssCell, opts.turdsize, opts.optcurve, opts.alphamax, opts.opttolerance, 1 / scale);
+      // Threshold compensation: the smoothing interpolation spreads a stroke's
+      // dark core outward before the cutoff, fattening a 3px hairline ~1.5x
+      // (measured: sheet stroke/xh 0.070 -> built 0.106, the judged "went over
+      // my hairline with a heavier pen"). A stricter cutoff pulls the edge back
+      // to the drawn line; floor at 40 so faint pencil ink cannot vanish.
+      // -24 is the measured-safe compensation (stroke 9->8px on the light
+      // probe, corpus green); -40 pulled the edge back further (7px) but thinned
+      // the connectors past reach and the joins broke (joinGap median 127).
+      const ssThreshold = Math.max(40, opts.threshold - 24);
+      const ssCell = supersampleMonoCell(sourceImg, cx0, cy0, cx1, cy1, scale, ssThreshold, opts.invert, ownerFn, i);
+      // turdsize is an AREA in trace pixels; at scale x the same physical speck
+      // covers scale^2 more pixels, so an unscaled threshold stops culling the
+      // flecks it culls at native resolution (judged: stray dots at seams).
+      // alphamax rises toward the sketch preset's curve bias: a hairline loop
+      // apex spans few pixels even supersampled, and the default corner
+      // threshold leaves visible straight facets there (judged at hero size).
+      svg = await TC.traceCellBitmap(
+        ssCell,
+        opts.turdsize * scale * scale,
+        opts.optcurve,
+        Math.max(opts.alphamax, 1.15),
+        opts.opttolerance,
+        1 / scale,
+      );
     } else {
       const cell = TC.extractCellBinary(data, W, cx0, cx1, cy0, cy1, ownerFn, i);
       svg = await TC.traceCellBitmap(cell, opts.turdsize, opts.optcurve, opts.alphamax, opts.opttolerance);
@@ -643,9 +672,16 @@ let _monoSession: MonoSession | null = null;
  *  row-mismatch warning when the detected row count differs from the charset
  *  (the loudest "this is misaligned" signal, mirroring the source tool).
  *  Keeps a per-row session so a mis-cut row can be re-sliced afterward. */
-const STROKE_FLOOR_GATE = 0.05; // ·rowH — only a hand THINNER than this is thickened (genuinely wispy, not an intentionally delicate engrosser, which measures ~0.057)
-const STROKE_FLOOR_TARGET = 0.07; // ·rowH — when it trips, thicken UP TO this readable weight (gate and target are decoupled so a delicate hand is spared but a wispy one comes out solid)
-const STROKE_FLOOR_MAX_WEIGHT = 2; // cap the dilation (iterations) so open counters survive
+// FIDELITY DOCTRINE (field failure 2026-07-01): the floor exists to rescue
+// DISINTEGRATING ink, never to restyle a hand. Its old gate (0.05) caught every
+// intentionally thin script and, because dilation comes in whole +2px steps, a
+// low-res sheet's 3px stroke gained +4px — 2.3x the drawn weight ("someone
+// turned a script bold"). A delicate hand is the design; weight is the user's
+// call (the stroke-weight knob when it lands). Only ink too broken to trace
+// (strokes ~2px and crumbling) trips the floor now, and it takes ONE step.
+const STROKE_FLOOR_GATE = 0.025; // ·rowH — genuinely disintegrating ink only; every intentional thin hand (light 0.038, engrosser 0.057) is spared
+const STROKE_FLOOR_TARGET = 0.04; // ·rowH — when it trips, nudge toward barely-solid, not restyled
+const STROKE_FLOOR_MAX_WEIGHT = 1; // one dilation step (+2px) — the minimal rescue; two steps restyled low-res hands
 
 /** Detect a too-thin hand and return the binarize WEIGHT (dilation iterations) that
  *  thickens it to a readable floor; returns baseWeight unchanged for a normal or
@@ -700,6 +736,13 @@ export async function traceSheet(
   let bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, opts.weight);
   onProgress?.('slice', 'detecting rows + cells');
   let bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+  {
+    const hs = bands.map((b) => b[1] - b[0]).sort((a, b) => a - b);
+    (globalThis as unknown as { __lastFine?: object }).__lastFine = {
+      fine: !!opts.fineDetail,
+      rowH: hs.length ? hs[Math.floor(hs.length / 2)] : 0,
+    };
+  }
   // Stroke-weight floor: a faint or thin-pen sheet traces to wispy strokes that
   // break and fade at text size. If the hand reads too thin, re-binarize with a
   // bounded dilation (the engine's existing weight knob) so the strokes come out
@@ -1042,6 +1085,45 @@ function glyphColumnAreas(g: Glyph): {
   const inkH = Math.max(1, gMax - gMin + 1);
   const spans = cols.map((n, i) => (n > 0 ? (maxY[i] - minY[i] + 1) / inkH : 0));
   return { cols, spans, rowLeft, rowRight, inkTopRow: gMin === Infinity ? 0 : gMin };
+}
+
+/** Pure: dense-body edges from a column ink-count histogram — the leftmost and
+ *  rightmost columns whose ink exceeds the threshold (the eye-body criterion). */
+export function eyeBodyFromCols(cols: number[], th: number): { min: number; max: number } | null {
+  let lo = -1,
+    hi = -1;
+  for (let i = 0; i < cols.length; i++)
+    if (cols[i] > th) {
+      if (lo < 0) lo = i;
+      hi = i;
+    }
+  return lo < 0 ? null : { min: lo, max: hi };
+}
+
+/** Per-column ink pixel counts within a row band [yTop, yBot] of the glyph's
+ *  cell — the join-zone view of a glyph's density, so a descender loop below
+ *  the baseline never reads as body. Returns null without canvas (jsdom). */
+function glyphBandColumnInk(g: Glyph, yTop: number, yBot: number): number[] | null {
+  const cw = Math.max(1, Math.ceil(g.cellW));
+  const ch = Math.max(1, Math.ceil(g.cellH));
+  const c = document.createElement('canvas');
+  c.width = cw;
+  c.height = ch;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#000';
+  try {
+    ctx.fill(new Path2D(g.paths.join(' ')), 'evenodd');
+  } catch {
+    return null;
+  }
+  const y0 = Math.max(0, Math.min(ch - 1, yTop));
+  const y1 = Math.max(0, Math.min(ch - 1, yBot));
+  if (y1 < y0) return null;
+  const img = ctx.getImageData(0, y0, cw, y1 - y0 + 1).data;
+  const cols = new Array<number>(cw).fill(0);
+  for (let p = 0; p < img.length; p += 4) if (img[p + 3] > 127) cols[(p >> 2) % cw]++;
+  return cols;
 }
 
 /** The pad each glyph body gets per side, in cell pixels, sized so it lands
@@ -1500,9 +1582,19 @@ export function compressConnectorTails(
 // low-exit-vs-entry mismatch: a copperplate whose exits already meet its entries
 // (mismatch near zero) is skipped untouched, byte-for-byte.
 const SNAP_MISMATCH_GATE = 0.2; // ·xh — median plain-letter exit must ride this far above median entry to snap
+// ·xh — entry-height VARIANCE gate (ADR 0042's recorded discriminator, now live):
+// a hand whose terminal heights SCATTER (sd above this) has exits crossing
+// entries at mismatched heights — the seam-crossing welds the judges read as
+// sealed cups, false in-bowls, and fi knots. Calibration (ADR 0042): FIRE
+// handmade 0.171 / cc-5 0.167 / cc-7 0.16; SKIP flashy 0.073 / cc-2 0.07 /
+// cc-3 0.053. On a variance-fired hand the snap works BOTH ways (lower high
+// terminals, raise low ones a bounded step) so exit and entry COINCIDE and the
+// strokes merge tangentially instead of crossing.
+const SNAP_VAR_GATE = 0.12;
 const SNAP_JOIN_LO = 0.08; // ·xh — clamp the join line to a low band, just above the baseline...
 const SNAP_JOIN_HI = 0.3; // ...and never above mid-x-height
 const SNAP_MAX = 0.5; // ·xh — cap one connector's downward move
+const SNAP_RAISE_MAX = 0.25; // ·xh — cap an upward move tighter (a raised lead-in distorts faster than a lowered flick)
 const SNAP_MIN_JOINERS = 4;
 
 export function snapConnectorHeights(
@@ -1572,26 +1664,36 @@ export function snapConnectorHeights(
   };
   const medEntry = med(entryFracs);
   const mismatch = med(lowExitFracs) - medEntry;
-  if (mismatch <= SNAP_MISMATCH_GATE) return { glyphs, snapped: 0, mismatch }; // exits already meet entries (copperplate)
+  // Scattered-terminal gate (ADR 0042): entry heights that vary widely cross
+  // the neighbours' exits at the seams even when the MEDIANS agree.
+  const meanEntry = entryFracs.reduce((a, x) => a + x, 0) / entryFracs.length;
+  const heightSd = Math.sqrt(entryFracs.reduce((a, x) => a + (x - meanEntry) * (x - meanEntry), 0) / entryFracs.length);
+  const scattered = heightSd > SNAP_VAR_GATE;
+  if (mismatch <= SNAP_MISMATCH_GATE && !scattered) return { glyphs, snapped: 0, mismatch }; // terminals already meet (copperplate)
   const joinFrac = Math.min(SNAP_JOIN_HI, Math.max(SNAP_JOIN_LO, medEntry));
   const cap = SNAP_MAX * xhPx;
+  const raiseCap = SNAP_RAISE_MAX * xhPx;
   const out = glyphs.map((g) => ({ ...g, paths: g.paths.slice() }));
   let snapped = 0;
   for (const m of meas) {
     const joinY = m.baseY - joinFrac * xhPx;
     let did = false;
-    // lower a high exit onto the join line (never raise one already at/below it)
+    // move a mismatched exit onto the join line: lowering is the shipped move
+    // (the signature flick); raising is bounded and only on a scattered hand,
+    // so exit and entry coincide and merge instead of crossing.
     if (m.snapExit && m.last > m.bodyMax) {
-      const dy = Math.min(cap, joinY - m.rY);
-      if (dy >= 1) {
+      const raw = joinY - m.rY;
+      const dy = raw >= 0 ? Math.min(cap, raw) : scattered ? Math.max(-raiseCap, raw) : 0;
+      if (Math.abs(dy) >= 1) {
         out[m.i].paths = out[m.i].paths.map((d) => warpTailY(d, m.bodyMax, m.last, dy, 'right'));
         did = true;
       }
     }
-    // lower a high entry onto the same line so the previous letter's snapped exit meets it
+    // and the entry onto the same line so the previous letter's exit meets it
     if (m.first < m.bodyMin) {
-      const dy = Math.min(cap, joinY - m.lY);
-      if (dy >= 1) {
+      const raw = joinY - m.lY;
+      const dy = raw >= 0 ? Math.min(cap, raw) : scattered ? Math.max(-raiseCap, raw) : 0;
+      if (Math.abs(dy) >= 1) {
         out[m.i].paths = out[m.i].paths.map((d) => warpTailY(d, m.bodyMin, m.first, dy, 'left'));
         did = true;
       }
@@ -1739,6 +1841,7 @@ export function connectGlyphs(
   // the corpus line as a permanent diagnostic. Variants are skipped (they
   // inherit base metrics).
   const entryFracs: number[] = [];
+  const exitFracs: number[] = [];
   glyphs.forEach((g, i) => {
     if (g.variantSuffix) return;
     const prof = profiles[i];
@@ -1749,14 +1852,18 @@ export function connectGlyphs(
     const body = bodyBoundsFromColumns(prof.cols, BODY_CONNECT_OPTS, prof.spans);
     if (!body) return;
     entryFracs.push((body.min - sp.first) / xhPx);
+    exitFracs.push(Math.max(0, sp.last - body.max) / xhPx);
   });
   let entrySd = 0;
   let entryMed = 0;
+  let exitMed = 0;
   if (entryFracs.length >= TAIL_MIN_JOINERS) {
     const m = entryFracs.reduce((a, x) => a + x, 0) / entryFracs.length;
     entrySd = Math.sqrt(entryFracs.reduce((a, x) => a + (x - m) * (x - m), 0) / entryFracs.length);
     const sorted = entryFracs.slice().sort((a, b) => a - b);
     entryMed = sorted[Math.floor(sorted.length / 2)];
+    const sortedX = exitFracs.slice().sort((a, b) => a - b);
+    exitMed = sortedX.length ? sortedX[Math.floor(sortedX.length / 2)] : 0;
   }
   // Long-sweep exemption: a hand whose MEDIAN entry reach marks it a flourish
   // hand (the compressConnectorTails gate) keeps the ink anchor — its reaches
@@ -1768,19 +1875,35 @@ export function connectGlyphs(
   // under-reads a tall exit stroke (an r arm) that the eye — and the next
   // letter — runs into, so normalizing only the entry side moves the scatter
   // into weld growths instead of removing it (ADR 0043 Stage A). Dense columns
-  // on BOTH edges put the arm inside the advance and the daylight between
-  // eye-bodies collapses to the constant gap.
-  const eyeBody = (prof: NonNullable<ReturnType<typeof glyphColumnAreas>>) => {
-    const th = EYE_BODY_FRAC * xhPx;
-    let lo = -1,
-      hi = -1;
-    for (let i = 0; i < prof.cols.length; i++)
-      if (prof.cols[i] > th) {
-        if (lo < 0) lo = i;
-        hi = i;
+  // on BOTH edges put the arm inside the advance.
+  //
+  // The columns are BAND-LIMITED to the join zone (baseline up to 1.25·xh):
+  // counting a glyph's whole column let a descender loop (y g p q j) read as
+  // body, dragging the anchor onto the loop's leftmost swing — the judged
+  // "Quietl y" / "s poken" / "d o g" word fractures. jsdom (unit tests) has no
+  // canvas, so the band raster falls back to the full-column profile.
+  const eyeBody = (i: number): { body: { min: number; max: number } | null; bandFirst: number } => {
+    const prof = profiles[i]!;
+    const cols = glyphBandColumnInk(glyphs[i], Math.round(baseY[i] - 1.25 * xhPx), baseY[i]) ?? prof.cols;
+    // bandFirst: the leftmost ink IN THE JOIN BAND — the true start of the
+    // entry stroke. Measuring the tail from the glyph's global leftmost ink let
+    // a descender loop (y) read as a long tail, zeroing its deficit and putting
+    // it a full median gap from a hook that cannot span it (the ly re-break).
+    let bandFirst = -1;
+    for (let c = 0; c < cols.length; c++)
+      if (cols[c] > 0) {
+        bandFirst = c;
+        break;
       }
-    return lo < 0 ? null : { min: lo, max: hi };
+    return { body: eyeBodyFromCols(cols, EYE_BODY_FRAC * xhPx), bandFirst };
   };
+  // The daylight LEVEL between eye-bodies is the hand's own NATURAL pitch: the
+  // connector gap plus the face's MEDIAN entry reach — the median pair as the
+  // hand drew it. Evening at the bare connector gap (the first cut) crushed the
+  // letters into each other (judged: welded i/n/m clusters, i-dots on seams,
+  // "minimum" illegible); the hand's connectors are drawn to span its own
+  // pitch, so they meet at this level by construction.
+  const bridgedGapPx = Math.round((CONNECT_GAP_PCT + entryMed) * xhPx);
 
   const decisions: ({ dx: number; cellW: number } | null)[] = glyphs.map(() => null);
   let joined = 0,
@@ -1852,13 +1975,38 @@ export function connectGlyphs(
     const roundFloat = !!body && ROUND_BODY_ANCHOR.has(g.char) && body.min - sp.first > BODY_ANCHOR_MIN_TAIL * xhPx;
     // normalizeEntry (scattered-reach hand): place this glyph by its eye-body on
     // BOTH edges and anchor there, so per-pair daylight evens by construction and
-    // the entry/exit strokes ride over the seams as bearings (ADR 0043).
-    const eye = normalizeEntry ? eyeBody(prof) : null;
+    // the entry/exit strokes ride over the seams as bearings (ADR 0043), at the
+    // hand's natural pitch (bridgedGapPx). The eye read is UNIONED with the
+    // thin-trim body: a curved letterform (the u cup, the o bowl) never stacks
+    // 0.45·xh of ink in one column, so the eye read alone truncates it to its
+    // most vertical stroke — measured on handmade's u as a 161-unit advance
+    // against 401 units of ink, the letter buried under both neighbours.
+    const eyeRead = normalizeEntry ? eyeBody(i) : null;
+    const eyeRaw = eyeRead ? eyeRead.body : null;
+    const eye = normalizeEntry ? (eyeRaw && body ? { min: Math.min(eyeRaw.min, body.min), max: Math.max(eyeRaw.max, body.max) } : (eyeRaw ?? body)) : null;
+    // Entry deficit per glyph: pull a letter closer only by the span the PAIR's
+    // connectors cannot cover. The natural daylight (bridgedGapPx) is bridged
+    // from BOTH sides — the previous letter's exit (the face median reach) plus
+    // this letter's own entry tail — so the deficit is what remains after both,
+    // plus a small merge margin. A first cut that ignored the exit side pulled
+    // every short-tail letter to its hook length, crowding the i onto its
+    // neighbour's seam (judged: the dot over the u-i join). The deficit folds
+    // into the LEFT BEARING (anchor moves right), so the glyph's own advance to
+    // its next letter is untouched.
+    const tailPx = eye ? Math.max(0, eye.min - (eyeRead && eyeRead.bandFirst >= 0 ? eyeRead.bandFirst : sp.first)) : 0;
+    // The exit side is trusted at 0.75: the median overstates what a specific
+    // previous letter's exit covers (half the pairs sit below it), and full
+    // trust left one face's joins riding the gate (joinGap median 69 vs 60).
+    const deficitPx =
+      eye && cls.joinsLeft
+        ? Math.min(Math.max(0, bridgedGapPx - Math.round(0.75 * exitMed * xhPx) - tailPx + 2), Math.max(0, eye.max - eye.min) >> 1)
+        : 0;
+    const anchorX = eye ? eye.min + deficitPx : 0;
     decisions[i] = anchorAdvance({
-      leftPlug: eye ? eye.min : entryX,
+      leftPlug: eye ? anchorX : entryX,
       rightPlug: eye ? eye.max : exitX,
-      inkLeft: eye && cls.joinsLeft ? eye.min : roundFloat ? body!.min : sp.first, // float: anchor on the body so the bowl centres; else the true left ink so a lead-in (f, t) is never clipped
-      overlapPx: -connectGapPx,
+      inkLeft: eye && cls.joinsLeft ? anchorX : roundFloat ? body!.min : sp.first, // float: anchor on the body so the bowl centres; else the true left ink so a lead-in (f, t) is never clipped
+      overlapPx: -(eye ? bridgedGapPx : connectGapPx),
       minAdvPx,
       leftPadPx,
       joinLeft: cls.joinsLeft,
@@ -2099,6 +2247,10 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     const fit = connectGlyphs(snap.glyphs, { overlapPct: opts.connectOverlapPct });
     glyphsIn = fit.glyphs;
     connectBridged = fit.entryNorm;
+    // A bridged face's letter daylight sits at the hand's natural pitch (wider
+    // than the bare connector gap), so the word break must widen with it or
+    // words run together visually (judged: uneven, undersized word gaps).
+    if (fit.entryNorm) spaceAdvance = 0.38;
     // connected runs read denser than upright; a touch more than the 0.28em
     // default keeps word breaks visible without gapping the join rhythm
     spaceAdvance = 0.3;

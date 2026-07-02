@@ -213,10 +213,11 @@ describe('connectGlyphs (entry-reach normalization, ADR 0043)', () => {
     const gs = [mk('x', 0), mk('n', 0), mk('m', 6), mk('u', 12), mk('h', 18)];
     const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
     expect(out.entryNorm).toBe(true);
-    // each glyph anchors at its BODY left edge (4 + tail), not its leftmost ink,
-    // so the tail rides left over the seam and daylight evens to the gap
-    expect(out.glyphs[3].paths[0]).toBe(`M${4 - (4 + 12)} 0`); // u, tail 12: dx = -16
-    expect(out.glyphs[4].cellW).toBe(BODY_W - 1 + 5); // h: eye body span + gap(5)
+    // each glyph anchors at its BODY left edge plus its span deficit (what the
+    // pair's connectors cannot cover: bridgedGap 11 - exitMed 0 - tail + 2,
+    // capped at half the body). u, tail 12: deficit 1 -> dx = -(16 + 1)
+    expect(out.glyphs[3].paths[0]).toBe(`M${4 - (4 + 12 + 1)} 0`);
+    expect(out.glyphs[4].cellW).toBe(BODY_W - 1 + 11); // h: tail 18, deficit 0 -> eye span + natural gap(11)
   });
 
   it('skips a consistent hand (reaches do not scatter)', () => {
@@ -236,15 +237,16 @@ describe('connectGlyphs (entry-reach normalization, ADR 0043)', () => {
 
   it('caps a deep exit over-ride past the advance (the arm guard)', () => {
     // n carries an arm: thin ink riding 0.66-0.93 xh reaching x=60, far past
-    // its eye-body advance. maxOver = 60 + dx(-4) - cellW(28) = 28 > lap(4).
+    // its eye-body advance. maxOver = 60 + dx(-4) - cellW(34) = 22 > lap(4).
     const armed = profWithEntry(0);
     for (let y = BASE - 28; y <= BASE - 20; y++) armed.rowRight[y] = 60;
     const gs = [mk('x', 0), { ...mk('n', 0), _p: armed }, mk('m', 6), mk('u', 12), mk('h', 18)];
     const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
     expect(out.entryNorm).toBe(true);
-    // cellW = eye span (23) + gap (5) = 28, then grown so the arm laps only 4:
-    // 28 + (28 - 4) = 52
-    expect(out.glyphs[1].cellW).toBe(52);
+    // n has no drawn tail: span deficit min(11+2, halfBody 11) = 11 as a left
+    // bearing: anchor 15, cellW = 27 + 11 - 15 = 23, then grown so the arm
+    // (maxOver 60 - 15 - 23 = 22) laps only 4: 23 + (22 - 4) = 41
+    expect(out.glyphs[1].cellW).toBe(41);
   });
 
   it('does not cap an f crossbar riding above the strip (overhang by design)', () => {
@@ -253,6 +255,8 @@ describe('connectGlyphs (entry-reach normalization, ADR 0043)', () => {
     const gs = [mk('x', 0), { ...mk('f', 0), _p: barred }, mk('m', 6), mk('u', 12), mk('h', 18)];
     const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
     expect(out.entryNorm).toBe(true);
-    expect(out.glyphs[1].cellW).toBe(BODY_W - 1 + 5); // untouched: 28
+    // f: zero tail -> span deficit 11 as bearing (anchor 15), cellW 27+11-15;
+    // the crossbar above the scan stays uncapped
+    expect(out.glyphs[1].cellW).toBe(23);
   });
 });

@@ -13,6 +13,7 @@ import {
   canvasToImage,
   fileToImage,
   detectGeometry,
+  AUTO_FINE_ROWH,
   guessCharsetFromRows,
   DEFAULT_TRACE,
   TRACE_PRESETS,
@@ -129,7 +130,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [editErr, setEditErr] = useState('');
   const [preset, setPreset] = useState<'glyph' | 'logo' | 'sketch'>('glyph');
   const [colorOpts, setColorOpts] = useState<ColorOpts>(DEFAULT_COLOR_OPTS);
+  // Fine-detail supersampled tracing. Auto-enabled for an under-resolved sheet
+  // (a GPT image leaves ~80-160px rows whose outlines trace lumpy) unless the
+  // user has touched the toggle; a hi-res sheet is a no-op by construction.
+  // The auto decision rides a ref so the build that follows the drop sees it
+  // (state set mid-drop is stale for the same tick, the variation-ref pattern).
   const [fineDetail, setFineDetail] = useState(false);
+  const [fineTouched, setFineTouched] = useState(false);
+  const fineAutoRef = useRef(false);
   // letter spacing: 0 = auto (the sheet's own pitch for mono, the engine
   // default for color); 1-12 = percent of UPM as the side bearing per side
   const [spacing, setSpacing] = useState(0);
@@ -283,7 +291,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         const img = await getImage();
         lastImgRef.current = img;
         captureSheet(img);
-        const trace = await traceSheet(img, rows, traceOpts, (step, message) =>
+        // the auto decision from the drop (ref, current for this build) unless
+        // the user has taken the toggle over
+        const effTraceOpts = { ...traceOpts, fineDetail: fineTouched ? traceOpts.fineDetail : traceOpts.fineDetail || fineAutoRef.current };
+        const trace = await traceSheet(img, rows, effTraceOpts, (step, message) =>
           setStage(STEP_STAGE[step] ?? 2, message),
         );
         setDetectedRows(trace.detectedRows);
@@ -314,7 +325,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           const variantSheets: Glyph[][] = [];
           for (const vimg of variationImgsRef.current) {
             if (!vimg) continue;
-            const vtrace = await traceSheet(vimg, rows, traceOpts);
+            const vtrace = await traceSheet(vimg, rows, effTraceOpts);
             if (vtrace.glyphs.length) variantSheets.push(vtrace.glyphs);
           }
           if (variantSheets.length) {
@@ -592,6 +603,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       // shows the right rows too (the gap detector under-counts shadowed rows)
       const geom = detectGeometry(img, isColor, isColor && armed ? armed.length : 0);
       const cellsPerRow = geom.rows.map((r) => r.cells.length);
+      // under-resolved sheet: supersample the trace (auto, unless the user has
+      // touched the fine-detail toggle)
+      const rowHs = geom.rows.map((r) => r.y1 - r.y0).sort((a, b) => a - b);
+      const medRowH = rowHs.length ? rowHs[Math.floor(rowHs.length / 2)] : 0;
+      fineAutoRef.current = medRowH > 0 && medRowH < AUTO_FINE_ROWH;
+      if (!fineTouched && fineAutoRef.current !== fineDetail) setFineDetail(fineAutoRef.current);
       const charLines =
         armed && (isColor || armed.length === cellsPerRow.length) ? armed : guessCharsetFromRows(cellsPerRow);
       setCharsetText(charLines.join('\n'));
@@ -887,7 +904,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', margin: '7px 0 11px', lineHeight: 1.5 }}>
                   auto keeps the sheet's own letter pitch. Higher numbers rebuild every letter with an even gap, looser as it grows.
                 </p>
-                <ToggleRow label="fine detail" on={fineDetail} onChange={setFineDetail} />
+                <ToggleRow label="fine detail" on={fineDetail} onChange={(v) => { setFineDetail(v); setFineTouched(true); }} />
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                   resample each letter at higher resolution before tracing, so serifs and sharp corners survive. Slower.
                 </p>

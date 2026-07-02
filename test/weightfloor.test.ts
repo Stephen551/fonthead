@@ -16,20 +16,27 @@ function raster(w: number, h: number, inkCols: number[]): Uint8ClampedArray {
   return d;
 }
 
-describe('strokeWeightFloor', () => {
-  it('returns a positive dilation weight for a wispy hand (stroke under the gate)', () => {
-    // 1px stroke in a 40px row = 0.025 of the row height, under the 0.05 gate.
-    expect(strokeWeightFloor(raster(20, 40, [0]), 20, 40, [[0, 39]], 0)).toBeGreaterThan(0);
+describe('strokeWeightFloor (fidelity doctrine: rescue disintegrating ink, never restyle a hand)', () => {
+  it('rescues genuinely disintegrating ink (stroke under the 0.025 gate)', () => {
+    // 1px stroke in a 60px row = 0.017 of the row height — ink too broken to trace.
+    expect(strokeWeightFloor(raster(20, 60, [0]), 20, 60, [[0, 59]], 0)).toBeGreaterThan(0);
   });
 
-  it('spares a delicate-but-functional hand at the base weight (above the gate)', () => {
-    // 3px stroke in a 40px row = 0.075, like an intentionally delicate engrosser; untouched.
+  it('spares an intentionally thin hand (the field regression: 3px in a 79px row, 0.038)', () => {
+    // The 2026-07-01 field failure: the old 0.05 gate thickened every thin GPT
+    // script into a bold. A drawn-thin hand is the design; untouched.
+    expect(strokeWeightFloor(raster(20, 79, [0, 1, 2]), 20, 79, [[0, 78]], 0)).toBe(0);
+  });
+
+  it('spares a delicate engrosser well above the gate', () => {
+    // 3px stroke in a 40px row = 0.075; untouched.
     expect(strokeWeightFloor(raster(20, 40, [0, 1, 2]), 20, 40, [[0, 39]], 0)).toBe(0);
   });
 
-  it('caps the dilation so a hairline hand cannot over-thicken', () => {
-    // 1px stroke in a 200px row needs many iterations but is capped at the max (2).
-    expect(strokeWeightFloor(raster(20, 200, [0]), 20, 200, [[0, 199]], 0)).toBeLessThanOrEqual(2);
+  it('takes at most ONE dilation step, the minimal rescue', () => {
+    // 1px stroke in a 200px row would need many iterations; capped at 1 (+2px),
+    // because two steps restyled low-res hands into bolds.
+    expect(strokeWeightFloor(raster(20, 200, [0]), 20, 200, [[0, 199]], 0)).toBeLessThanOrEqual(1);
   });
 
   it('never lowers an explicit base weight', () => {
