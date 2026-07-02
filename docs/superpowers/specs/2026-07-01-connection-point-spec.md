@@ -93,8 +93,10 @@ per-pair: daylight = connector gap + the right letter's entry reach, plus the ex
 divergence between the thin-trim placement body and the body the eye reads. The fix:
 
 1. **Gate** on entry-reach scatter (sd > 0.19·xh over the left-joiners), with a
-   long-sweep exemption (median reach > 0.6·xh keeps `flashy` and `cc-2` untouched).
-   Fires `handmade`/`light`/`cc-4`; every other face byte-stable. Calibration in ADR 0043.
+   long-sweep exemption at median reach > 0.5·xh (widened from 0.6 by ADR 0046: the
+   nano hand's sheets straddled 0.6 and the bridged path floated its e's — a
+   long-entry hand's connectors span its own pitch, so it builds classic). Fires
+   `handmade`/`light`; `flashy`, `cc-2`, `cc-4`, and the nano hand stay classic.
 2. **Eye-body placement** on firing faces: both advance edges and the anchor from the
    dense columns (ink count > 0.45·xh, full cell resolution). Placement rhythm sd 73→26.
    No Phase 1 height normalization needed — bodies and bridges carry the join.
