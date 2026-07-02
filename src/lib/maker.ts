@@ -762,7 +762,11 @@ const SHADOW_ROW_THRESHOLD = 64;
 // row detector fuses them (a Nano Banana sheet fused rows 1-4 into one band).
 // A true row boundary still reads as a deep VALLEY in the per-scanline ink
 // profile — the color path splits rows this way already; this is the mono twin.
-const VALLEY_FRAC = 0.12; // a valley this far under the flanking peaks is a row boundary
+// A valley this far under the SMALLER flanking peak is a row boundary. 0.2, not
+// lower: a row with six descenders rains ~40px of ink through a sparse digit
+// row's line (nano-v2: valley 39 vs digit peak 222, ratio 0.176), while a real
+// in-row minimum measures 0.4+ of its flanks — the classes are far apart.
+const VALLEY_FRAC = 0.2;
 const VALLEY_MIN_ROW = 40; // px — never produce a band shorter than this
 const VALLEY_EVEN_RATIO = 2.6; // guard: accept a split only if band heights stay plausibly even
 
