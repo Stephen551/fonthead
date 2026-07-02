@@ -259,4 +259,26 @@ describe('connectGlyphs (entry-reach normalization, ADR 0043)', () => {
     // 27+11-10; the crossbar above the scan stays uncapped
     expect(out.glyphs[1].cellW).toBe(28);
   });
+
+  // Natural variation: the placement MODE belongs to the bases alone. A merged
+  // palette's variant glyphs (.cvNN) inherit their base's advance and shift, so
+  // their drawn tails must not enter the entry-reach gate — three sheets of one
+  // hand would otherwise vote three times and could flip the whole palette into
+  // a mode none of its solo builds takes (the nano palette, ADR 0047).
+  it('variant glyphs stay out of the entry-reach gate and inherit the base metric', () => {
+    const bases = [mk('x', 0), mk('n', 6), mk('m', 6), mk('u', 7), mk('h', 7)]; // consistent: skips
+    const variants = [
+      { ...mk('n', 0), variantSuffix: '.cv01' },
+      { ...mk('m', 21), variantSuffix: '.cv01' }, // scattered tails: would fire the sd gate if counted
+      { ...mk('u', 0), variantSuffix: '.cv01' },
+      { ...mk('h', 18), variantSuffix: '.cv01' },
+    ];
+    const gs = [...bases, ...variants];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.entryNorm).toBe(false);
+    // metric transparency: each variant carries its base's advance
+    expect(out.glyphs[5].cellW).toBe(out.glyphs[1].cellW); // n.cv01 = n
+    expect(out.glyphs[6].cellW).toBe(out.glyphs[2].cellW); // m.cv01 = m
+    expect(out.glyphs[8].cellW).toBe(out.glyphs[4].cellW); // h.cv01 = h
+  });
 });
