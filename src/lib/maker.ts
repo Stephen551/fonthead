@@ -2066,9 +2066,11 @@ export function snapConnectorHeights(
 // glyph's exit is the reverted stub-snap that flattened the copperplate swash
 // (ADR 0038 exempts HIGH_EXIT by design). So the base glyph keeps its drawn
 // flick, and a COPY (.jn01, appended unicode-less exactly like a .cvNN
-// variant) carries the exit warped down onto the face's entry line; a GSUB
-// calt lookahead rule substitutes it only when a low-entry letter follows.
-// Word-final and before-high-entry positions keep the drawn exit.
+// variant) carries a RECONSTRUCTED exit (ADR 0049: the drawn tail collapsed
+// onto the body-edge clip line, one stroke drawn from measured parameters to
+// the standard join point — both outline warps failed the judge panel); a
+// GSUB calt lookahead rule substitutes it only when a low-entry letter
+// follows. Word-final and before-high-entry positions keep the drawn exit.
 // ·xh above the join line — an exit tip this high crosses a low entry. Live
 // calibration on the smooth-script hand: the gentle crossings the eye still
 // reads as knots (o .21, b .18, w .21, v .245 over the line) sit under the
@@ -2101,18 +2103,15 @@ const SEAM_ALT_SUFFIX = '.jn01';
 // field knots are all lowercase seams.
 const SEAM_LOWERCASE = /^[a-z]$/;
 
-// The seam-alternate warp: pair-wise, band-limited. For a point past the body
-// edge whose y sits in the join band, the y lowers on the x-ramp (0 at the
-// edge, full dy at the tip) and the x truncates toward the edge so the tail
-// ends at the seam. Ink outside the band never moves — an ascender loop
-// leaning right of a narrow body (the b) must not shear (the un-banded first
-// cut drifted b.jn01's ascender by 8 units). One pass so the ramp reads the
-// ORIGINAL x while the truncation rewrites it.
-function warpSeamTail(d: string, edge: number, tip: number, dy: number, scale: number, yLo: number, yHi: number): string {
-  const span = tip - edge;
-  if (span <= 0) return d;
+// The seam-tail collapse (ADR 0049 Stage C): a point past the body-edge clip
+// line whose y sits in the join band moves ONTO the line (x' = min(x, clipX),
+// y untouched) — the drawn tail degenerates to a zero-area sliver hidden
+// under the synthesized stroke's ink. Ink outside the band never moves — an
+// ascender loop leaning right of a narrow body (the b) must not shear (the
+// un-banded warp first cut drifted b.jn01's ascender by 8 units). Two passes
+// so the x decision can see its own y.
+function collapseSeamTail(d: string, clipX: number, yLo: number, yHi: number): string {
   const NUM_OR_LETTER = /[-+]?\d*\.?\d+(?:e[-+]?\d+)?|[A-Za-z]/g;
-  // pass 1: collect the coordinate pairs so the x decision can see its y
   const xs: number[] = [];
   const ys: number[] = [];
   let isX = true;
@@ -2130,13 +2129,7 @@ function warpSeamTail(d: string, edge: number, tip: number, dy: number, scale: n
     }
     return tok;
   });
-  // pass 2: rewrite in place (separators and untouched tokens byte-identical)
   const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
-  const move = (i: number) => {
-    const x = xs[i];
-    const y = ys[i];
-    return y !== undefined && x > edge && y >= yLo && y <= yHi;
-  };
   let i = 0;
   isX = true;
   return d.replace(NUM_OR_LETTER, (tok) => {
@@ -2146,16 +2139,47 @@ function warpSeamTail(d: string, edge: number, tip: number, dy: number, scale: n
     }
     if (isX) {
       isX = false;
-      return move(i) ? fmt(edge + (xs[i] - edge) * scale) : tok;
+      const y = ys[i];
+      return y !== undefined && xs[i] > clipX && y >= yLo && y <= yHi ? fmt(clipX) : tok;
     }
     isX = true;
-    const idx = i++;
-    if (!move(idx)) return tok;
-    let t = (xs[idx] - edge) / span;
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
-    return fmt(ys[idx] + t * dy);
+    i++;
+    return tok;
   });
+}
+
+// Orientation sign of a path's first subpath (shoelace over the coordinate
+// pairs; curve control points approximate fine — Potrace contours are
+// strongly signed). The synthesized connector must match the base outline's
+// winding or the cap's overlap with body ink cancels under nonzero fill.
+function pathAreaSign(d: string): number {
+  const m0 = d.indexOf('M');
+  const m1 = m0 < 0 ? -1 : d.indexOf('M', m0 + 1);
+  const first = m0 < 0 ? d : d.slice(m0, m1 < 0 ? undefined : m1);
+  const nums = first.match(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/g);
+  if (!nums || nums.length < 6) return 0;
+  let a = 0;
+  const n = nums.length - (nums.length % 2);
+  for (let i = 0; i < n; i += 2) {
+    const x0 = parseFloat(nums[i]);
+    const y0 = parseFloat(nums[i + 1]);
+    const x1 = parseFloat(nums[(i + 2) % n]);
+    const y1 = parseFloat(nums[(i + 3) % n]);
+    a += x0 * y1 - x1 * y0;
+  }
+  return Math.sign(a);
+}
+
+// Reverse a closed M/L polyline path (the synthesized connector's own format).
+function reverseClosedPath(d: string): string {
+  const nums = d.match(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/g)!;
+  const pts: string[] = [];
+  for (let i = 0; i + 1 < nums.length; i += 2) pts.push(`${nums[i]} ${nums[i + 1]}`);
+  pts.reverse();
+  return `M ${pts[0]}${pts
+    .slice(1)
+    .map((p) => ` L ${p}`)
+    .join('')} Z`;
 }
 
 export function makeSeamAlternates(
@@ -2164,15 +2188,24 @@ export function makeSeamAlternates(
 ): {
   alternates: Glyph[];
   rights: string[];
-  offenders: Array<{ char: string; exitFrac: number }>;
+  offenders: Array<{ char: string; exitFrac: number; width: number }>;
   joinFrac: number;
   terminals: Array<{ char: string; entryFrac: number | null; exitFrac: number | null }>;
+  join: { tipOffsetX: number; tipFrac: number; tangent: { dx: number; dy: number } } | null;
+  skipped: string[];
 } {
   const profiles = profilesIn ?? glyphs.map((g) => glyphColumnAreas(g));
   const fm = faceMetrics(glyphs, profiles);
   const xhPx = Math.max(1, fm.xhPx);
   type M = { i: number; char: string; joinsLeft: boolean; joinsRight: boolean; bodyMin: number; bodyMax: number; last: number; loopAbove: boolean; entryFrac: number | null; exitFrac: number | null; exitTipY: number };
   const meas: M[] = [];
+  // Stage A entry-terminal strokes, reduced to the STANDARD JOIN (ADR 0049
+  // Stage C): the synthesized connector terminates at the median entry tip
+  // position (its x-offset from the glyph origin — the leftmost ink, where
+  // connect placement anchors the advance) and approaches along the median
+  // entry-tip tangent. The join HEIGHT stays the banked rowLeft-based
+  // joinFrac below, so the offender gate and the landing line agree.
+  const entryStrokes: Array<{ reach: number; tipFrac: number; tangent: { dx: number; dy: number } }> = [];
   glyphs.forEach((g, i) => {
     const prof = profiles[i];
     if (!prof) return;
@@ -2224,6 +2257,34 @@ export function makeSeamAlternates(
         break;
       }
     }
+    // entry-terminal stroke (Stage A model) for the standard-join median: the
+    // tip's offset from the leftmost ink (where placement anchors the origin)
+    // and the tangent AT THE TIP — the direction the connector must arrive
+    // along. Band-filtered so an ascender leaning left of a narrow body (a
+    // full-column cross-section reads mid-air there) never pollutes the median.
+    if (cls.joinsLeft) {
+      const es = traceTerminalStroke(prof, body, baseY, xhPx, 'left');
+      if (es) {
+        const tf = (baseY - es.tip.y) / xhPx;
+        if (tf > -0.2 && tf < 0.8) {
+          let firstInk = -1;
+          for (let c = 0; c < prof.cols.length; c++)
+            if (prof.cols[c] > 0) {
+              firstInk = c;
+              break;
+            }
+          const k = Math.min(3, es.points.length - 1);
+          const a = es.points[es.points.length - 1 - k];
+          const t = es.points[es.points.length - 1];
+          const dl = Math.max(1e-6, Math.hypot(a.x - t.x, a.y - t.y));
+          entryStrokes.push({
+            reach: es.tip.x - (firstInk < 0 ? es.tip.x : firstInk),
+            tipFrac: tf,
+            tangent: { dx: (a.x - t.x) / dl, dy: (a.y - t.y) / dl },
+          });
+        }
+      }
+    }
     meas.push({
       i,
       char: g.char,
@@ -2241,7 +2302,7 @@ export function makeSeamAlternates(
 
   const terminals = meas.map((m) => ({ char: m.char, entryFrac: m.entryFrac, exitFrac: m.exitFrac }));
   const entries = meas.filter((m) => m.joinsLeft && m.entryFrac !== null).map((m) => m.entryFrac as number);
-  if (entries.length < TAIL_MIN_JOINERS) return { alternates: [], rights: [], offenders: [], joinFrac: 0, terminals };
+  if (entries.length < TAIL_MIN_JOINERS) return { alternates: [], rights: [], offenders: [], joinFrac: 0, terminals, join: null, skipped: [] };
   const sorted = entries.slice().sort((a, b) => a - b);
   // The hand's OWN entry line, unclamped: a copperplate-class hand joins at
   // mid-height (entries and exits both ~0.45·xh, already meeting) and clamping
@@ -2257,8 +2318,17 @@ export function makeSeamAlternates(
     new Set(meas.filter((m) => m.joinsLeft && (m.entryFrac === null || m.entryFrac <= joinFrac + SEAM_ENTRY_TOL)).map((m) => m.char)),
   );
 
-  const offenders: Array<{ char: string; exitFrac: number }> = [];
+  // The standard join (ADR 0049): median entry tip x-offset, height, tangent.
+  // Without enough traceable entry strokes there is nothing measured to draw
+  // the connector FROM — bail whole (reconstruction is measured-parameter
+  // only; the doctrine bans invented geometry).
+  const stdJoin = standardJoinFromEntries(entryStrokes);
+  if (!stdJoin) return { alternates: [], rights, offenders: [], joinFrac, terminals, join: null, skipped: [] };
+
+  const offenders: Array<{ char: string; exitFrac: number; width: number }> = [];
   const alternates: Glyph[] = [];
+  const skipped: string[] = [];
+  const gapPx = Math.round(CONNECT_GAP_PCT * xhPx);
   for (const m of meas) {
     if (!m.joinsRight || m.exitFrac === null || m.loopAbove) continue;
     if (!SEAM_LOWERCASE.test(m.char)) continue;
@@ -2268,27 +2338,46 @@ export function makeSeamAlternates(
     const joinY = g.baselineYInCell - joinFrac * xhPx;
     const dy = joinY - m.exitTipY;
     if (dy < 1 || dy > SEAM_DY_MAX * xhPx) continue;
-    offenders.push({ char: m.char, exitFrac: m.exitFrac });
-    // Terminate at the join: lower the tip onto the entry line, then truncate
-    // the tail so it ENDS at the seam point (body edge + the connector gap,
-    // where the follower's entry tip sits). The first cut lowered the tip but
-    // let the stroke continue across the follower's rising entry — the two
-    // paths crossed and closed the eyelet loops the judge panel failed. A
-    // stroke that stops where the next one starts meets it instead. The warp
-    // is y-banded to the join zone so ascender ink leaning right of a narrow
-    // body (the b loop) never shears.
-    const gapPx = Math.round(CONNECT_GAP_PCT * xhPx);
-    const run = m.last - m.bodyMax;
-    const scale = run > gapPx ? gapPx / run : 1;
+    // Reconstruct, don't warp (ADR 0049, both warp geometries failed the
+    // panel): read the drawn exit tail as a stroke, DRAW one tangent-blended
+    // connector from the body attachment to just past the standard join point
+    // (body edge + connector gap + the median entry tip offset — where the
+    // follower's entry tip sits at assembly, since placement anchors each
+    // glyph's origin at its leftmost ink), then collapse the drawn tail onto
+    // the body-edge clip line so the synthesized stroke owns the span. The
+    // collapse is y-banded to the join zone so ascender ink leaning right of
+    // a narrow body (the b loop) never moves. An offender whose tail cannot
+    // be traced (or whose span degenerates) is skipped whole — never an
+    // amputated letter without its bridge.
+    const es = traceTerminalStroke(profiles[m.i]!, { min: m.bodyMin, max: m.bodyMax }, g.baselineYInCell, xhPx, 'right');
+    const synth = es
+      ? synthesizeConnector(es.attach, es.tangent, { x: m.bodyMax + gapPx + stdJoin.reach, y: joinY }, stdJoin.tangent, es.width)
+      : null;
+    if (!es || !synth) {
+      skipped.push(m.char);
+      continue;
+    }
+    offenders.push({ char: m.char, exitFrac: m.exitFrac, width: es.width });
     const yLo = g.baselineYInCell - SEAM_ZONE_HI * xhPx;
     const yHi = g.baselineYInCell + 0.2 * xhPx;
+    const collapsed = g.paths.map((d) => collapseSeamTail(d, m.bodyMax, yLo, yHi));
+    const baseSign = pathAreaSign(g.paths[0] ?? '');
+    const ringD = baseSign !== 0 && pathAreaSign(synth.d) !== baseSign ? reverseClosedPath(synth.d) : synth.d;
     alternates.push({
       ...g,
       variantSuffix: SEAM_ALT_SUFFIX,
-      paths: g.paths.map((d) => warpSeamTail(d, m.bodyMax, m.last, dy, scale, yLo, yHi)),
+      paths: [...collapsed, ringD],
     });
   }
-  return { alternates, rights, offenders, joinFrac, terminals };
+  return {
+    alternates,
+    rights,
+    offenders,
+    joinFrac,
+    terminals,
+    join: { tipOffsetX: stdJoin.reach, tipFrac: stdJoin.tipFrac, tangent: stdJoin.tangent },
+    skipped,
+  };
 }
 
 /** Connected-cursive fit: place each glyph by its connection plugs so the exit
@@ -2865,6 +2954,8 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
         joinFrac: sa.joinFrac,
         rights: sa.rights,
         terminals: sa.terminals,
+        join: sa.join,
+        skipped: sa.skipped,
       };
     } else {
       (globalThis as unknown as { __lastSeamAlts?: object | null }).__lastSeamAlts = null;

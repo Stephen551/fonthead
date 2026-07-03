@@ -317,17 +317,24 @@ describe('connectGlyphs (variation gap is .cv-scoped)', () => {
   });
 });
 
-describe('makeSeamAlternates (ADR 0048)', () => {
+describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
   // Synthetic profiles, jsdom-safe: a dense body plus optional thin entry/exit
-  // tails whose tip heights are exact, so the offender gate and the warp are
-  // asserted in closed form. xh = 30 (the x glyph), baseline y = 80.
+  // tails whose tip heights are exact, so the offender gate and the assembly
+  // are asserted in closed form. Tails carry per-column extents (colTop/colBot)
+  // for the Stage A stroke model. xh = 30 (the x glyph), baseline y = 80.
   const CW = 48;
   const CH = 100;
   const BASE = 80;
   type Tail = { tipFrac: number; reach: number };
   const prof = (bodyX0: number, bodyX1: number, entry?: Tail, exit?: Tail) => {
     const cols = new Array(CW).fill(0);
-    for (let x = bodyX0; x <= bodyX1; x++) cols[x] = 30;
+    const colTop = new Array(CW).fill(Infinity);
+    const colBot = new Array(CW).fill(-Infinity);
+    for (let x = bodyX0; x <= bodyX1; x++) {
+      cols[x] = 30;
+      colTop[x] = BASE - 30;
+      colBot[x] = BASE;
+    }
     const rowLeft = new Array(CH).fill(Infinity);
     const rowRight = new Array(CH).fill(-Infinity);
     for (let y = BASE - 30; y <= BASE; y++) {
@@ -337,16 +344,40 @@ describe('makeSeamAlternates (ADR 0048)', () => {
     if (entry) {
       const tipY = Math.round(BASE - entry.tipFrac * 30);
       for (let y = tipY; y <= Math.min(BASE, tipY + 4); y++) rowLeft[y] = bodyX0 - entry.reach;
-      for (let x = bodyX0 - entry.reach; x < bodyX0; x++) cols[x] = 5;
+      for (let x = bodyX0 - entry.reach; x < bodyX0; x++) {
+        cols[x] = 5;
+        colTop[x] = tipY;
+        colBot[x] = Math.min(BASE, tipY + 4);
+      }
     }
     if (exit) {
       const tipY = Math.round(BASE - exit.tipFrac * 30);
       for (let y = tipY; y <= Math.min(BASE, tipY + 4); y++) rowRight[y] = bodyX1 + exit.reach;
-      for (let x = bodyX1 + 1; x <= bodyX1 + exit.reach; x++) cols[x] = 5;
+      for (let x = bodyX1 + 1; x <= bodyX1 + exit.reach; x++) {
+        cols[x] = 5;
+        colTop[x] = tipY;
+        colBot[x] = Math.min(BASE, tipY + 4);
+      }
     }
     // thin tails read as tails (low span fraction), the body as body
     const spans = cols.map((n) => (n > 0 ? (n > 10 ? 0.9 : 0.1) : 0));
-    return { cols, spans, rowLeft, rowRight, inkTopRow: BASE - 30 };
+    return { cols, spans, rowLeft, rowRight, colTop, colBot, inkTopRow: BASE - 30 };
+  };
+  // parse an absolute M/L path into vertices; shoelace sign for orientation
+  const pts = (d: string) => {
+    const nums = d.match(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/g)!.map(Number);
+    const out: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < nums.length; i += 2) out.push({ x: nums[i], y: nums[i + 1] });
+    return out;
+  };
+  const areaSign = (d: string) => {
+    const p = pts(d);
+    let a = 0;
+    for (let i = 0; i < p.length; i++) {
+      const q = p[(i + 1) % p.length];
+      a += p[i].x * q.y - q.x * p[i].y;
+    }
+    return Math.sign(a);
   };
   const mk = (char: string, entry?: Tail, exit?: Tail, tipPath = 'M4 0') => ({
     char,
@@ -364,13 +395,15 @@ describe('makeSeamAlternates (ADR 0048)', () => {
     mk('h', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.2, reach: 4 }),
   ];
 
-  it('a high-exit glyph gains a .jn01 alternate: tip lowered onto the join line AND truncated to the seam', () => {
-    // o: exit stub tip at 0.5·xh (y 65), reach to x=34 (run 8 past the body).
-    // Join line = median entry 0.2·xh -> joinY 74, dy 9. The tail then
-    // truncates so its tip ends AT the seam point (bodyMax 26 + gap 5 = 31):
-    // the stroke terminates where the follower's entry begins instead of
-    // continuing across it — the crossing is what closed the eyelet loops the
-    // judge panel failed (terminate-at-join, the panel iteration).
+  it('a high-exit glyph gains a .jn01 alternate: drawn tail collapsed, a synthesized connector appended', () => {
+    // o: exit stub tip at 0.5·xh, tail centerline flat at y 67 (colTop 65..69),
+    // reach 8 past the body. Join line = median entry 0.2·xh -> joinY 74. The
+    // drawn tail COLLAPSES onto the body-edge clip line (x' = min(x, 26)) and
+    // ONE synthesized stroke is appended: attach at the tail root (27, 67),
+    // terminating past the standard join point (bodyMax 26 + gap 5 + median
+    // entry tip offset 0 = 31) by the overlap (2·width 5 = 10) along the flat
+    // median entry tangent — tip at (41, 74). Meeting is by construction
+    // (ADR 0049); the warp that lowered/truncated the drawn ink is gone.
     const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 8 }, 'M34 65')];
     const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
     expect(out.joinFrac).toBeCloseTo(0.2, 5);
@@ -380,9 +413,51 @@ describe('makeSeamAlternates (ADR 0048)', () => {
     expect(alt.char).toBe('o');
     expect(alt.variantSuffix).toBe('.jn01');
     expect(alt.cellW).toBe(CW); // a copy: metrics untouched
-    expect(alt.paths[0]).toBe('M31 74'); // y: 65 + 9 = the line; x: 26 + 8·(5/8) = the seam
+    expect(alt.paths).toHaveLength(2); // collapsed original + the synthesized connector
+    expect(alt.paths[0]).toBe('M26 65'); // collapsed onto the clip line, y untouched
+    const ring = pts(alt.paths[1]);
+    expect(alt.paths[1].trim().endsWith('Z')).toBe(true); // one closed contour
+    const maxX = Math.max(...ring.map((p) => p.x));
+    expect(maxX).toBeGreaterThan(39.5); // reaches the overlap tip at ~41
+    expect(maxX).toBeLessThan(42.5);
+    for (const p of ring.filter((p) => p.x >= 40)) expect(Math.abs(p.y - 74)).toBeLessThan(1.6); // tapered tip ON the join line
+    expect(Math.min(...ring.map((p) => p.x))).toBeLessThan(27); // start cap buried toward the body
     // low-entry followers (hooks at 0.2) and the hook-less x (body-edge entry)
     expect([...out.rights].sort()).toEqual(['h', 'm', 'n', 'o', 'u', 'x']);
+  });
+
+  it('the synthesized stroke carries the tail\'s measured width into the diagnostics', () => {
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 8 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders).toHaveLength(1);
+    expect(out.offenders[0].width).toBeCloseTo(5, 0); // the flat tail's 5-row cross-section
+    expect(out.join).toBeTruthy();
+    expect(out.join!.tipOffsetX).toBe(0); // entry tails ARE the leftmost ink
+    expect(out.join!.tangent.dx).toBeGreaterThan(0.9); // flat entries: level approach
+  });
+
+  it('an offender whose exit stroke cannot be traced is skipped whole', () => {
+    // a 2-column stub clears the rowRight offender gate but is too short for
+    // the stroke model (under 3 columns): no reconstruction, no alternate —
+    // never an amputated letter without its bridge.
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 2 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders).toEqual([]);
+    expect(out.alternates).toEqual([]);
+    expect(out.skipped).toEqual(['o']);
+  });
+
+  it('the synthesized contour matches the base outline orientation (nonzero fill unions, never cancels)', () => {
+    // the base outer contour's winding decides: same sign, or an overlap with
+    // the body ink would punch a hole under nonzero fill.
+    const cw = 'M10 50 L26 50 L26 78 Z'; // shoelace positive in cell coords
+    const ccw = 'M26 78 L26 50 L10 50 Z'; // reversed
+    for (const outer of [cw, ccw]) {
+      const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 8 }, outer)];
+      const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+      expect(out.alternates).toHaveLength(1);
+      expect(areaSign(out.alternates[0].paths[1])).toBe(areaSign(outer));
+    }
   });
 
   it('a steep exit stays drawn (a cliff descent reads mechanical, the panel verdict)', () => {
@@ -395,26 +470,29 @@ describe('makeSeamAlternates (ADR 0048)', () => {
     expect(out.alternates).toEqual([]);
   });
 
-  it('the warp is y-banded to the join zone: ascender ink right of the body never moves', () => {
+  it('the collapse is y-banded to the join zone: ascender ink right of the body never moves', () => {
     // a b-class glyph: gentle exit stub AND an ascender loop whose right side
-    // leans past the body edge high above the zone. The alternate lowers the
-    // stub; the loop point is byte-identical (the un-banded first cut sheared
-    // it — the seam e2e caught an 8-unit maxY drift on b.jn01).
+    // leans past the body edge high above the zone. The alternate collapses the
+    // stub; the loop point is byte-identical (the un-banded warp first cut
+    // sheared it — the seam e2e caught an 8-unit maxY drift on b.jn01).
     const looped = mk('b', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 8 }, 'M34 65');
     looped.paths.push('M30 26'); // loop point: x past body edge, y at 1.8·xh (row 80-54)
     const gs = [mk('x'), ...lowHands(), looped];
     const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
     expect(out.offenders.map((o) => o.char)).toEqual(['b']);
-    expect(out.alternates[0].paths[0]).toBe('M31 74'); // stub: lowered + truncated
+    expect(out.alternates[0].paths).toHaveLength(3); // two collapsed originals + the connector
+    expect(out.alternates[0].paths[0]).toBe('M26 65'); // stub: collapsed to the clip line
     expect(out.alternates[0].paths[1]).toBe('M30 26'); // loop: untouched
   });
 
-  it('a tail already inside the seam keeps its length (no stretch)', () => {
-    // reach 3 < the 5px gap: x untouched, only the tip lowers.
+  it('a short tail collapses the same as a long one (the clip line is absolute)', () => {
+    // reach 3, inside the old seam gap: still collapsed to the body edge — the
+    // synthesized stroke owns the span now, whatever the drawn tail reached.
     const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 3 }, 'M29 65')];
     const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
     expect(out.offenders.map((o) => o.char)).toEqual(['o']);
-    expect(out.alternates[0].paths[0]).toBe('M29 74');
+    expect(out.alternates[0].paths[0]).toBe('M26 65');
+    expect(out.alternates[0].paths).toHaveLength(2);
   });
 
   it('a face whose exit tips already sit on the entry line generates nothing', () => {
