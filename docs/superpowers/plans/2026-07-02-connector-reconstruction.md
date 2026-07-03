@@ -96,8 +96,19 @@ joiner-exits, and the collapse pads 0.03·xh past the body edge (the n's flick
 root straddled the clip line and left a needle flank). Forensic-verified
 clean; word-initial and word-final controls byte-near-identical.
 
-Remaining: Stage E (all offender classes incl. s/x, assembled-pair sensor),
-Stage F (full-specimen panel + the director's gate).
+Two later corrections, both director catches (ADR 0050 records all executed
+gates): the wo pair exposed the collapse amputating the w's terminal limb —
+the stroke model now attaches at the CONNECTOR-WEIGHT point (three
+consecutive sane-width columns), sparing drawn structure, verified within
+1-2px of the drawn form. And the Stage E steep rollout replaced the flat
+descent cap with the measured DIVE GATE (max slope 1.75; verified-clean
+class 0.88-1.49; this hand's s 2.66 and x 2.08 park with drawn sweeps, and
+a parked high exit is excluded from the entry rule's backtrack class so the
+follower's hook survives after it).
+
+Remaining: Stage E's assembled-pair seam sensor as a gated corpus metric,
+then Stage F (full-specimen panel + a real 12-16px waterfall + the
+director's gate).
 
 ## Do-not-re-walk (carried from ADR 0048)
 

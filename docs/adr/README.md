@@ -62,6 +62,7 @@ left out — they live in CLAUDE.md, not here.
 | [0047](0047-variation-build-mode-boundary-not-registration.md) | The variation build joins classic: the mode boundary was the whole defect, not variant registration | Accepted |
 | [0048](0048-seam-alternates-contextual-not-base-surgery.md) | Seam knots fix by contextual alternates: a lowered-exit .jn01 copy fires before low-entry followers | Parked (warps failed the panel; machinery banked) |
 | [0049](0049-measured-parameter-connector-reconstruction.md) | Measured-parameter connector reconstruction permitted; invented letterform variation stays banned | Accepted (amends 0033) |
+| [0050](0050-connector-reconstruction-executed-gates.md) | The reconstruction's executed gates: connector-weight attach, entry-side backtrack alternates, the dive gate | Accepted (hook-gated; Stage E sensor + Stage F remain) |
 
 ## Format
 
