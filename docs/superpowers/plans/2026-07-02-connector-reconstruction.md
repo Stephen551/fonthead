@@ -106,9 +106,29 @@ class 0.88-1.49; this hand's s 2.66 and x 2.08 park with drawn sweeps, and
 a parked high exit is excluded from the entry rule's backtrack class so the
 follower's hook survives after it).
 
-Remaining: Stage E's assembled-pair seam sensor as a gated corpus metric,
-then Stage F (full-specimen panel + a real 12-16px waterfall + the
-director's gate).
+Stage E completed 2026-07-03. The corpus builds its connect faces WITH the
+seam-alternate hook (the rollout: the corpus now gates the future connect
+default; production stays plain, proven by the seam e2e), the smooth hand
+joined the corpus as connected-cursive-smooth, and the assembled-pair seam
+sensor reads every fired .jn seam at final shaped metrics (fontkit shaping in
+node, raster + zone read in-page between the two dense bodies, band -0.1 to
+1.1 xh): gap columns / crossing columns / pooling ratio, each seam also read
+with the alternates mapped back to their bases at the identical positions
+(metric transparency), so every line logs the defect contrast. Calibration
+across all 11 firing faces (28 seams on smooth, 20 on cc-3, 13 on cc-4):
+gap discriminates sharply (healthy 0, bridged faces 1 raster column, gate 3);
+crossing columns are dominated by legitimate two-run geometry (cc-3's r arm
+rides its whole seam at 62; smooth's verified-clean seams reach 25), so its
+gate (90) is the catastrophe floor, not a taste instrument; pooling (healthy
+max 6.13 beside an arch shoulder) gates at 8 for runaway blobbing only. On
+the smooth knots the alternates measurably beat the plain render (on 11 vs
+17 crossing cols, va 1 vs 6). GATE PASSED: corpus 35/35 (existing gates all
+held with the hook on), unit 219, e2e 57.
+
+Remaining: Stage F (full-specimen 3-lens A/B vs the deployed build + a real
+12-16px waterfall + the director's gate). Carry-in look-item for the panel:
+the signature face's o.jn01|w seam reads crossing 31 vs 16 plain (the w's
+high lead-in geometry; the strip renders clean, under gate — worth a lens).
 
 ## Do-not-re-walk (carried from ADR 0048)
 
