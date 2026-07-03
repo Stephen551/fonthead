@@ -151,11 +151,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // touched the toggle); replaces flourish overhang, spacing, and italic when on.
   const [connect, setConnect] = useState(false);
   const [connectTouched, setConnectTouched] = useState(false);
-  // seam joins: mid-word, a measured high exit swaps to a lowered-exit alternate
-  // before a low-entry letter so the seam merges instead of crossing (ADR 0048).
-  // Connect only. Default ON: the people who need it never find an advanced
-  // toggle; the toggle is the off switch.
-  const [seamJoins, setSeamJoins] = useState(true);
+  // seam joins (ADR 0048, PARKED): the warp-based alternates failed the judge
+  // panel twice (eyelets/pigtails lowering through the entry; needle whiskers
+  // and cracks truncating at the seam), so the feature has NO user surface and
+  // fires only on the test hook below — the e2e suite keeps the banked
+  // machinery gated until the stroke-model rework (ADR 0049) replaces the warp.
   // synthetic italic: the engine shears -14° and writes the italic metadata when
   // the build style says "Italic". Mono only for now (the color path is separate).
   const [italic, setItalic] = useState(false);
@@ -348,7 +348,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             trimFlourishes: useConnect ? false : trimFlourishes,
             connect: useConnect,
             naturalVariation: useVariation,
-            seamAlternates: seamJoins,
+            seamAlternates: typeof localStorage !== 'undefined' && localStorage.getItem('fh-test-seam-alts') === '1',
           },
           (step, message) => setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
         );
@@ -919,14 +919,6 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                     <ToggleRow label="connected cursive" on={connect} onChange={(v) => { setConnect(v); setConnectTouched(true); }} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       joins the letters into a connected script. Auto for cursive sheets. Turns off flourish overhang, spacing, and italic while on.
-                    </p>
-                  </div>
-                )}
-                {!isColor && connect && (
-                  <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="seam joins" on={seamJoins} onChange={setSeamJoins} />
-                    <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
-                      mid-word, a high exit stroke lowers onto the next letter's entry so the seam merges instead of crossing. Word endings keep the drawn flick.
                     </p>
                   </div>
                 )}

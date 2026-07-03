@@ -1042,10 +1042,12 @@ export interface BuildOpts {
    *  table so a repeated letter cycles through its variants. Mutually exclusive
    *  with connect/trimFlourishes (a plain mono build with cycling variants). */
   naturalVariation?: boolean;
-  /** Seam joins (ADR 0048, connect only, default ON): a measured high exit
-   *  gains a .jn01 alternate lowered onto the entry line, substituted by calt
-   *  before a low-entry follower so the seam merges instead of crossing.
-   *  false is the off switch. */
+  /** Seam alternates (ADR 0048, PARKED — connect only, default OFF): a
+   *  measured high exit gains a .jn01 alternate substituted by calt before a
+   *  low-entry follower. Both warp geometries failed the judge panel (eyelets
+   *  lowering through the entry; needle whiskers truncating at the seam), so
+   *  nothing sets this except the e2e test hook; the machinery stays banked
+   *  for the stroke-model rework (ADR 0049). */
   seamAlternates?: boolean;
 }
 
@@ -1903,13 +1905,75 @@ const SEAM_ZONE_HI = 1.05;
 // not read as structure.
 const SEAM_LOOP_CHECK_LO = 1.15; // ·xh
 const SEAM_LOOP_CHECK_HI = 1.4; // ·xh
-const SEAM_WARP_MAX = 1.0; // ·xh — cap one exit's downward travel
+// ·xh — the deepest drop an alternate may take. The judge panel failed the
+// first cut's full lowering: a steep descent reads as a wire cliff with a
+// thorn cusp, and the s/x class (0.6·xh drops) produced the worst of them.
+// Past the cap the drawn flick is better texture; that class waits for the
+// assembled pass.
+const SEAM_DY_MAX = 0.35;
 const SEAM_CROSSBAR = new Set(['f', 't']); // crossbars overhang high by design; never offenders
 const SEAM_ALT_SUFFIX = '.jn01';
 // Lowercase joiners only: a cap's right side swashes by design (the corpus
 // exempts script caps from the overhang metric for the same reason), and the
 // field knots are all lowercase seams.
 const SEAM_LOWERCASE = /^[a-z]$/;
+
+// The seam-alternate warp: pair-wise, band-limited. For a point past the body
+// edge whose y sits in the join band, the y lowers on the x-ramp (0 at the
+// edge, full dy at the tip) and the x truncates toward the edge so the tail
+// ends at the seam. Ink outside the band never moves — an ascender loop
+// leaning right of a narrow body (the b) must not shear (the un-banded first
+// cut drifted b.jn01's ascender by 8 units). One pass so the ramp reads the
+// ORIGINAL x while the truncation rewrites it.
+function warpSeamTail(d: string, edge: number, tip: number, dy: number, scale: number, yLo: number, yHi: number): string {
+  const span = tip - edge;
+  if (span <= 0) return d;
+  const NUM_OR_LETTER = /[-+]?\d*\.?\d+(?:e[-+]?\d+)?|[A-Za-z]/g;
+  // pass 1: collect the coordinate pairs so the x decision can see its y
+  const xs: number[] = [];
+  const ys: number[] = [];
+  let isX = true;
+  d.replace(NUM_OR_LETTER, (tok) => {
+    if (/[A-Za-z]/.test(tok)) {
+      isX = true;
+      return tok;
+    }
+    if (isX) {
+      xs.push(parseFloat(tok));
+      isX = false;
+    } else {
+      ys.push(parseFloat(tok));
+      isX = true;
+    }
+    return tok;
+  });
+  // pass 2: rewrite in place (separators and untouched tokens byte-identical)
+  const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
+  const move = (i: number) => {
+    const x = xs[i];
+    const y = ys[i];
+    return y !== undefined && x > edge && y >= yLo && y <= yHi;
+  };
+  let i = 0;
+  isX = true;
+  return d.replace(NUM_OR_LETTER, (tok) => {
+    if (/[A-Za-z]/.test(tok)) {
+      isX = true;
+      return tok;
+    }
+    if (isX) {
+      isX = false;
+      return move(i) ? fmt(edge + (xs[i] - edge) * scale) : tok;
+    }
+    isX = true;
+    const idx = i++;
+    if (!move(idx)) return tok;
+    let t = (xs[idx] - edge) / span;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    return fmt(ys[idx] + t * dy);
+  });
+}
 
 export function makeSeamAlternates(
   glyphs: Glyph[],
@@ -2019,13 +2083,26 @@ export function makeSeamAlternates(
     if (m.exitFrac - joinFrac <= SEAM_EXIT_GATE) continue;
     const g = glyphs[m.i];
     const joinY = g.baselineYInCell - joinFrac * xhPx;
-    const dy = Math.min(SEAM_WARP_MAX * xhPx, joinY - m.exitTipY);
-    if (dy < 1) continue;
+    const dy = joinY - m.exitTipY;
+    if (dy < 1 || dy > SEAM_DY_MAX * xhPx) continue;
     offenders.push({ char: m.char, exitFrac: m.exitFrac });
+    // Terminate at the join: lower the tip onto the entry line, then truncate
+    // the tail so it ENDS at the seam point (body edge + the connector gap,
+    // where the follower's entry tip sits). The first cut lowered the tip but
+    // let the stroke continue across the follower's rising entry — the two
+    // paths crossed and closed the eyelet loops the judge panel failed. A
+    // stroke that stops where the next one starts meets it instead. The warp
+    // is y-banded to the join zone so ascender ink leaning right of a narrow
+    // body (the b loop) never shears.
+    const gapPx = Math.round(CONNECT_GAP_PCT * xhPx);
+    const run = m.last - m.bodyMax;
+    const scale = run > gapPx ? gapPx / run : 1;
+    const yLo = g.baselineYInCell - SEAM_ZONE_HI * xhPx;
+    const yHi = g.baselineYInCell + 0.2 * xhPx;
     alternates.push({
       ...g,
       variantSuffix: SEAM_ALT_SUFFIX,
-      paths: g.paths.map((d) => warpTailY(d, m.bodyMax, m.last, dy, 'right')),
+      paths: g.paths.map((d) => warpSeamTail(d, m.bodyMax, m.last, dy, scale, yLo, yHi)),
     });
   }
   return { alternates, rights, offenders, joinFrac, terminals };
@@ -2587,13 +2664,13 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
       snapped: snap.snapped,
       mismatch: snap.mismatch,
     };
-    // Seam alternates (ADR 0048): measured on the snapped ink, ride through
-    // placement as .jn01 copies (the variant inheritance gives them the base
-    // advance and shift), substituted by a GSUB calt lookahead rule in the
-    // worker. Non-variation builds only in v1 (the cycling calt owns GSUB on
-    // a palette; composing the rule sets is a follow-up).
+    // Seam alternates (ADR 0048, PARKED): explicit opt-in only — the warp
+    // failed the judge panel twice and the feature has no user surface. The
+    // path stays live under the e2e test hook so the banked machinery
+    // (measurement, GSUB lookahead, kern hygiene) remains gated until the
+    // stroke-model rework (ADR 0049) replaces the warp.
     let toFit = snap.glyphs;
-    if (!opts.naturalVariation && opts.seamAlternates !== false) {
+    if (!opts.naturalVariation && opts.seamAlternates === true) {
       const sa = makeSeamAlternates(snap.glyphs);
       if (sa.alternates.length) {
         toFit = [...snap.glyphs, ...sa.alternates];
