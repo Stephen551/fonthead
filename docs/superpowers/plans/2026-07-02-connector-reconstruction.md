@@ -74,6 +74,31 @@ Full-specimen 3-lens A/B against the deployed build. Both warp failures are
 the bar's floor: the synthesis build must beat A on defect content, not just
 score. Then Stephen's eye. Deploy stays held until both pass.
 
+## Progress (2026-07-03)
+
+Stages A-D are done and committed. Stage D ran three blinded 3-lens rounds;
+each round's finding became a measured correction (taper into the overlap +
+width-preserving curvature clamp; reach to the drawn flick's span after the
+tail profiles showed the stroke running naked in the kern gap; tip capped at
+the span after an oc far-edge spur). Final forensic: no eyelets, needles,
+cracks, debris, or gaps; connector at face stroke norm through every join.
+
+The ENTRY SIDE, deferred in the v1 scope pending "the panel says the residual
+entry variance still reads," was executed early: the director's eye caught the
+w's floating lead-in (this hand draws its arch letters' entries at the TOP,
+invisible to the low-band scan — m/n/r/v/w read entryFrac null with hooks at
+0.74-0.92·xh). A follower's floating hook collapses in a .jn02 copy fired by
+a BACKTRACK calt after a lowercase joiner (word-initial keeps the drawn
+lead-in); a both-sides letter composes through .jn03 (awa → w.jn03). Gates
+bought live: a letter with a REAL low entry never fires (h/k/q false-fired at
+the 0.6 band floor — their sweep continuation is not a hook), caps are not
+joiner-exits, and the collapse pads 0.03·xh past the body edge (the n's flick
+root straddled the clip line and left a needle flank). Forensic-verified
+clean; word-initial and word-final controls byte-near-identical.
+
+Remaining: Stage E (all offender classes incl. s/x, assembled-pair sensor),
+Stage F (full-specimen panel + the director's gate).
+
 ## Do-not-re-walk (carried from ADR 0048)
 
 No coordinate-warp variants (lower-through shears eyelets; truncate starves
