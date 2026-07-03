@@ -2138,12 +2138,10 @@ const SEAM_ZONE_HI = 1.05;
 // not read as structure.
 const SEAM_LOOP_CHECK_LO = 1.15; // ·xh
 const SEAM_LOOP_CHECK_HI = 1.4; // ·xh
-// ·xh — the deepest drop an alternate may take. The judge panel failed the
-// first cut's full lowering: a steep descent reads as a wire cliff with a
-// thorn cusp, and the s/x class (0.6·xh drops) produced the worst of them.
-// Past the cap the drawn flick is better texture; that class waits for the
-// assembled pass.
-const SEAM_DY_MAX = 0.35;
+// Stage E: no descent cap. The warp needed one (lowering drawn ink 0.6·xh
+// read as a wire cliff with a thorn cusp — the panel verdict on the s/x
+// class), but a SYNTHESIZED stroke is drawn down the whole descent at the
+// tail's measured width, so steepness is geometry, not shearing.
 const SEAM_CROSSBAR = new Set(['f', 't']); // crossbars overhang high by design; never offenders
 const SEAM_ALT_SUFFIX = '.jn01';
 const SEAM_ENTRY_SUFFIX = '.jn02'; // entry lead-in hook collapsed (backtrack calt)
@@ -2151,6 +2149,12 @@ const SEAM_ENTRY_SUFFIX = '.jn02'; // entry lead-in hook collapsed (backtrack ca
 // root straddles the clip line, and clipping only left of it left a needle
 // flank of the n's flick standing (the entry-side verifier's catch)
 const SEAM_HOOK_PAD = 0.03;
+// max synthesized-descent slope (dy per dx). Measured on the smooth hand:
+// the verified-clean class dives at 0.88-1.49 (o/w/b/r/v); its s (a short
+// high stub) would need 2.66 and rendered as a weld into the o and a dangle
+// before the n; its x sits at 2.08, with the s, not the healthy class. The
+// gate rides just above the highest verified-clean dive.
+const SEAM_DIVE_MAX = 1.75;
 const SEAM_BOTH_SUFFIX = '.jn03'; // exit reconstructed AND entry collapsed
 // Lowercase joiners only: a cap's right side swashes by design (the corpus
 // exempts script caps from the overhang metric for the same reason), and the
@@ -2248,11 +2252,13 @@ export function makeSeamAlternates(
 ): {
   alternates: Glyph[];
   rights: string[];
-  offenders: Array<{ char: string; exitFrac: number; width: number; widthProfile: number[] }>;
+  offenders: Array<{ char: string; exitFrac: number; width: number; run: number; widthProfile: number[] }>;
   joinFrac: number;
   terminals: Array<{ char: string; entryFrac: number | null; exitFrac: number | null }>;
   join: { tipOffsetX: number; tipFrac: number; tangent: { dx: number; dy: number } } | null;
   skipped: string[];
+  /** required synthesized-descent slope per exit candidate (dive-gate diagnostics) */
+  dives: Array<{ char: string; dive: number }>;
   /** entry-side offenders: letters whose drawn lead-in hook rides high, left
    *  of the body, above the join line (the director's w) */
   entryOffenders: Array<{ char: string; hookFrac: number; reach: number }>;
@@ -2397,7 +2403,7 @@ export function makeSeamAlternates(
   const terminals = meas.map((m) => ({ char: m.char, entryFrac: m.entryFrac, exitFrac: m.exitFrac }));
   const entries = meas.filter((m) => m.joinsLeft && m.entryFrac !== null).map((m) => m.entryFrac as number);
   if (entries.length < TAIL_MIN_JOINERS)
-    return { alternates: [], rights: [], offenders: [], joinFrac: 0, terminals, join: null, skipped: [], entryOffenders: [], lefts: [] };
+    return { alternates: [], rights: [], offenders: [], joinFrac: 0, terminals, join: null, skipped: [], dives: [], entryOffenders: [], lefts: [] };
   const sorted = entries.slice().sort((a, b) => a - b);
   // The hand's OWN entry line, unclamped: a copperplate-class hand joins at
   // mid-height (entries and exits both ~0.45·xh, already meeting) and clamping
@@ -2419,11 +2425,12 @@ export function makeSeamAlternates(
   // only; the doctrine bans invented geometry).
   const stdJoin = standardJoinFromEntries(entryStrokes);
   if (!stdJoin)
-    return { alternates: [], rights, offenders: [], joinFrac, terminals, join: null, skipped: [], entryOffenders: [], lefts: [] };
+    return { alternates: [], rights, offenders: [], joinFrac, terminals, join: null, skipped: [], dives: [], entryOffenders: [], lefts: [] };
 
-  const offenders: Array<{ char: string; exitFrac: number; width: number; widthProfile: number[] }> = [];
+  const offenders: Array<{ char: string; exitFrac: number; width: number; run: number; widthProfile: number[] }> = [];
   const alternates: Glyph[] = [];
   const skipped: string[] = [];
+  const dives: Array<{ char: string; dive: number }> = [];
   const exitAltPaths = new Map<string, string[]>();
   const gapPx = Math.round(CONNECT_GAP_PCT * xhPx);
   for (const m of meas) {
@@ -2434,7 +2441,7 @@ export function makeSeamAlternates(
     const g = glyphs[m.i];
     const joinY = g.baselineYInCell - joinFrac * xhPx;
     const dy = joinY - m.exitTipY;
-    if (dy < 1 || dy > SEAM_DY_MAX * xhPx) continue;
+    if (dy < 1) continue;
     // Reconstruct, don't warp (ADR 0049, both warp geometries failed the
     // panel): read the drawn exit tail as a stroke, DRAW one tangent-blended
     // connector from the body attachment to just past the standard join point
@@ -2462,6 +2469,18 @@ export function makeSeamAlternates(
       // c's entry and poked a spur through the stroke's far edge (the round-3
       // sev-3); the kern was fitted to m.last, so the follower's ink is there
       const targetX = Math.min(Math.max(joinX + 1.5 * es.width, m.last - 0.5 * es.width), Math.max(joinX + es.width, m.last + 0.5 * es.width));
+      // DIVE gate (Stage E calibration): the smooth hand's s carries a short
+      // HIGH stub whose reconstruction would plunge ~2.6 units down per unit
+      // across — no pen dives like that, and the render welded into the o
+      // and dangled before the n. The healthy class (o/v/w/b/x) dives at
+      // <= ~1.0. A steeper seam keeps its drawn exit; the per-pair answer
+      // for that class is the parked assembled pass (ADR 0040).
+      const dive = (joinY - es.attach.y) / Math.max(1, targetX - es.attach.x);
+      dives.push({ char: m.char, dive: Math.round(dive * 100) / 100 });
+      if (dive > SEAM_DIVE_MAX) {
+        skipped.push(m.char);
+        continue;
+      }
       const overlap = (targetX - joinX) / Math.max(0.3, Math.abs(stdJoin.tangent.dx));
       synth = synthesizeConnector(es.attach, es.tangent, { x: joinX, y: joinY }, stdJoin.tangent, es.width, overlap);
     }
@@ -2469,7 +2488,7 @@ export function makeSeamAlternates(
       skipped.push(m.char);
       continue;
     }
-    offenders.push({ char: m.char, exitFrac: m.exitFrac, width: es.width, widthProfile: es.widths.map((w) => Math.round(w * 10) / 10) });
+    offenders.push({ char: m.char, exitFrac: m.exitFrac, width: es.width, run: m.last - m.bodyMax, widthProfile: es.widths.map((w) => Math.round(w * 10) / 10) });
     const yLo = g.baselineYInCell - SEAM_ZONE_HI * xhPx;
     const yHi = g.baselineYInCell + 0.2 * xhPx;
     // clip at the connector-weight attach point, NOT the dense-body edge:
@@ -2514,11 +2533,25 @@ export function makeSeamAlternates(
     const exitPaths = exitAltPaths.get(m.char);
     if (exitPaths) alternates.push({ ...g, variantSuffix: SEAM_BOTH_SUFFIX, paths: exitPaths.map(collapseEntry) });
   }
-  // lowercase joiners only: a cap does not connect on this engine (break-class
-  // advances, kern reserved for cap-to-lower), so a follower after a cap keeps
-  // its drawn lead-in
+  // The backtrack class: lowercase joiners whose exit actually MEETS the
+  // join line — low by measurement, or reconstructed onto it. A cap never
+  // connects (break-class advances), and a PARKED high exit (the dive-gated
+  // s) still lands on the follower's drawn hook, so collapsing that hook
+  // after it would leave the drawn sweep landing on nothing.
+  const reconstructed = new Set(offenders.map((o) => o.char));
   const lefts = entryOffenders.length
-    ? Array.from(new Set(meas.filter((m) => m.joinsRight && SEAM_LOWERCASE.test(m.char)).map((m) => m.char)))
+    ? Array.from(
+        new Set(
+          meas
+            .filter(
+              (m) =>
+                m.joinsRight &&
+                SEAM_LOWERCASE.test(m.char) &&
+                (m.exitFrac === null || m.exitFrac <= joinFrac + SEAM_ENTRY_TOL || reconstructed.has(m.char)),
+            )
+            .map((m) => m.char),
+        ),
+      )
     : [];
 
   return {
@@ -2529,6 +2562,7 @@ export function makeSeamAlternates(
     terminals,
     join: { tipOffsetX: stdJoin.reach, tipFrac: stdJoin.tipFrac, tangent: stdJoin.tangent },
     skipped,
+    dives,
     entryOffenders,
     lefts,
   };
@@ -3111,6 +3145,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
         rights: sa.rights,
         terminals: sa.terminals,
         join: sa.join,
+        dives: sa.dives,
         skipped: sa.skipped,
         entryOffenders: sa.entryOffenders,
         lefts: sa.lefts,

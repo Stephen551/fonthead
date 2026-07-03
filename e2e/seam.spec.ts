@@ -69,16 +69,21 @@ test.describe('seam alternates (banked behind the test hook)', () => {
     await buildDone(page);
 
     // the measured offender class on this hand: the o/v/w/b gentle crossings
-    // (plus r). Never the crossbars (f, t), the descenders, an ascender loop
-    // (l), or the STEEP s/x sweeps — a drop past the descent cap reads as a
-    // wire cliff (the panel verdict), so those keep the drawn flick.
+    // (plus r). Stage E replaced the flat descent cap with the measured DIVE
+    // gate: s (2.66) and x (2.08) both need a steeper synthesized descent
+    // than the verified-clean class (0.88-1.49) and park with their drawn
+    // sweeps; a roomier hand's s/x will fire on its own geometry. Never the
+    // crossbars (f, t), an ascender loop (l), or the low-exit class (a, e).
     const sa = await page.evaluate(
-      () => (window as unknown as { __lastSeamAlts?: { count: number; offenders: Array<{ char: string }>; rights: string[] } }).__lastSeamAlts,
+      () =>
+        (window as unknown as { __lastSeamAlts?: { count: number; offenders: Array<{ char: string }>; rights: string[]; skipped: string[] } })
+          .__lastSeamAlts,
     );
     expect(sa, 'seam alternates ran').toBeTruthy();
     const offenders = sa!.offenders.map((o) => o.char);
     for (const c of ['o', 'v', 'w', 'b']) expect(offenders, `offender ${c}`).toContain(c);
     for (const c of ['f', 't', 'l', 'a', 'e', 's', 'x']) expect(offenders, `${c} is never an offender`).not.toContain(c);
+    for (const c of ['s', 'x']) expect(sa!.skipped, `${c} parks at the dive gate, keeping its drawn sweep`).toContain(c);
     expect(sa!.rights.length, 'low-entry follower set covers the lowercase').toBeGreaterThanOrEqual(20);
 
     const otf = await captureOtf(page);
@@ -103,10 +108,14 @@ test.describe('seam alternates (banked behind the test hook)', () => {
     expect(shapeNames(font, 'aw')).toEqual(['a', 'w.jn02']);
     // both sides at once compose through .jn03
     expect(shapeNames(font, 'awa')).toEqual(['a', 'w.jn03', 'a']);
-    // steep class: s keeps its drawn exit even mid-word (and the final o is
-    // word-final, so it keeps the flick too)
+    // steep class (Stage E): s and x park at the dive gate and keep their
+    // drawn sweeps everywhere — and because those sweeps land on the
+    // follower's hook, they are excluded from the backtrack class too (the
+    // n after s keeps its lead-in)
     expect(shapeNames(font, 'sos')).toEqual(['s', 'o.jn01', 's']);
     expect(shapeNames(font, 'so')).toEqual(['s', 'o']);
+    expect(shapeNames(font, 'sn')).toEqual(['s', 'n']);
+    expect(shapeNames(font, 'xa')).toEqual(['x', 'a']);
     // word boundaries: the drawn flick survives word-finally, the drawn
     // lead-in survives word-initially
     expect(shapeNames(font, 'no')).toEqual(['n', 'o']);

@@ -520,14 +520,30 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
     }
   });
 
-  it('a steep exit stays drawn (a cliff descent reads mechanical, the panel verdict)', () => {
-    // exit tip at 0.8·xh needs a 0.6·xh drop to the 0.2 line — over the
-    // descent cap. The base flick is better texture than a wire cliff; the
-    // s/x class waits for the assembled pass.
-    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.8, reach: 8 })];
+  it('a steep exit reconstructs when the descent has room to dive (Stage E)', () => {
+    // exit tip at 0.8·xh, a 0.6·xh drop — the warp's flat cap excluded this
+    // class (lowering drawn ink read as a wire cliff); a synthesized stroke
+    // is DRAWN down the descent, so steepness alone no longer parks it.
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.8, reach: 14 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders.map((o) => o.char)).toEqual(['o']);
+    expect(out.alternates).toHaveLength(1);
+    expect(out.alternates[0].paths[1].trim().endsWith('Z')).toBe(true); // the synthesized contour rides along
+  });
+
+  it('a short HIGH stub parks: the dive gate keeps the drawn exit and shields the follower hook', () => {
+    // the smooth hand's s: a high stub so short its reconstruction would
+    // plunge steeper than any pen stroke — rendered as a weld into the o and
+    // a dangle before the n. It keeps the drawn exit, and because that drawn
+    // exit lands on the follower's hook, the letter also stays OUT of the
+    // backtrack class so the hook survives after it.
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.8, reach: 5 }), mk('w', { tipFrac: 0.9, reach: 5 })];
     const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
     expect(out.offenders).toEqual([]);
-    expect(out.alternates).toEqual([]);
+    expect(out.skipped).toEqual(['o']);
+    expect(out.entryOffenders.map((o) => o.char)).toEqual(['w']);
+    expect(out.lefts).toContain('n'); // low exits stay triggers
+    expect(out.lefts).not.toContain('o'); // the parked high exit does not
   });
 
   it('the collapse is y-banded to the join zone: ascender ink right of the body never moves', () => {
