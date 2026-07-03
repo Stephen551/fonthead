@@ -654,6 +654,7 @@ for (const sheet of sheets) {
         (window as unknown as { __lastConnect?: { joined: number; broke: number; entrySd?: number; entryMed?: number; entryNorm?: boolean } })
           .__lastConnect,
     );
+    const seam = await page.evaluate(() => (window as unknown as { __lastSeamAlts?: { count: number } | null }).__lastSeamAlts);
     const m = await measure(page, otfPath, isConnect && !!process.env.CORPUS_KERN_PROBE, isConnect && !!conn?.entryNorm);
     const wf = await page.evaluate(
       () => (window as unknown as { __lastWeightFloor?: { strokeFrac: number; weight: number } }).__lastWeightFloor,
@@ -661,7 +662,7 @@ for (const sheet of sheets) {
     const fine = await page.evaluate(() => (window as unknown as { __lastFine?: { fine: boolean; rowH: number } }).__lastFine);
     const traceTag = `wf=${wf ? `${wf.strokeFrac}/w${wf.weight}` : '?'} fine=${fine ? `${fine.fine ? 'on' : 'off'}@${fine.rowH}` : '?'}`;
     const mode = isConnect
-      ? `connect/${conn?.joined ?? '?'}j entrySd=${conn?.entrySd === undefined ? '?' : conn.entrySd.toFixed(3)} entryMed=${conn?.entryMed === undefined ? '?' : conn.entryMed.toFixed(2)}${conn?.entryNorm ? ' NORM' : ''} ${traceTag}`
+      ? `connect/${conn?.joined ?? '?'}j entrySd=${conn?.entrySd === undefined ? '?' : conn.entrySd.toFixed(3)} entryMed=${conn?.entryMed === undefined ? '?' : conn.entryMed.toFixed(2)}${conn?.entryNorm ? ' NORM' : ''} jn=${seam?.count ?? 0} ${traceTag}`
       : `${trim?.script ? 'script' : 'upright'}/${trim?.trimmed ?? '?'} ${traceTag}`;
     // Bridge-vs-weld calibration (ADR 0043 milestone): per-pair weld-strip
     // penetration profile — minGap, deep rows / sampled rows, growth applied.
