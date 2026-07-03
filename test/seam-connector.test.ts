@@ -131,6 +131,39 @@ describe('synthesizeConnector (Stage B, ADR 0049)', () => {
     expect(isSimplePolygon(pts)).toBe(true);
   });
 
+  it('preserves the measured width through the tightest bend (no waist)', () => {
+    // the Stage D panel's convergent finding: clamping BOTH rails under the
+    // local curvature radius starved the trough to ~half the face width (the
+    // needle-tendency waist on oc/ok). The stroke must carry its measured
+    // width through the bend — the inner rail alone yields to the radius and
+    // the outer rail swells by the remainder, like a brush on an under-turn.
+    // real-hand proportions (smooth-script: widths 14-20px on dives of this
+    // scale), where the bend radius approaches the half-width
+    const w = 16;
+    const s = synthesizeConnector({ x: 100, y: 50 }, norm(0.1, 0.995), { x: 116, y: 84 }, { dx: 1, dy: 0 }, w, 6)!;
+    const outline = parsePath(s.d);
+    const c = s.centerline;
+    for (let i = Math.round(c.length * 0.15); i <= Math.round(c.length * 0.6); i++) {
+      // local width ≈ twice the distance from the centerline to the nearest
+      // outline vertex (mid-stroke only: the tip taper and cap are excluded)
+      const dMin = Math.min(...outline.map((p) => Math.hypot(p.x - c[i].x, p.y - c[i].y)));
+      expect(2 * dMin).toBeGreaterThan(0.85 * w);
+    }
+  });
+
+  it('carries full width THROUGH the join point (the taper lives inside the overlap)', () => {
+    // the Stage D panel's waists sat just above the junction: the taper began
+    // at 0.65 of the whole stroke, so the connector was already starved when
+    // it crossed the join. Full width to the join point; the taper hides in
+    // the overlap, buried under the follower's entry ink.
+    const s = straight(); // attach (100,80), join (130,80), width 6, overlap 8
+    const outline = parsePath(s.d);
+    const c = s.centerline;
+    const atJoin = c.reduce((best, p) => (Math.abs(p.x - 130) < Math.abs(best.x - 130) ? p : best), c[0]);
+    const dMin = Math.min(...outline.map((p) => Math.hypot(p.x - atJoin.x, p.y - atJoin.y)));
+    expect(2 * dMin).toBeGreaterThan(0.85 * 6);
+  });
+
   it('returns null when the span is too short to draw', () => {
     expect(synthesizeConnector({ x: 100, y: 80 }, { dx: 1, dy: 0 }, { x: 103, y: 80 }, { dx: 1, dy: 0 }, 6, 0)).toBeNull();
   });

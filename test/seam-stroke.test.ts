@@ -91,6 +91,68 @@ describe('traceTerminalStroke (Stage A, ADR 0049)', () => {
     expect(s.width).toBeLessThan(3.5);
   });
 
+  it('reports the root width of a tapering tail separately from the median', () => {
+    // a drawn tail thins toward its tip (brush lift): per-column thickness
+    // 9,9,8,7,6,5,4,3. The whole-tail median (~6) understates the stroke the
+    // connector must carry — the Stage D forensic panel measured synthesized
+    // strokes at half the face norm because of exactly this. rootWidth reads
+    // the attachment end only.
+    const thicks = [9, 9, 8, 7, 6, 5, 4, 3];
+    const cols = new Array(CW).fill(0);
+    const colTop = new Array(CW).fill(Infinity);
+    const colBot = new Array(CW).fill(-Infinity);
+    for (let x = 10; x <= 26; x++) {
+      cols[x] = 30;
+      colTop[x] = BASE - 30;
+      colBot[x] = BASE;
+    }
+    thicks.forEach((th, i) => {
+      const x = 27 + i;
+      const half = th / 2;
+      cols[x] = th;
+      colTop[x] = 65 - half;
+      colBot[x] = 65 + half;
+    });
+    const rowLeft = new Array(CH).fill(Infinity);
+    const rowRight = new Array(CH).fill(-Infinity);
+    const spans = cols.map((n) => (n > 0 ? (n > 10 ? 0.9 : 0.1) : 0));
+    const prof = { cols, spans, rowLeft, rowRight, colTop, colBot, inkTopRow: BASE - 30 };
+    const s = traceTerminalStroke(prof as never, BODY, BASE, 30, 'right')!;
+    expect(s.width).toBeLessThanOrEqual(8.5); // whole-tail median, mid-taper
+    expect(s.rootWidth).toBeGreaterThan(9); // the attachment-end stroke weight
+    expect(s.rootWidth).toBeLessThanOrEqual(10.5);
+  });
+
+  it('root width rejects union-contaminated columns at the body edge', () => {
+    // the columns just past the dense body still carry bowl/crossover ink, and
+    // the per-column extent is a UNION — the raw root columns read ~4x the
+    // stroke (the Stage D slab regression). The root read must skip columns
+    // whose width is an outlier against the whole-tail median and take the
+    // first trustworthy stroke columns instead.
+    const thicks = [44, 40, 12, 11, 10, 9, 8, 7];
+    const cols = new Array(CW).fill(0);
+    const colTop = new Array(CW).fill(Infinity);
+    const colBot = new Array(CW).fill(-Infinity);
+    for (let x = 10; x <= 26; x++) {
+      cols[x] = 30;
+      colTop[x] = BASE - 30;
+      colBot[x] = BASE;
+    }
+    thicks.forEach((th, i) => {
+      const x = 27 + i;
+      cols[x] = th;
+      colTop[x] = 60 - th / 2;
+      colBot[x] = 60 + th / 2;
+    });
+    const rowLeft = new Array(CH).fill(Infinity);
+    const rowRight = new Array(CH).fill(-Infinity);
+    const spans = cols.map((n) => (n > 0 ? (n > 20 ? 0.9 : 0.1) : 0));
+    const prof = { cols, spans, rowLeft, rowRight, colTop, colBot, inkTopRow: BASE - 30 };
+    const s = traceTerminalStroke(prof as never, BODY, BASE, 30, 'right')!;
+    expect(s.rootWidth).toBeLessThan(16); // the stroke, not the bowl union
+    expect(s.rootWidth).toBeGreaterThan(9);
+  });
+
   it('returns null when there is no tail past the body', () => {
     const prof = profWithExit(10, 26, []);
     expect(traceTerminalStroke(prof as never, BODY, BASE, 30, 'right')).toBeNull();

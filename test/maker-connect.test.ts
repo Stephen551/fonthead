@@ -418,9 +418,13 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
     const ring = pts(alt.paths[1]);
     expect(alt.paths[1].trim().endsWith('Z')).toBe(true); // one closed contour
     const maxX = Math.max(...ring.map((p) => p.x));
-    expect(maxX).toBeGreaterThan(39.5); // reaches the overlap tip at ~41
-    expect(maxX).toBeLessThan(42.5);
-    for (const p of ring.filter((p) => p.x >= 40)) expect(Math.abs(p.y - 74)).toBeLessThan(1.6); // tapered tip ON the join line
+    // tip capped at m.last + width/2 (34 + 2.5): into the follower's entry
+    // ink, never through its far edge (the round-3 oc spur)
+    expect(maxX).toBeGreaterThan(35);
+    expect(maxX).toBeLessThan(38.5);
+    // tip ON the join line: within half-width plus the outer-rail curvature
+    // swell (the width-preserving clamp shifts ink outward on the rise)
+    for (const p of ring.filter((p) => p.x >= 35.5)) expect(Math.abs(p.y - 74)).toBeLessThan(3.2);
     expect(Math.min(...ring.map((p) => p.x))).toBeLessThan(27); // start cap buried toward the body
     // low-entry followers (hooks at 0.2) and the hook-less x (body-edge entry)
     expect([...out.rights].sort()).toEqual(['h', 'm', 'n', 'o', 'u', 'x']);
@@ -434,6 +438,22 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
     expect(out.join).toBeTruthy();
     expect(out.join!.tipOffsetX).toBe(0); // entry tails ARE the leftmost ink
     expect(out.join!.tangent.dx).toBeGreaterThan(0.9); // flat entries: level approach
+  });
+
+  it('the synthesized stroke reaches the drawn flick\'s own span when it exceeds the bare join model', () => {
+    // the pair kern is fitted to the BASE outline's long flick, so the
+    // follower sits near where the drawn flick ended — a connector stopping
+    // at the bare join point leaves its taper naked in the kern gap (the
+    // Stage D waist-before-the-stem). Tail reach 20 (m.last = 46) beats the
+    // joinX + 1.5·width floor (38.5): the tip lands at m.last − width/2,
+    // inside the follower's entry ink but short of its far edge.
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 20 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders.map((o) => o.char)).toEqual(['o']);
+    const ring = pts(out.alternates[0].paths[1]);
+    const maxX = Math.max(...ring.map((p) => p.x));
+    expect(maxX).toBeGreaterThan(42);
+    expect(maxX).toBeLessThan(45.5);
   });
 
   it('an offender whose exit stroke cannot be traced is skipped whole', () => {

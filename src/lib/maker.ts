@@ -1270,6 +1270,12 @@ export function traceTerminalStroke(
 ): {
   points: Array<{ x: number; y: number }>;
   width: number;
+  /** stroke weight at the attachment end (median of the first columns) — a
+   *  drawn tail thins toward its tip, so the whole-tail median understates
+   *  the width a reconstructed connector must carry (Stage D panel finding) */
+  rootWidth: number;
+  /** per-column slope-corrected widths, attach → tip (diagnostics) */
+  widths: number[];
   attach: { x: number; y: number };
   tip: { x: number; y: number };
   tangent: { dx: number; dy: number };
@@ -1296,13 +1302,22 @@ export function traceTerminalStroke(
   });
   const ws = widths.slice().sort((a, b) => a - b);
   const width = ws[Math.floor(ws.length / 2)];
+  // root width (diagnostic): the attachment-half stroke weight. The first
+  // columns past the body carry bowl/crossover UNIONS (far over the median)
+  // and a separation PINCH (far under it) — measured on the smooth hand:
+  // o reads [68,60,51,45,27, 9,4.6,4.4, 12,13,...] — so the read is the
+  // median of the first half's uncontaminated columns.
+  const firstHalf = widths.slice(0, Math.ceil(widths.length / 2));
+  const cleanRoot = firstHalf.filter((w) => w <= 2.5 * width);
+  const rws = (cleanRoot.length ? cleanRoot : firstHalf).slice().sort((a, b) => a - b);
+  const rootWidth = rws[Math.floor(rws.length / 2)];
   const attach = points[0];
   const tip = points[points.length - 1];
   const k = Math.min(3, points.length - 1);
   const dxr = points[k].x - points[0].x;
   const dyr = points[k].y - points[0].y;
   const len = Math.max(1e-6, Math.hypot(dxr, dyr));
-  return { points, width, attach, tip, tangent: { dx: dxr / len, dy: dyr / len } };
+  return { points, width, rootWidth, widths, attach, tip, tangent: { dx: dxr / len, dy: dyr / len } };
 }
 
 /** Stage B of connector reconstruction (ADR 0049): the face's STANDARD JOIN,
@@ -1330,9 +1345,12 @@ export function standardJoinFromEntries(
 
 // The synthesized stroke's tip tapers to this fraction of the measured width:
 // enough thinning to bury shallowly in the follower's entry corridor, never a
-// needle (the panel's word for a starved terminal).
+// needle (the panel's word for a starved terminal). The taper lives INSIDE
+// the overlap — full width through the join point — after the Stage D panel
+// measured waists just above the junction where a whole-stroke taper had
+// already starved the connector before it reached the follower's ink.
 const CONNECTOR_TIP_TAPER = 0.35;
-const CONNECTOR_TAPER_START = 0.65; // t along the centerline where the taper begins
+const CONNECTOR_TAPER_FLOOR = 0.6; // earliest t the taper may start (very long overlaps)
 const CONNECTOR_SAMPLES = 24;
 
 /** Stage B of connector reconstruction (ADR 0049): DRAW the connecting stroke
@@ -1371,7 +1389,7 @@ export function synthesizeConnector(
   const p3 = tip;
   const centerline: Array<{ x: number; y: number }> = [];
   const derivs: Array<{ dx: number; dy: number }> = [];
-  const curvs: number[] = [];
+  const curvs: number[] = []; // SIGNED curvature: >0 = centre on the +normal side
   for (let i = 0; i <= CONNECTOR_SAMPLES; i++) {
     const t = i / CONNECTOR_SAMPLES;
     const u = 1 - t;
@@ -1385,16 +1403,22 @@ export function synthesizeConnector(
     const ddy = 6 * u * (p2.y - 2 * p1.y + p0.y) + 6 * t * (p3.y - 2 * p2.y + p1.y);
     const speed = Math.max(1e-6, Math.hypot(dx, dy));
     derivs.push({ dx: dx / speed, dy: dy / speed });
-    curvs.push(Math.abs(dx * ddy - dy * ddx) / (speed * speed * speed));
+    curvs.push((dx * ddy - dy * ddx) / (speed * speed * speed));
   }
+
+  // taper start from arc length: full width THROUGH the join point AND
+  // through most of the overlap, thinning only across the overlap's final
+  // quarter — a taper spanning the whole overlap ran naked in the pair's
+  // kern gap and read as a waist before the follower's stem (Stage D)
+  let arcLen = 0;
+  for (let i = 1; i < centerline.length; i++)
+    arcLen += Math.hypot(centerline[i].x - centerline[i - 1].x, centerline[i].y - centerline[i - 1].y);
+  const taperStart = Math.max(CONNECTOR_TAPER_FLOOR, 1 - 0.25 * (over / Math.max(1e-6, arcLen)));
 
   // half-width profile: full width until the taper start, then linear to the tip
   const half = (t: number) => {
     const base = width / 2;
-    const f =
-      t <= CONNECTOR_TAPER_START
-        ? 1
-        : 1 - (1 - CONNECTOR_TIP_TAPER) * ((t - CONNECTOR_TAPER_START) / (1 - CONNECTOR_TAPER_START));
+    const f = t <= taperStart ? 1 : 1 - (1 - CONNECTOR_TIP_TAPER) * ((t - taperStart) / (1 - taperStart));
     return base * f;
   };
 
@@ -1402,12 +1426,21 @@ export function synthesizeConnector(
   const right: Array<{ x: number; y: number }> = [];
   for (let i = 0; i <= CONNECTOR_SAMPLES; i++) {
     const t = i / CONNECTOR_SAMPLES;
-    // clamp under the local radius of curvature so the inner offset never loops
-    const rad = curvs[i] > 1e-6 ? 1 / curvs[i] : Infinity;
-    const hw = Math.min(half(t), 0.85 * rad);
+    // WIDTH-PRESERVING curvature guard: only the INNER rail (facing the
+    // curvature centre) yields to the local radius — that is where the offset
+    // loops back — and the outer rail swells by the remainder, like a brush
+    // on an under-turn. Clamping both rails starved the trough (the Stage D
+    // panel's needle-tendency waist).
+    const hw = half(t);
+    const k = curvs[i];
+    const rad = Math.abs(k) > 1e-6 ? 1 / Math.abs(k) : Infinity;
+    const hwIn = Math.min(hw, 0.85 * rad);
+    const hwOut = hw + (hw - hwIn);
+    const hwLeft = k > 0 ? hwIn : hwOut; // centre on +normal (left) when k > 0
+    const hwRight = k > 0 ? hwOut : hwIn;
     const n = { dx: -derivs[i].dy, dy: derivs[i].dx };
-    left.push({ x: centerline[i].x + n.dx * hw, y: centerline[i].y + n.dy * hw });
-    right.push({ x: centerline[i].x - n.dx * hw, y: centerline[i].y - n.dy * hw });
+    left.push({ x: centerline[i].x + n.dx * hwLeft, y: centerline[i].y + n.dy * hwLeft });
+    right.push({ x: centerline[i].x - n.dx * hwRight, y: centerline[i].y - n.dy * hwRight });
   }
 
   // round start cap: semicircle behind the attachment (buried in body ink),
@@ -2188,7 +2221,7 @@ export function makeSeamAlternates(
 ): {
   alternates: Glyph[];
   rights: string[];
-  offenders: Array<{ char: string; exitFrac: number; width: number }>;
+  offenders: Array<{ char: string; exitFrac: number; width: number; widthProfile: number[] }>;
   joinFrac: number;
   terminals: Array<{ char: string; entryFrac: number | null; exitFrac: number | null }>;
   join: { tipOffsetX: number; tipFrac: number; tangent: { dx: number; dy: number } } | null;
@@ -2325,7 +2358,7 @@ export function makeSeamAlternates(
   const stdJoin = standardJoinFromEntries(entryStrokes);
   if (!stdJoin) return { alternates: [], rights, offenders: [], joinFrac, terminals, join: null, skipped: [] };
 
-  const offenders: Array<{ char: string; exitFrac: number; width: number }> = [];
+  const offenders: Array<{ char: string; exitFrac: number; width: number; widthProfile: number[] }> = [];
   const alternates: Glyph[] = [];
   const skipped: string[] = [];
   const gapPx = Math.round(CONNECT_GAP_PCT * xhPx);
@@ -2350,14 +2383,29 @@ export function makeSeamAlternates(
     // be traced (or whose span degenerates) is skipped whole — never an
     // amputated letter without its bridge.
     const es = traceTerminalStroke(profiles[m.i]!, { min: m.bodyMin, max: m.bodyMax }, g.baselineYInCell, xhPx, 'right');
-    const synth = es
-      ? synthesizeConnector(es.attach, es.tangent, { x: m.bodyMax + gapPx + stdJoin.reach, y: joinY }, stdJoin.tangent, es.width)
-      : null;
+    // Width: the whole-tail median (measured on the smooth hand it tracks
+    // the true stroke run; the root columns are bowl-union/pinch noise).
+    // Reach: the pair kern is fitted to the BASE outline's long flick, so
+    // the follower sits near where the drawn flick ENDED — the synthesized
+    // stroke spans to the flick's own reach (m.last, the hand's measured
+    // span) or the bare join model plus overlap, whichever is longer, and
+    // its taper hides in the final quarter of that overlap instead of
+    // running naked in the kern gap (the Stage D waist-before-the-stem).
+    let synth: ReturnType<typeof synthesizeConnector> = null;
+    if (es) {
+      const joinX = m.bodyMax + gapPx + stdJoin.reach;
+      // capped at the flick's own span: a tip pushed past it overshot the
+      // c's entry and poked a spur through the stroke's far edge (the round-3
+      // sev-3); the kern was fitted to m.last, so the follower's ink is there
+      const targetX = Math.min(Math.max(joinX + 1.5 * es.width, m.last - 0.5 * es.width), Math.max(joinX + es.width, m.last + 0.5 * es.width));
+      const overlap = (targetX - joinX) / Math.max(0.3, Math.abs(stdJoin.tangent.dx));
+      synth = synthesizeConnector(es.attach, es.tangent, { x: joinX, y: joinY }, stdJoin.tangent, es.width, overlap);
+    }
     if (!es || !synth) {
       skipped.push(m.char);
       continue;
     }
-    offenders.push({ char: m.char, exitFrac: m.exitFrac, width: es.width });
+    offenders.push({ char: m.char, exitFrac: m.exitFrac, width: es.width, widthProfile: es.widths.map((w) => Math.round(w * 10) / 10) });
     const yLo = g.baselineYInCell - SEAM_ZONE_HI * xhPx;
     const yHi = g.baselineYInCell + 0.2 * xhPx;
     const collapsed = g.paths.map((d) => collapseSeamTail(d, m.bodyMax, yLo, yHi));
