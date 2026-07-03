@@ -25,6 +25,10 @@
 
   // base + '.cvNN' — the OpenType character-variant naming the builder appends.
   var VARIANT_RE = /^(.+)\.cv(\d\d)$/;
+  // base + '.jnNN' — a contextual seam alternate (exit lowered onto the entry
+  // line, ADR 0048), appended unicode-less the same way. Distinct namespace so
+  // the cycling calt never ladders through it.
+  var JOINALT_RE = /^(.+)\.jn(\d\d)$/;
 
   function collectVariantGroups(indexByName) {
     if (!indexByName) return [];
@@ -59,6 +63,24 @@
     groups.sort(function (a, b) {
       return a.baseGid - b.baseGid;
     });
+    return groups;
+  }
+
+  // Seam alternates: pair each base with its single .jn01 alternate. An orphan
+  // (base absent) drops; groups sort by base gid so coverage comes out ascending.
+  function collectJoinAltGroups(indexByName) {
+    if (!indexByName) return [];
+    var groups = [];
+    for (var entry of indexByName) {
+      var name = entry[0];
+      var gid = entry[1];
+      var m = JOINALT_RE.exec(name);
+      if (!m) continue;
+      var baseGid = indexByName.get(m[1]);
+      if (typeof baseGid !== 'number') continue;
+      groups.push({ base: m[1], baseGid: baseGid, altGid: gid, name: name });
+    }
+    groups.sort(function (a, b) { return a.baseGid - b.baseGid; });
     return groups;
   }
 
@@ -131,6 +153,36 @@
     dv.setUint16(o, nestedLookupIndex); o += 2; // lookupListIndex
     out.set(letterCov, letterCovOff);
     out.set(inputCov, inputCovOff);
+    return out;
+  }
+
+  // ChainContextSubst format 3 with ONE LOOKAHEAD slot and no backtrack: fires
+  // on a source glyph only when the NEXT glyph is in the lookahead set. The
+  // seam-alternate rule: an offender substitutes to its lowered-exit copy only
+  // before a low-entry follower; word-finally the drawn exit survives.
+  function chainContextLookahead3Bytes(sourceGids, lookaheadGids, nestedLookupIndex) {
+    var fixed = 2 /*format*/ + 2 /*btCount=0*/ +
+      2 /*inputCount*/ + 2 /*input offset*/ +
+      2 /*lookaheadCount*/ + 2 /*one lookahead offset*/ +
+      2 /*seqLookupCount*/ + 4 /*one seq record*/;
+    var inputCov = coverageBytes(sourceGids);
+    var laCov = coverageBytes(lookaheadGids);
+    var inputCovOff = fixed;
+    var laCovOff = fixed + inputCov.length;
+    var out = new Uint8Array(laCovOff + laCov.length);
+    var dv = new DataView(out.buffer);
+    var o = 0;
+    dv.setUint16(o, 3); o += 2; // format
+    dv.setUint16(o, 0); o += 2; // backtrackGlyphCount (no offsets follow)
+    dv.setUint16(o, 1); o += 2; // inputGlyphCount
+    dv.setUint16(o, inputCovOff); o += 2;
+    dv.setUint16(o, 1); o += 2; // lookaheadGlyphCount
+    dv.setUint16(o, laCovOff); o += 2;
+    dv.setUint16(o, 1); o += 2; // seqLookupCount
+    dv.setUint16(o, 0); o += 2; // sequenceIndex = the input glyph
+    dv.setUint16(o, nestedLookupIndex); o += 2;
+    out.set(inputCov, inputCovOff);
+    out.set(laCov, laCovOff);
     return out;
   }
 
@@ -287,6 +339,93 @@
   }
 
   /**
+   * Build a GSUB 'calt' table substituting each seam offender for its .jn01
+   * lowered-exit alternate when the NEXT glyph is a low-entry follower
+   * (ADR 0048). One SingleSubst (bases -> alternates) nested in one
+   * lookahead-keyed chain; the feature lists only the chain, so the alternate
+   * never applies word-finally or before a high-entry glyph. Returns null when
+   * there is nothing to substitute or nothing to look ahead to (the plain
+   * build stays plain). Assembly mirrors buildGsubCalt (kept self-contained on
+   * purpose — surgical additive, no shared rewrite).
+   */
+  function buildGsubJoinAlts(joinGroups, rightGids) {
+    if (!joinGroups || !joinGroups.length || !rightGids || !rightGids.length) return null;
+
+    var pairs = joinGroups.map(function (g) { return [g.baseGid, g.altGid]; });
+    pairs.sort(function (a, b) { return a[0] - b[0]; });
+    var covGids = pairs.map(function (p) { return p[0]; });
+    var substGids = pairs.map(function (p) { return p[1]; });
+    var laGids = rightGids.slice().sort(function (a, b) { return a - b; });
+
+    var lookups = [
+      lookupBytes(1, singleSubst2Bytes(covGids, substGids)),
+      lookupBytes(6, chainContextLookahead3Bytes(covGids, laGids, 0)),
+    ];
+
+    // LookupList.
+    var numLookups = lookups.length;
+    var llHeader = 2 + 2 * numLookups;
+    var cur = llHeader;
+    var lookupOffsets = lookups.map(function (lk) { var o = cur; cur += lk.length; return o; });
+    var lookupListDv = new DataView(new ArrayBuffer(cur));
+    lookupListDv.setUint16(0, numLookups);
+    for (var lo = 0; lo < numLookups; lo++) lookupListDv.setUint16(2 + 2 * lo, lookupOffsets[lo]);
+    var lookupListBytes = new Uint8Array(lookupListDv.buffer);
+    for (var lk2 = 0; lk2 < numLookups; lk2++) lookupListBytes.set(lookups[lk2], lookupOffsets[lk2]);
+
+    // Feature 'calt' lists ONLY the chain (lookup 1) — listing the single-sub
+    // would blanket-convert every offender everywhere.
+    var featureDv = new DataView(new ArrayBuffer(4 + 2));
+    featureDv.setUint16(0, 0); // featureParamsOffset null
+    featureDv.setUint16(2, 1);
+    featureDv.setUint16(4, 1); // the chain
+    var featureBytes = new Uint8Array(featureDv.buffer);
+
+    var flHeader = 2 + 6; // featureCount + one FeatureRecord
+    var featureListBytes = new Uint8Array(flHeader + featureBytes.length);
+    var flDv = new DataView(featureListBytes.buffer);
+    flDv.setUint16(0, 1); // featureCount
+    writeTag(flDv, 2, 'calt');
+    flDv.setUint16(6, flHeader);
+    featureListBytes.set(featureBytes, flHeader);
+
+    // ScriptList: DFLT + latn share one Script table (same shape as buildGsubCalt).
+    var scriptListLen = 2 + 6 * 2;
+    var scriptTableLen = 4;
+    var langSysLen = 8;
+    var scriptTableOff = scriptListLen;
+    var langSysOff = scriptTableOff + scriptTableLen;
+    var scriptListBytes = new Uint8Array(scriptListLen + scriptTableLen + langSysLen);
+    var slDv = new DataView(scriptListBytes.buffer);
+    slDv.setUint16(0, 2); // scriptCount
+    writeTag(slDv, 2, 'DFLT');
+    slDv.setUint16(6, scriptTableOff);
+    writeTag(slDv, 8, 'latn');
+    slDv.setUint16(12, scriptTableOff);
+    slDv.setUint16(scriptTableOff, langSysOff - scriptTableOff);
+    slDv.setUint16(scriptTableOff + 2, 0);
+    slDv.setUint16(langSysOff, 0);
+    slDv.setUint16(langSysOff + 2, 0xffff);
+    slDv.setUint16(langSysOff + 4, 1);
+    slDv.setUint16(langSysOff + 6, 0);
+
+    // GSUB header + assembled sections.
+    var headerLen = 10;
+    var scriptListOff = headerLen;
+    var featureListOff = scriptListOff + scriptListBytes.length;
+    var lookupListOff = featureListOff + featureListBytes.length;
+    var headerBytes = new Uint8Array(headerLen);
+    var hDv = new DataView(headerBytes.buffer);
+    hDv.setUint16(0, 1);
+    hDv.setUint16(2, 0);
+    hDv.setUint16(4, scriptListOff);
+    hDv.setUint16(6, featureListOff);
+    hDv.setUint16(8, lookupListOff);
+
+    return concatBytes([headerBytes, scriptListBytes, featureListBytes, lookupListBytes]);
+  }
+
+  /**
    * Expand char-keyed connect-kern pairs to cover the calt variant glyphs. A
    * base glyph and its .cvNN variants share the hand, so a base pair's kern value
    * applies to every combination of their variants — otherwise the calt-substituted
@@ -307,6 +446,14 @@
       for (var vi = 0; vi < grp.variants.length; vi++) arr.push(grp.variants[vi].gid);
       variantsOf.set(grp.baseGid, arr);
     }
+    // .jnNN seam alternates share the base metric, so a base pair's kern value
+    // applies to them the same way (ADR 0048).
+    var joinGroups = collectJoinAltGroups(indexByName);
+    for (var ji = 0; ji < joinGroups.length; ji++) {
+      var jg = joinGroups[ji];
+      if (!variantsOf.has(jg.baseGid)) variantsOf.set(jg.baseGid, [jg.baseGid]);
+      variantsOf.get(jg.baseGid).push(jg.altGid);
+    }
 
     var out = [];
     for (var pi = 0; pi < pairs.length; pi++) {
@@ -325,5 +472,7 @@
 
   global.collectVariantGroups = collectVariantGroups;
   global.buildGsubCalt = buildGsubCalt;
+  global.collectJoinAltGroups = collectJoinAltGroups;
+  global.buildGsubJoinAlts = buildGsubJoinAlts;
   global.expandVariantKern = expandVariantKern;
 })(typeof self !== 'undefined' ? self : this);

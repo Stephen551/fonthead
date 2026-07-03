@@ -7,9 +7,12 @@ const code = readFileSync(join(__dirname, '..', 'public', 'assets', 'vendor', 'f
 type Variant = { suffix: string; name: string; gid: number };
 type Group = { base: string; baseGid: number; variants: Variant[] };
 type GidPair = { l: number; r: number; value: number };
+type JoinGroup = { base: string; baseGid: number; altGid: number; name: string };
 const sandbox: {
   collectVariantGroups?: (indexByName: Map<string, number>) => Group[];
   buildGsubCalt?: (groups: Group[] | null, indexByName: Map<string, number>) => Uint8Array | null;
+  collectJoinAltGroups?: (indexByName: Map<string, number>) => JoinGroup[];
+  buildGsubJoinAlts?: (groups: JoinGroup[] | null, rightGids: number[] | null) => Uint8Array | null;
   expandVariantKern?: (
     pairs: Array<{ leftChar: string; rightChar: string; value: number }>,
     indexByChar: Map<number, number>,
@@ -19,6 +22,8 @@ const sandbox: {
 new Function('self', code)(sandbox);
 const collectVariantGroups = sandbox.collectVariantGroups!;
 const buildGsubCalt = sandbox.buildGsubCalt!;
+const collectJoinAltGroups = sandbox.collectJoinAltGroups!;
+const buildGsubJoinAlts = sandbox.buildGsubJoinAlts!;
 const expandVariantKern = sandbox.expandVariantKern!;
 
 const grp = (base: string, baseGid: number, ...vs: Array<[string, number]>): Group => ({
@@ -31,7 +36,7 @@ const grp = (base: string, baseGid: number, ...vs: Array<[string, number]>): Gro
  * Coverage is ascending and every structural invariant, and returns the layout.
  * Throws/fails on anything malformed — that is the point. */
 type SingleLookup = { type: 1; map: Map<number, number> };
-type ChainLookup = { type: 6; backtrackLen: number; btCovs: number[][]; inputCov: number[]; seq: Array<{ seqIndex: number; lookupIndex: number }> };
+type ChainLookup = { type: 6; backtrackLen: number; btCovs: number[][]; inputCov: number[]; laCovs: number[][]; seq: Array<{ seqIndex: number; lookupIndex: number }> };
 function parseGsub(bytes: Uint8Array) {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const tag = (off: number) => String.fromCharCode(dv.getUint8(off), dv.getUint8(off + 1), dv.getUint8(off + 2), dv.getUint8(off + 3));
@@ -109,7 +114,11 @@ function parseGsub(bytes: Uint8Array) {
       o += 2;
       const laCount = dv.getUint16(o);
       o += 2;
-      expect(laCount).toBe(0);
+      const laCovs: number[][] = [];
+      for (let i = 0; i < laCount; i++) {
+        laCovs.push(readCoverage(subOff + dv.getUint16(o)));
+        o += 2;
+      }
       const seqCount = dv.getUint16(o);
       o += 2;
       const seq: Array<{ seqIndex: number; lookupIndex: number }> = [];
@@ -121,7 +130,7 @@ function parseGsub(bytes: Uint8Array) {
         seq.push({ seqIndex, lookupIndex });
         o += 4;
       }
-      lookups.push({ type: 6, backtrackLen: btCount, btCovs, inputCov, seq });
+      lookups.push({ type: 6, backtrackLen: btCount, btCovs, inputCov, laCovs, seq });
     } else {
       throw new Error('unexpected lookup type ' + type);
     }
@@ -244,6 +253,66 @@ describe('buildGsubCalt', () => {
   });
 });
 
+describe('collectJoinAltGroups', () => {
+  it('pairs each .jnNN alternate with its base, sorted by base gid', () => {
+    const idx = new Map<string, number>([
+      ['o', 20],
+      ['b', 6],
+      ['o.jn01', 90],
+      ['b.jn01', 91],
+      ['a.cv01', 40], // a cycling variant is NOT a join alternate
+      ['a', 5],
+    ]);
+    expect(collectJoinAltGroups(idx)).toEqual([
+      { base: 'b', baseGid: 6, altGid: 91, name: 'b.jn01' },
+      { base: 'o', baseGid: 20, altGid: 90, name: 'o.jn01' },
+    ]);
+  });
+
+  it('drops an orphan alternate whose base is absent', () => {
+    expect(collectJoinAltGroups(new Map([['z.jn01', 99]]))).toEqual([]);
+  });
+});
+
+describe('buildGsubJoinAlts', () => {
+  const jg = (base: string, baseGid: number, altGid: number): JoinGroup => ({ base, baseGid, altGid, name: base + '.jn01' });
+
+  it('builds a lookahead-keyed calt: offender -> .jn01 only before a low-entry glyph', () => {
+    const groups = [jg('o', 20, 90), jg('s', 22, 91)];
+    const rights = [5, 6, 7, 20]; // low-entry followers (an offender can follow itself)
+    const g = parseGsub(buildGsubJoinAlts(groups, rights)!);
+
+    expect(g.scripts).toEqual(['DFLT', 'latn']);
+    expect(g.feature).toBe('calt');
+    expect(g.featureLookups).toEqual([1]); // the chain only, never the blanket single-sub
+    expect(g.lookups.map((l) => l.type)).toEqual([1, 6]);
+
+    const ss = g.lookups[0] as SingleLookup;
+    expect(ss.map.get(20)).toBe(90);
+    expect(ss.map.get(22)).toBe(91);
+
+    const chain = g.lookups[1] as ChainLookup;
+    expect(chain.backtrackLen).toBe(0); // fires regardless of what precedes
+    expect(chain.inputCov).toEqual([20, 22]);
+    expect(chain.laCovs).toEqual([[5, 6, 7, 20]]); // one lookahead slot: the low-entry set
+    expect(chain.seq).toEqual([{ seqIndex: 0, lookupIndex: 0 }]);
+  });
+
+  it('returns null with nothing to substitute or nothing to look ahead to', () => {
+    expect(buildGsubJoinAlts([], [5])).toBeNull();
+    expect(buildGsubJoinAlts(null, [5])).toBeNull();
+    expect(buildGsubJoinAlts([jg('o', 20, 90)], [])).toBeNull();
+    expect(buildGsubJoinAlts([jg('o', 20, 90)], null)).toBeNull();
+  });
+
+  it('sorts coverage regardless of group order', () => {
+    const groups = [jg('s', 22, 91), jg('o', 20, 90)];
+    const g = parseGsub(buildGsubJoinAlts(groups, [7, 5])!); // parseGsub asserts ascending
+    expect((g.lookups[1] as ChainLookup).inputCov).toEqual([20, 22]);
+    expect((g.lookups[1] as ChainLookup).laCovs).toEqual([[5, 7]]);
+  });
+});
+
 describe('expandVariantKern', () => {
   const cp = (c: string) => c.codePointAt(0)!;
 
@@ -281,5 +350,17 @@ describe('expandVariantKern', () => {
 
   it('drops a pair whose base char is absent from the cmap', () => {
     expect(expandVariantKern([{ leftChar: 'a', rightChar: 'n', value: -30 }], new Map(), new Map())).toEqual([]);
+  });
+
+  it('fans a pair out to .jnNN seam alternates too (they share the base metric)', () => {
+    const indexByChar = new Map<number, number>([[cp('o'), 20], [cp('n'), 6]]);
+    const indexByName = new Map<string, number>([
+      ['o', 20],
+      ['n', 6],
+      ['o.jn01', 90],
+    ]);
+    const out = expandVariantKern([{ leftChar: 'o', rightChar: 'n', value: -25 }], indexByChar, indexByName);
+    expect(out.map((p) => `${p.l}:${p.r}`).sort()).toEqual(['20:6', '90:6'].sort());
+    expect(out.every((p) => p.value === -25)).toBe(true);
   });
 });

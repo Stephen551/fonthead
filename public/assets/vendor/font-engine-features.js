@@ -89,9 +89,13 @@
         // Natural variation: expand each base pair to its variant glyph-id
         // combinations so the calt-substituted variant glyphs get the connect
         // kern too (same hand, same value). Variant glyphs have no cmap entry,
-        // so they are addressed by gid via buildGposKernFromGidPairs.
+        // so they are addressed by gid via buildGposKernFromGidPairs. Seam
+        // alternates (.jnNN, ADR 0048) ride the same expansion: a substituted
+        // lowered-exit copy must kern exactly like its base.
+        const hasJoinAlts = typeof global.collectJoinAltGroups === 'function'
+          && global.collectJoinAltGroups(indexByName).length > 0;
         let gpos;
-        if (featureOpts.naturalVariation
+        if ((featureOpts.naturalVariation || hasJoinAlts)
             && typeof global.expandVariantKern === 'function'
             && typeof global.buildGposKernFromGidPairs === 'function') {
           gpos = global.buildGposKernFromGidPairs(global.expandVariantKern(norm, indexByChar, indexByName));
@@ -139,6 +143,34 @@
         if (gsub) {
           font._customTables = font._customTables || {};
           font._customTables.GSUB = gsub;
+        }
+      }
+    }
+
+    /* Seam alternates (ADR 0048): substitute a high-exit glyph for its
+       lowered-exit .jn01 copy only before a low-entry follower, via the same
+       custom-table GSUB path. v1 is scoped to non-variation builds (the
+       cycling calt owns GSUB there; composing the two rule sets is a
+       follow-up) and, like the variation table, gated on ligatures-off. */
+    if (!featureOpts.naturalVariation
+        && featureOpts.joinAltRights && featureOpts.joinAltRights.length
+        && typeof global.collectJoinAltGroups === 'function'
+        && typeof global.buildGsubJoinAlts === 'function') {
+      if (featureOpts.ligatures) {
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('[font-engine] seam alternates skipped: ligatures already own GSUB; the calt table would be dropped by injectCustomTables.');
+        }
+      } else {
+        const jGroups = global.collectJoinAltGroups(indexByName);
+        const rightGids = [];
+        for (const ch of featureOpts.joinAltRights) {
+          const gid = indexByChar.get(ch.codePointAt(0));
+          if (typeof gid === 'number') rightGids.push(gid);
+        }
+        const gsubJoin = global.buildGsubJoinAlts(jGroups, rightGids);
+        if (gsubJoin) {
+          font._customTables = font._customTables || {};
+          font._customTables.GSUB = gsubJoin;
         }
       }
     }
