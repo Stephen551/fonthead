@@ -1210,6 +1210,10 @@ function glyphColumnAreas(g: Glyph): {
   spans: number[];
   rowLeft: number[];
   rowRight: number[];
+  /** per-column ink y-extents — the terminal stroke model reads its
+   *  cross-sections here (per-row extents smear a sloped tail, ADR 0049) */
+  colTop: number[];
+  colBot: number[];
   inkTopRow: number;
 } | null {
   const cw = Math.max(1, Math.ceil(g.cellW));
@@ -1248,7 +1252,57 @@ function glyphColumnAreas(g: Glyph): {
   }
   const inkH = Math.max(1, gMax - gMin + 1);
   const spans = cols.map((n, i) => (n > 0 ? (maxY[i] - minY[i] + 1) / inkH : 0));
-  return { cols, spans, rowLeft, rowRight, inkTopRow: gMin === Infinity ? 0 : gMin };
+  return { cols, spans, rowLeft, rowRight, colTop: minY, colBot: maxY, inkTopRow: gMin === Infinity ? 0 : gMin };
+}
+
+/** Stage A of connector reconstruction (ADR 0049): recover a terminal tail as
+ *  a STROKE — centerline, slope-corrected width, attachment point + tangent
+ *  at the body edge, and the tip — from the per-column extents. Walks outward
+ *  from the body edge while columns carry ink; null when the tail is absent
+ *  or too short to carry a tangent. A curled tail's cross-section reads as
+ *  the union of its passes (over-wide); the median width damps it. */
+export function traceTerminalStroke(
+  prof: { cols: number[]; colTop: number[]; colBot: number[] },
+  body: { min: number; max: number },
+  _baseY: number,
+  _xhPx: number,
+  side: 'left' | 'right',
+): {
+  points: Array<{ x: number; y: number }>;
+  width: number;
+  attach: { x: number; y: number };
+  tip: { x: number; y: number };
+  tangent: { dx: number; dy: number };
+} | null {
+  const step = side === 'right' ? 1 : -1;
+  const start = side === 'right' ? body.max + 1 : body.min - 1;
+  const points: Array<{ x: number; y: number }> = [];
+  const thicks: number[] = [];
+  for (let x = start; x >= 0 && x < prof.cols.length; x += step) {
+    const top = prof.colTop[x];
+    const bot = prof.colBot[x];
+    if (!isFinite(top) || bot < top || prof.cols[x] <= 0) break;
+    points.push({ x, y: (top + bot) / 2 });
+    thicks.push(bot - top + 1);
+  }
+  if (points.length < 3) return null;
+  // per-column width = vertical thickness corrected by the local slope (a
+  // diagonal stroke's vertical cut overstates its true width)
+  const widths = points.map((p, i) => {
+    const a = points[Math.max(0, i - 1)];
+    const b = points[Math.min(points.length - 1, i + 1)];
+    const slope = (b.y - a.y) / Math.max(1, Math.abs(b.x - a.x));
+    return thicks[i] / Math.sqrt(1 + slope * slope);
+  });
+  const ws = widths.slice().sort((a, b) => a - b);
+  const width = ws[Math.floor(ws.length / 2)];
+  const attach = points[0];
+  const tip = points[points.length - 1];
+  const k = Math.min(3, points.length - 1);
+  const dxr = points[k].x - points[0].x;
+  const dyr = points[k].y - points[0].y;
+  const len = Math.max(1e-6, Math.hypot(dxr, dyr));
+  return { points, width, attach, tip, tangent: { dx: dxr / len, dy: dyr / len } };
 }
 
 /** Pure: dense-body edges from a column ink-count histogram — the leftmost and

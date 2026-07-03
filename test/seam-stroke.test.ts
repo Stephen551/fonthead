@@ -1,0 +1,135 @@
+import { describe, it, expect } from 'vitest';
+import { traceTerminalStroke } from '../src/lib/maker';
+
+// Stage A of the connector-reconstruction milestone (ADR 0049, plan
+// 2026-07-02): the terminal stroke model. traceTerminalStroke reads a
+// glyph's EXISTING row profile and recovers the exit (or entry) tail as a
+// STROKE — centerline points, a measured width, the attachment point and
+// tangent at the body edge, and the tip — or null when there is no usable
+// tail. Pure and jsdom-safe: profiles are injected, no canvas.
+//
+// The model reads PER-COLUMN y-extents (colTop/colBot, recorded by
+// glyphColumnAreas in its raster pass): cross-section at column x is
+// [colTop[x], colBot[x]]. Per-row extents cannot recover a sloped tail — a
+// descending stroke's rowRight smears every column into the union of all
+// columns to its right (proven by these tests before implementation).
+
+const CW = 48;
+const CH = 100;
+const BASE = 80;
+
+type Prof = {
+  cols: number[];
+  spans: number[];
+  rowLeft: number[];
+  rowRight: number[];
+  colTop: number[];
+  colBot: number[];
+  inkTopRow: number;
+};
+
+// a dense body [bodyX0..bodyX1] over the full x-height, plus an exit tail
+// described by per-column y-centers: tail[i] = center row of the tail at
+// column bodyX1+1+i, drawn `thick` rows tall.
+const profWithExit = (bodyX0: number, bodyX1: number, tailCenters: number[], thick = 5): Prof => {
+  const cols = new Array(CW).fill(0);
+  const colTop = new Array(CW).fill(Infinity);
+  const colBot = new Array(CW).fill(-Infinity);
+  for (let x = bodyX0; x <= bodyX1; x++) {
+    cols[x] = 30;
+    colTop[x] = BASE - 30;
+    colBot[x] = BASE;
+  }
+  const rowLeft = new Array(CH).fill(Infinity);
+  const rowRight = new Array(CH).fill(-Infinity);
+  for (let y = BASE - 30; y <= BASE; y++) {
+    rowLeft[y] = bodyX0;
+    rowRight[y] = bodyX1;
+  }
+  const half = Math.floor(thick / 2);
+  tailCenters.forEach((cy, i) => {
+    const x = bodyX1 + 1 + i;
+    cols[x] = thick;
+    colTop[x] = cy - half;
+    colBot[x] = cy + half;
+    for (let y = cy - half; y <= cy + half; y++) {
+      if (rowLeft[y] === Infinity) rowLeft[y] = bodyX0; // tail rows still start at the body
+      if (rowRight[y] < x) rowRight[y] = x;
+    }
+  });
+  const spans = cols.map((n) => (n > 0 ? (n > 10 ? 0.9 : 0.1) : 0));
+  return { cols, spans, rowLeft, rowRight, colTop, colBot, inkTopRow: BASE - 30 };
+};
+
+const BODY = { min: 10, max: 26 };
+
+describe('traceTerminalStroke (Stage A, ADR 0049)', () => {
+  it('recovers a flat tail: level centerline, vertical thickness as width, tip at the last column', () => {
+    // 8 columns at a constant center height 0.5·xh above baseline (row 65)
+    const prof = profWithExit(10, 26, new Array(8).fill(65));
+    const s = traceTerminalStroke(prof as never, BODY, BASE, 30, 'right')!;
+    expect(s).toBeTruthy();
+    expect(s.attach.x).toBe(27);
+    expect(s.attach.y).toBeCloseTo(65, 0);
+    expect(s.tip.x).toBe(34);
+    expect(s.tip.y).toBeCloseTo(65, 0);
+    expect(s.width).toBeCloseTo(5, 0); // flat stroke: width = the 5-row cross-section
+    expect(Math.abs(s.tangent.dy)).toBeLessThan(0.2); // level tangent
+    expect(s.tangent.dx).toBeGreaterThan(0.9);
+  });
+
+  it('recovers a descending tail: falling centerline, slope-corrected width, downward tangent', () => {
+    // centers descend 2 rows per column (y grows down = stroke falls toward the baseline)
+    const centers = [56, 58, 60, 62, 64, 66, 68, 70];
+    const prof = profWithExit(10, 26, centers);
+    const s = traceTerminalStroke(prof as never, BODY, BASE, 30, 'right')!;
+    expect(s.attach.y).toBeCloseTo(56, 0);
+    expect(s.tip.y).toBeCloseTo(70, 0);
+    expect(s.tangent.dy).toBeGreaterThan(0.5); // descending (cell y grows down)
+    // vertical cross-section 5 on a slope dy/dx=2: true width = 5·cos(atan(2)) ≈ 2.24
+    expect(s.width).toBeGreaterThan(1.5);
+    expect(s.width).toBeLessThan(3.5);
+  });
+
+  it('returns null when there is no tail past the body', () => {
+    const prof = profWithExit(10, 26, []);
+    expect(traceTerminalStroke(prof as never, BODY, BASE, 30, 'right')).toBeNull();
+  });
+
+  it('returns null for a stub too short to carry a tangent', () => {
+    const prof = profWithExit(10, 26, [65, 65]);
+    expect(traceTerminalStroke(prof as never, BODY, BASE, 30, 'right')).toBeNull();
+  });
+
+  it('reads the entry side mirrored', () => {
+    // mirror: an entry tail LEFT of the body, flat at row 74 (0.2·xh)
+    const cols = new Array(CW).fill(0);
+    const colTop = new Array(CW).fill(Infinity);
+    const colBot = new Array(CW).fill(-Infinity);
+    for (let x = 10; x <= 26; x++) {
+      cols[x] = 30;
+      colTop[x] = BASE - 30;
+      colBot[x] = BASE;
+    }
+    const rowLeft = new Array(CH).fill(Infinity);
+    const rowRight = new Array(CH).fill(-Infinity);
+    for (let y = BASE - 30; y <= BASE; y++) {
+      rowLeft[y] = 10;
+      rowRight[y] = 26;
+    }
+    for (let i = 0; i < 6; i++) {
+      const x = 9 - i;
+      cols[x] = 5;
+      colTop[x] = 72;
+      colBot[x] = 76;
+      for (let y = 72; y <= 76; y++) if (rowLeft[y] > x) rowLeft[y] = x;
+    }
+    const spans = cols.map((n) => (n > 0 ? (n > 10 ? 0.9 : 0.1) : 0));
+    const prof = { cols, spans, rowLeft, rowRight, colTop, colBot, inkTopRow: BASE - 30 };
+    const s = traceTerminalStroke(prof as never, BODY, BASE, 30, 'left')!;
+    expect(s.attach.x).toBe(9);
+    expect(s.tip.x).toBe(4);
+    expect(s.tip.y).toBeCloseTo(74, 0);
+    expect(s.tangent.dx).toBeLessThan(-0.9); // pointing left, away from the body
+  });
+});
