@@ -364,10 +364,14 @@ describe('makeSeamAlternates (ADR 0048)', () => {
     mk('h', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.2, reach: 4 }),
   ];
 
-  it('a high-exit glyph gains a .jn01 alternate with its exit tip lowered onto the join line', () => {
-    // o: exit stub tip at 0.8·xh (y 56), reach to x=34. Join line = median entry
-    // 0.2·xh -> joinY 74. dy = 74 - 56 = 18; at the tip the warp applies in full.
-    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.8, reach: 8 }, 'M34 56')];
+  it('a high-exit glyph gains a .jn01 alternate: tip lowered onto the join line AND truncated to the seam', () => {
+    // o: exit stub tip at 0.5·xh (y 65), reach to x=34 (run 8 past the body).
+    // Join line = median entry 0.2·xh -> joinY 74, dy 9. The tail then
+    // truncates so its tip ends AT the seam point (bodyMax 26 + gap 5 = 31):
+    // the stroke terminates where the follower's entry begins instead of
+    // continuing across it — the crossing is what closed the eyelet loops the
+    // judge panel failed (terminate-at-join, the panel iteration).
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 8 }, 'M34 65')];
     const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
     expect(out.joinFrac).toBeCloseTo(0.2, 5);
     expect(out.offenders.map((o) => o.char)).toEqual(['o']);
@@ -376,9 +380,41 @@ describe('makeSeamAlternates (ADR 0048)', () => {
     expect(alt.char).toBe('o');
     expect(alt.variantSuffix).toBe('.jn01');
     expect(alt.cellW).toBe(CW); // a copy: metrics untouched
-    expect(alt.paths[0]).toBe('M34 74'); // tip y 56 + dy 18 = the join line
+    expect(alt.paths[0]).toBe('M31 74'); // y: 65 + 9 = the line; x: 26 + 8·(5/8) = the seam
     // low-entry followers (hooks at 0.2) and the hook-less x (body-edge entry)
     expect([...out.rights].sort()).toEqual(['h', 'm', 'n', 'o', 'u', 'x']);
+  });
+
+  it('a steep exit stays drawn (a cliff descent reads mechanical, the panel verdict)', () => {
+    // exit tip at 0.8·xh needs a 0.6·xh drop to the 0.2 line — over the
+    // descent cap. The base flick is better texture than a wire cliff; the
+    // s/x class waits for the assembled pass.
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.8, reach: 8 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders).toEqual([]);
+    expect(out.alternates).toEqual([]);
+  });
+
+  it('the warp is y-banded to the join zone: ascender ink right of the body never moves', () => {
+    // a b-class glyph: gentle exit stub AND an ascender loop whose right side
+    // leans past the body edge high above the zone. The alternate lowers the
+    // stub; the loop point is byte-identical (the un-banded first cut sheared
+    // it — the seam e2e caught an 8-unit maxY drift on b.jn01).
+    const looped = mk('b', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 8 }, 'M34 65');
+    looped.paths.push('M30 26'); // loop point: x past body edge, y at 1.8·xh (row 80-54)
+    const gs = [mk('x'), ...lowHands(), looped];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders.map((o) => o.char)).toEqual(['b']);
+    expect(out.alternates[0].paths[0]).toBe('M31 74'); // stub: lowered + truncated
+    expect(out.alternates[0].paths[1]).toBe('M30 26'); // loop: untouched
+  });
+
+  it('a tail already inside the seam keeps its length (no stretch)', () => {
+    // reach 3 < the 5px gap: x untouched, only the tip lowers.
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 3 }, 'M29 65')];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders.map((o) => o.char)).toEqual(['o']);
+    expect(out.alternates[0].paths[0]).toBe('M29 74');
   });
 
   it('a face whose exit tips already sit on the entry line generates nothing', () => {
