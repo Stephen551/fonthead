@@ -7,12 +7,12 @@ const code = readFileSync(join(__dirname, '..', 'public', 'assets', 'vendor', 'f
 type Variant = { suffix: string; name: string; gid: number };
 type Group = { base: string; baseGid: number; variants: Variant[] };
 type GidPair = { l: number; r: number; value: number };
-type JoinGroup = { base: string; baseGid: number; altGid: number; name: string };
+type JoinGroup = { base: string; baseGid: number; altGid: number; name: string; nn: string };
 const sandbox: {
   collectVariantGroups?: (indexByName: Map<string, number>) => Group[];
   buildGsubCalt?: (groups: Group[] | null, indexByName: Map<string, number>) => Uint8Array | null;
   collectJoinAltGroups?: (indexByName: Map<string, number>) => JoinGroup[];
-  buildGsubJoinAlts?: (groups: JoinGroup[] | null, rightGids: number[] | null) => Uint8Array | null;
+  buildGsubJoinAlts?: (groups: JoinGroup[] | null, rightGids: number[] | null, leftGids?: number[] | null) => Uint8Array | null;
   expandVariantKern?: (
     pairs: Array<{ leftChar: string; rightChar: string; value: number }>,
     indexByChar: Map<number, number>,
@@ -254,7 +254,7 @@ describe('buildGsubCalt', () => {
 });
 
 describe('collectJoinAltGroups', () => {
-  it('pairs each .jnNN alternate with its base, sorted by base gid', () => {
+  it('pairs each .jnNN alternate with its base and tier, sorted by base gid', () => {
     const idx = new Map<string, number>([
       ['o', 20],
       ['b', 6],
@@ -264,9 +264,19 @@ describe('collectJoinAltGroups', () => {
       ['a', 5],
     ]);
     expect(collectJoinAltGroups(idx)).toEqual([
-      { base: 'b', baseGid: 6, altGid: 91, name: 'b.jn01' },
-      { base: 'o', baseGid: 20, altGid: 90, name: 'o.jn01' },
+      { base: 'b', baseGid: 6, altGid: 91, name: 'b.jn01', nn: '01' },
+      { base: 'o', baseGid: 20, altGid: 90, name: 'o.jn01', nn: '01' },
     ]);
+  });
+
+  it('collects the entry (.jn02) and both-sides (.jn03) tiers too', () => {
+    const idx = new Map<string, number>([
+      ['w', 25],
+      ['w.jn01', 90],
+      ['w.jn02', 91],
+      ['w.jn03', 92],
+    ]);
+    expect(collectJoinAltGroups(idx).map((g) => g.nn).sort()).toEqual(['01', '02', '03']);
   });
 
   it('drops an orphan alternate whose base is absent', () => {
@@ -275,7 +285,7 @@ describe('collectJoinAltGroups', () => {
 });
 
 describe('buildGsubJoinAlts', () => {
-  const jg = (base: string, baseGid: number, altGid: number): JoinGroup => ({ base, baseGid, altGid, name: base + '.jn01' });
+  const jg = (base: string, baseGid: number, altGid: number, nn = '01'): JoinGroup => ({ base, baseGid, altGid, name: base + '.jn' + nn, nn });
 
   it('builds a lookahead-keyed calt: offender -> .jn01 only before a low-entry glyph', () => {
     const groups = [jg('o', 20, 90), jg('s', 22, 91)];
@@ -310,6 +320,58 @@ describe('buildGsubJoinAlts', () => {
     const g = parseGsub(buildGsubJoinAlts(groups, [7, 5])!); // parseGsub asserts ascending
     expect((g.lookups[1] as ChainLookup).inputCov).toEqual([20, 22]);
     expect((g.lookups[1] as ChainLookup).laCovs).toEqual([[5, 7]]);
+  });
+
+  it('builds a backtrack-keyed entry rule: hook carrier -> .jn02 only after a joining exit', () => {
+    // entry-side only (no exit offenders): the lead-in collapse fires on the
+    // follower when the PREVIOUS glyph joins; word-initially the drawn
+    // lead-in survives (no backtrack match at the start of text).
+    const groups = [jg('w', 25, 92, '02'), jg('n', 21, 93, '02')];
+    const g = parseGsub(buildGsubJoinAlts(groups, [], [5, 6, 20])!);
+
+    expect(g.featureLookups).toEqual([1]); // the chain only
+    expect(g.lookups.map((l) => l.type)).toEqual([1, 6]);
+    const ss = g.lookups[0] as SingleLookup;
+    expect(ss.map.get(25)).toBe(92);
+    expect(ss.map.get(21)).toBe(93);
+    const chain = g.lookups[1] as ChainLookup;
+    expect(chain.backtrackLen).toBe(1);
+    expect(chain.btCovs).toEqual([[5, 6, 20]]); // the joiner-exit class
+    expect(chain.laCovs).toEqual([]); // fires regardless of what follows
+    expect(chain.inputCov).toEqual([21, 25]);
+    expect(chain.seq).toEqual([{ seqIndex: 0, lookupIndex: 0 }]);
+  });
+
+  it('composes both sides: the exit pass feeds the entry pass through .jn03', () => {
+    // w carries all three tiers. Exit chain first (w -> w.jn01 before a low
+    // entry), then the entry chain sees w OR w.jn01 behind a joiner and maps
+    // w -> w.jn02, w.jn01 -> w.jn03 ('awa' lands on w.jn03).
+    const groups = [jg('w', 25, 90, '01'), jg('w', 25, 92, '02'), jg('w', 25, 93, '03')];
+    const g = parseGsub(buildGsubJoinAlts(groups, [5, 6], [5, 90])!);
+
+    expect(g.featureLookups).toEqual([1, 3]); // both chains, never the singles
+    expect(g.lookups.map((l) => l.type)).toEqual([1, 6, 1, 6]);
+
+    const exitSs = g.lookups[0] as SingleLookup;
+    expect(exitSs.map.get(25)).toBe(90);
+    const exitChain = g.lookups[1] as ChainLookup;
+    expect(exitChain.backtrackLen).toBe(0);
+    expect(exitChain.laCovs).toEqual([[5, 6]]);
+    expect(exitChain.seq).toEqual([{ seqIndex: 0, lookupIndex: 0 }]);
+
+    const entrySs = g.lookups[2] as SingleLookup;
+    expect(entrySs.map.get(25)).toBe(92); // base -> entry-collapsed
+    expect(entrySs.map.get(90)).toBe(93); // exit alternate -> both
+    const entryChain = g.lookups[3] as ChainLookup;
+    expect(entryChain.backtrackLen).toBe(1);
+    expect(entryChain.btCovs).toEqual([[5, 90]]); // joiner bases AND their .jn alternates
+    expect(entryChain.inputCov).toEqual([25, 90]);
+    expect(entryChain.seq).toEqual([{ seqIndex: 0, lookupIndex: 2 }]);
+  });
+
+  it('an entry rule without a backtrack class builds nothing', () => {
+    expect(buildGsubJoinAlts([jg('w', 25, 92, '02')], [], [])).toBeNull();
+    expect(buildGsubJoinAlts([jg('w', 25, 92, '02')], [], null)).toBeNull();
   });
 });
 

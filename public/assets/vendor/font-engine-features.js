@@ -167,7 +167,23 @@
           const gid = indexByChar.get(ch.codePointAt(0));
           if (typeof gid === 'number') rightGids.push(gid);
         }
-        const gsubJoin = global.buildGsubJoinAlts(jGroups, rightGids);
+        /* Backtrack class for the entry-side rule: the joiner-exit BASES plus
+           every .jn alternate of theirs — the exit pass runs first, so the
+           glyph behind a follower is often already o.jn01, and a backtrack
+           coverage of bases alone would miss it (the 'ow' case). */
+        const leftGids = [];
+        if (featureOpts.joinAltLefts && featureOpts.joinAltLefts.length) {
+          const leftBase = new Set();
+          for (const ch of featureOpts.joinAltLefts) {
+            const gid = indexByChar.get(ch.codePointAt(0));
+            if (typeof gid === 'number') {
+              leftBase.add(gid);
+              leftGids.push(gid);
+            }
+          }
+          for (const jg of jGroups) if (leftBase.has(jg.baseGid)) leftGids.push(jg.altGid);
+        }
+        const gsubJoin = global.buildGsubJoinAlts(jGroups, rightGids, leftGids);
         if (gsubJoin) {
           font._customTables = font._customTables || {};
           font._customTables.GSUB = gsubJoin;

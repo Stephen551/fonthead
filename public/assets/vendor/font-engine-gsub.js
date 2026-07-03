@@ -66,8 +66,10 @@
     return groups;
   }
 
-  // Seam alternates: pair each base with its single .jn01 alternate. An orphan
-  // (base absent) drops; groups sort by base gid so coverage comes out ascending.
+  // Seam alternates: pair each base with its .jnNN alternates. nn '01' is the
+  // exit-reconstructed copy, '02' the entry-collapsed copy, '03' both (the two
+  // calt passes compose through it). An orphan (base absent) drops; groups
+  // sort by base gid so coverage derivations come out ascending.
   function collectJoinAltGroups(indexByName) {
     if (!indexByName) return [];
     var groups = [];
@@ -78,7 +80,7 @@
       if (!m) continue;
       var baseGid = indexByName.get(m[1]);
       if (typeof baseGid !== 'number') continue;
-      groups.push({ base: m[1], baseGid: baseGid, altGid: gid, name: name });
+      groups.push({ base: m[1], baseGid: baseGid, altGid: gid, name: name, nn: m[2] });
     }
     groups.sort(function (a, b) { return a.baseGid - b.baseGid; });
     return groups;
@@ -339,28 +341,61 @@
   }
 
   /**
-   * Build a GSUB 'calt' table substituting each seam offender for its .jn01
-   * lowered-exit alternate when the NEXT glyph is a low-entry follower
-   * (ADR 0048). One SingleSubst (bases -> alternates) nested in one
-   * lookahead-keyed chain; the feature lists only the chain, so the alternate
-   * never applies word-finally or before a high-entry glyph. Returns null when
-   * there is nothing to substitute or nothing to look ahead to (the plain
+   * Build a GSUB 'calt' table for the seam alternates (ADR 0048/0049). Two
+   * ordered rules, each a SingleSubst nested in a chain, the feature listing
+   * only the chains:
+   *  - EXIT (lookahead): offender base -> .jn01 (reconstructed exit) when the
+   *    NEXT glyph is a low-entry follower. Word-finally the drawn exit stays.
+   *  - ENTRY (backtrack): hook carrier base -> .jn02 (collapsed lead-in), and
+   *    .jn01 -> .jn03, when the PREVIOUS glyph is a joining exit (base or any
+   *    .jn alternate). Word-initially the drawn lead-in stays. The entry pass
+   *    runs after the exit pass, so a both-sides letter composes through
+   *    .jn03 ('awa': w -> w.jn01 by lookahead, then -> w.jn03 by backtrack).
+   * Returns null when no rule has both members and a trigger class (the plain
    * build stays plain). Assembly mirrors buildGsubCalt (kept self-contained on
    * purpose — surgical additive, no shared rewrite).
    */
-  function buildGsubJoinAlts(joinGroups, rightGids) {
-    if (!joinGroups || !joinGroups.length || !rightGids || !rightGids.length) return null;
+  function buildGsubJoinAlts(joinGroups, rightGids, leftGids) {
+    if (!joinGroups || !joinGroups.length) return null;
 
-    var pairs = joinGroups.map(function (g) { return [g.baseGid, g.altGid]; });
-    pairs.sort(function (a, b) { return a[0] - b[0]; });
-    var covGids = pairs.map(function (p) { return p[0]; });
-    var substGids = pairs.map(function (p) { return p[1]; });
-    var laGids = rightGids.slice().sort(function (a, b) { return a - b; });
+    var byBase = new Map(); // baseGid -> { '01': gid, '02': gid, '03': gid }
+    for (var gi = 0; gi < joinGroups.length; gi++) {
+      var grp = joinGroups[gi];
+      if (!byBase.has(grp.baseGid)) byBase.set(grp.baseGid, {});
+      byBase.get(grp.baseGid)[grp.nn] = grp.altGid;
+    }
+    var exitPairs = [];
+    var entryPairs = [];
+    byBase.forEach(function (alts, baseGid) {
+      if (typeof alts['01'] === 'number') exitPairs.push([baseGid, alts['01']]);
+      if (typeof alts['02'] === 'number') entryPairs.push([baseGid, alts['02']]);
+      if (typeof alts['01'] === 'number' && typeof alts['03'] === 'number') entryPairs.push([alts['01'], alts['03']]);
+    });
+    var byGid = function (a, b) { return a[0] - b[0]; };
+    exitPairs.sort(byGid);
+    entryPairs.sort(byGid);
 
-    var lookups = [
-      lookupBytes(1, singleSubst2Bytes(covGids, substGids)),
-      lookupBytes(6, chainContextLookahead3Bytes(covGids, laGids, 0)),
-    ];
+    var lookups = [];
+    var chainIndices = [];
+    if (exitPairs.length && rightGids && rightGids.length) {
+      var exCov = exitPairs.map(function (p) { return p[0]; });
+      var exSub = exitPairs.map(function (p) { return p[1]; });
+      var laGids = rightGids.slice().sort(function (a, b) { return a - b; });
+      var exSingleIdx = lookups.length;
+      lookups.push(lookupBytes(1, singleSubst2Bytes(exCov, exSub)));
+      chainIndices.push(lookups.length);
+      lookups.push(lookupBytes(6, chainContextLookahead3Bytes(exCov, laGids, exSingleIdx)));
+    }
+    if (entryPairs.length && leftGids && leftGids.length) {
+      var enCov = entryPairs.map(function (p) { return p[0]; });
+      var enSub = entryPairs.map(function (p) { return p[1]; });
+      var btGids = leftGids.slice().sort(function (a, b) { return a - b; });
+      var enSingleIdx = lookups.length;
+      lookups.push(lookupBytes(1, singleSubst2Bytes(enCov, enSub)));
+      chainIndices.push(lookups.length);
+      lookups.push(lookupBytes(6, chainContext3Bytes(1, enCov, btGids, enSingleIdx)));
+    }
+    if (!chainIndices.length) return null;
 
     // LookupList.
     var numLookups = lookups.length;
@@ -373,12 +408,12 @@
     var lookupListBytes = new Uint8Array(lookupListDv.buffer);
     for (var lk2 = 0; lk2 < numLookups; lk2++) lookupListBytes.set(lookups[lk2], lookupOffsets[lk2]);
 
-    // Feature 'calt' lists ONLY the chain (lookup 1) — listing the single-sub
-    // would blanket-convert every offender everywhere.
-    var featureDv = new DataView(new ArrayBuffer(4 + 2));
+    // Feature 'calt' lists ONLY the chains — listing a single-sub would
+    // blanket-convert every offender everywhere.
+    var featureDv = new DataView(new ArrayBuffer(4 + 2 * chainIndices.length));
     featureDv.setUint16(0, 0); // featureParamsOffset null
-    featureDv.setUint16(2, 1);
-    featureDv.setUint16(4, 1); // the chain
+    featureDv.setUint16(2, chainIndices.length);
+    for (var ci = 0; ci < chainIndices.length; ci++) featureDv.setUint16(4 + 2 * ci, chainIndices[ci]);
     var featureBytes = new Uint8Array(featureDv.buffer);
 
     var flHeader = 2 + 6; // featureCount + one FeatureRecord

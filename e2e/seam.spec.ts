@@ -86,16 +86,31 @@ test.describe('seam alternates (banked behind the test hook)', () => {
     const check = verifySfntChecksums(otf);
     expect(check.ok, `sfnt checksums valid: ${check.errors.join('; ')}`).toBe(true);
 
+    // entry side (the director's w): the arch letters whose lead-in hook
+    // rides high with NO low entry gain .jn02; letters with a real low entry
+    // sweep (h/k/q fired falsely at the band floor once) never fire.
+    const entryOffenders = (sa as unknown as { entryOffenders: Array<{ char: string }> }).entryOffenders.map((o) => o.char);
+    for (const c of ['w', 'n', 'm', 'r', 'v']) expect(entryOffenders, `entry offender ${c}`).toContain(c);
+    for (const c of ['h', 'k', 'q', 'f', 't', 'u']) expect(entryOffenders, `${c} never fires the entry side`).not.toContain(c);
+
     const font = fontkit.create(Buffer.from(otf));
-    // mid-word: the alternate applies before a low-entry follower
-    expect(shapeNames(font, 'on')).toEqual(['o.jn01', 'n']);
+    // mid-word: the exit alternate applies before a low-entry follower, and
+    // the follower's own floating lead-in collapses after a joining exit
+    expect(shapeNames(font, 'on')).toEqual(['o.jn01', 'n.jn02']);
     expect(shapeNames(font, 've')).toEqual(['v.jn01', 'e']);
+    expect(shapeNames(font, 'ow')).toEqual(['o.jn01', 'w.jn02']);
+    // entry-only context: a clean exit still collapses the follower's hook
+    expect(shapeNames(font, 'aw')).toEqual(['a', 'w.jn02']);
+    // both sides at once compose through .jn03
+    expect(shapeNames(font, 'awa')).toEqual(['a', 'w.jn03', 'a']);
     // steep class: s keeps its drawn exit even mid-word (and the final o is
     // word-final, so it keeps the flick too)
     expect(shapeNames(font, 'sos')).toEqual(['s', 'o.jn01', 's']);
     expect(shapeNames(font, 'so')).toEqual(['s', 'o']);
-    // word-final: the drawn flick survives (no lookahead, no substitution)
+    // word boundaries: the drawn flick survives word-finally, the drawn
+    // lead-in survives word-initially
     expect(shapeNames(font, 'no')).toEqual(['n', 'o']);
+    expect(shapeNames(font, 'wo')).toEqual(['w.jn01', 'o']);
     // metric transparency: the alternate carries its base's advance exactly,
     // so the calt swap never jolts spacing and the base kern pairs apply.
     const byName = new Map<string, any>();
@@ -114,6 +129,16 @@ test.describe('seam alternates (banked behind the test hook)', () => {
       // below visibility. A REAL regression (a sheared ascender, a raised
       // terminal) moves tens of units.
       expect(alt.bbox.maxY <= base.bbox.maxY + 12, `${c}.jn01 rides no higher than its base (alt ${Math.round(alt.bbox.maxY)} vs ${Math.round(base.bbox.maxY)})`).toBe(true);
+    }
+    // entry alternates carry the base advance too (all three tiers)
+    for (const c of entryOffenders) {
+      const base = byName.get(c);
+      for (const suf of ['.jn02', '.jn03']) {
+        const alt = byName.get(`${c}${suf}`);
+        if (suf === '.jn02') expect(alt, `${c}.jn02 exists`).toBeTruthy();
+        if (!alt) continue;
+        expect(alt.advanceWidth, `${c}${suf} advance = base`).toBe(base.advanceWidth);
+      }
     }
   });
 
