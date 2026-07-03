@@ -456,6 +456,46 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
     expect(maxX).toBeLessThan(45.5);
   });
 
+  it('the exit collapse spares drawn structure right of the body (the wo w-limb)', () => {
+    // w/v/b carry a real tapered stroke between the dense body and the flick
+    // (the w's final descent from its loop). The collapse must clip at the
+    // connector-weight attach point, never at the dense-body edge — clipping
+    // there amputated the limb and wire-thinned the letter (director's catch
+    // on the wo pair).
+    const g = mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 8 }, 'M29 55');
+    g.paths.push('M36 65'); // a point on the flick, past the attach
+    const p = g._p;
+    // structural limb: sparse tall unions in cols 27-30, then a pinch at 31,
+    // then the drawn flick 32-38 (overwrite the fixture's flat exit tail)
+    for (let x = 27; x <= 38; x++) {
+      p.cols[x] = 0;
+      p.colTop[x] = Infinity;
+      p.colBot[x] = -Infinity;
+    }
+    for (let x = 27; x <= 30; x++) {
+      p.cols[x] = 6;
+      p.colTop[x] = 50;
+      p.colBot[x] = 79;
+    }
+    p.cols[31] = 1;
+    p.colTop[31] = 64;
+    p.colBot[31] = 66;
+    for (let x = 32; x <= 38; x++) {
+      p.cols[x] = 5;
+      p.colTop[x] = 65;
+      p.colBot[x] = 69;
+    }
+    for (let y = 65; y <= 69; y++) p.rowRight[y] = 38; // flick rows for the offender gate
+    const gs = [mk('x'), ...lowHands(), g];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders.map((o) => o.char)).toEqual(['o']);
+    const alt = out.alternates[0];
+    expect(alt.paths[0]).toBe('M29 55'); // the limb: drawn structure, untouched
+    const clipped = pts(alt.paths[1])[0];
+    expect(clipped.x).toBeLessThanOrEqual(31); // the flick point collapsed to the attach clip
+    expect(clipped.y).toBe(65);
+  });
+
   it('an offender whose exit stroke cannot be traced is skipped whole', () => {
     // a 2-column stub clears the rowRight offender gate but is too short for
     // the stroke model (under 3 columns): no reconstruction, no alternate —

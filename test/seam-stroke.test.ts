@@ -123,6 +123,38 @@ describe('traceTerminalStroke (Stage A, ADR 0049)', () => {
     expect(s.rootWidth).toBeLessThanOrEqual(10.5);
   });
 
+  it('starts the stroke at the connector-weight point, sparing a structural taper', () => {
+    // the wo regression (director's catch): for w/v/b the columns right of
+    // the dense body are the letter's own tapered terminal stroke, then a
+    // separation pinch, then the true connector flick. Attaching at the body
+    // edge amputated the drawn structure. The model must attach where the
+    // tail first runs at connector weight.
+    const thicks = [40, 38, 36, 3, 10, 10, 10, 10, 10, 10];
+    const cols = new Array(CW).fill(0);
+    const colTop = new Array(CW).fill(Infinity);
+    const colBot = new Array(CW).fill(-Infinity);
+    for (let x = 10; x <= 26; x++) {
+      cols[x] = 30;
+      colTop[x] = BASE - 30;
+      colBot[x] = BASE;
+    }
+    thicks.forEach((th, i) => {
+      const x = 27 + i;
+      cols[x] = Math.min(th, 8); // sparse tall unions: a diagonal limb
+      colTop[x] = 65 - th / 2;
+      colBot[x] = 65 + th / 2;
+    });
+    const rowLeft = new Array(CH).fill(Infinity);
+    const rowRight = new Array(CH).fill(-Infinity);
+    const spans = cols.map((n) => (n > 0 ? (n > 20 ? 0.9 : 0.1) : 0));
+    const prof = { cols, spans, rowLeft, rowRight, colTop, colBot, inkTopRow: BASE - 30 };
+    const s = traceTerminalStroke(prof as never, BODY, BASE, 30, 'right')!;
+    expect(s.attach.x).toBeGreaterThanOrEqual(30); // past the structural taper (cols 27-29)
+    expect(s.attach.x).toBeLessThanOrEqual(32); // at the pinch/flick root, not deep into the flick
+    expect(s.width).toBeGreaterThan(8); // the flick's weight, not the limb's
+    expect(s.width).toBeLessThan(12);
+  });
+
   it('root width rejects union-contaminated columns at the body edge', () => {
     // the columns just past the dense body still carry bowl/crossover ink, and
     // the per-column extent is a UNION — the raw root columns read ~4x the

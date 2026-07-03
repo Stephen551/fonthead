@@ -1301,23 +1301,38 @@ export function traceTerminalStroke(
     return thicks[i] / Math.sqrt(1 + slope * slope);
   });
   const ws = widths.slice().sort((a, b) => a - b);
-  const width = ws[Math.floor(ws.length / 2)];
-  // root width (diagnostic): the attachment-half stroke weight. The first
-  // columns past the body carry bowl/crossover UNIONS (far over the median)
-  // and a separation PINCH (far under it) — measured on the smooth hand:
-  // o reads [68,60,51,45,27, 9,4.6,4.4, 12,13,...] — so the read is the
-  // median of the first half's uncontaminated columns.
-  const firstHalf = widths.slice(0, Math.ceil(widths.length / 2));
-  const cleanRoot = firstHalf.filter((w) => w <= 2.5 * width);
-  const rws = (cleanRoot.length ? cleanRoot : firstHalf).slice().sort((a, b) => a - b);
+  const med0 = ws[Math.floor(ws.length / 2)];
+  // The CONNECTOR-WEIGHT START. The first columns past the dense body can be
+  // bowl-overlap unions (the o) or the letter's own tapered terminal stroke
+  // (the w's descent from its final loop — drawn structure, never tail; the
+  // wo pair wire-thinned when it was collapsed), then a separation pinch,
+  // then the true connector flick. Three consecutive columns at sane width
+  // (within [0.4, 2.5]x the whole-tail median) mark where the connector
+  // begins; the stroke attaches THERE and everything before it stays the
+  // letter's own ink. A clean tail qualifies at column 0 (unchanged).
+  let tailStart = 0;
+  for (let i = 0; i + 2 < widths.length; i++) {
+    let sane = true;
+    for (let j = 0; j < 3; j++) if (widths[i + j] > 2.5 * med0 || widths[i + j] < 0.4 * med0) sane = false;
+    if (sane) {
+      tailStart = i;
+      break;
+    }
+  }
+  if (points.length - tailStart < 3) tailStart = 0;
+  const tPoints = points.slice(tailStart);
+  const tWidths = widths.slice(tailStart);
+  const tws = tWidths.slice().sort((a, b) => a - b);
+  const width = tws[Math.floor(tws.length / 2)];
+  const rws = tWidths.slice(0, 3).sort((a, b) => a - b);
   const rootWidth = rws[Math.floor(rws.length / 2)];
-  const attach = points[0];
-  const tip = points[points.length - 1];
-  const k = Math.min(3, points.length - 1);
-  const dxr = points[k].x - points[0].x;
-  const dyr = points[k].y - points[0].y;
+  const attach = tPoints[0];
+  const tip = tPoints[tPoints.length - 1];
+  const k = Math.min(3, tPoints.length - 1);
+  const dxr = tPoints[k].x - tPoints[0].x;
+  const dyr = tPoints[k].y - tPoints[0].y;
   const len = Math.max(1e-6, Math.hypot(dxr, dyr));
-  return { points, width, rootWidth, widths, attach, tip, tangent: { dx: dxr / len, dy: dyr / len } };
+  return { points: tPoints, width, rootWidth, widths: tWidths, attach, tip, tangent: { dx: dxr / len, dy: dyr / len } };
 }
 
 /** Stage B of connector reconstruction (ADR 0049): the face's STANDARD JOIN,
@@ -2457,7 +2472,10 @@ export function makeSeamAlternates(
     offenders.push({ char: m.char, exitFrac: m.exitFrac, width: es.width, widthProfile: es.widths.map((w) => Math.round(w * 10) / 10) });
     const yLo = g.baselineYInCell - SEAM_ZONE_HI * xhPx;
     const yHi = g.baselineYInCell + 0.2 * xhPx;
-    const collapsed = g.paths.map((d) => collapseSeamTail(d, m.bodyMax, yLo, yHi));
+    // clip at the connector-weight attach point, NOT the dense-body edge:
+    // ink between them is the letter's own terminal structure (the w's
+    // descent limb) and must survive the collapse
+    const collapsed = g.paths.map((d) => collapseSeamTail(d, es.attach.x - 1, yLo, yHi));
     const baseSign = pathAreaSign(g.paths[0] ?? '');
     const ringD = baseSign !== 0 && pathAreaSign(synth.d) !== baseSign ? reverseClosedPath(synth.d) : synth.d;
     const exitPaths = [...collapsed, ringD];
