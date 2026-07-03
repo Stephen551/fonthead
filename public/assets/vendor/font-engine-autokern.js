@@ -294,7 +294,19 @@
     return pairs;
   }
 
-  function analyzeAutoKern(glyphs, scale, strength) {
+  /* A .jnNN seam alternate (ADR 0048) is a warped COPY appended after its
+     base. Left in the analysis it shadows the base in last-wins char indexing
+     and double-weights the gap statistics, so the kern gets fitted to warped
+     exits while rendering mostly bases (corpus catch: cc-3 structural nn 167).
+     Both analyzers excise them up front; the alternates inherit the base kern
+     via expandVariantKern. Variation .cvNN glyphs keep the historical
+     behavior their calibration bakes in. */
+  function withoutSeamAlts(glyphs) {
+    return glyphs.filter(function (g) { return !(g.variantSuffix && g.variantSuffix.indexOf('.jn') === 0); });
+  }
+
+  function analyzeAutoKern(glyphsIn, scale, strength) {
+    const glyphs = withoutSeamAlts(glyphsIn);
     const byChar = new Map();
     for (const g of glyphs) byChar.set(g.char, g);
 
@@ -357,8 +369,9 @@
    *   Keeps the descender clearance (loops hang below the placed bodies), every
    *   cap-pair floor (caps do not bridge), and the word-space evening.
    * -------------------------------------------------------------- */
-  function analyzeConnectKern(glyphs, scale, opts) {
+  function analyzeConnectKern(glyphsIn, scale, opts) {
     opts = opts || {};
+    const glyphs = withoutSeamAlts(glyphsIn); /* ADR 0048: fit the kern to the BASE outlines */
     const byChar = new Map();
     for (const g of glyphs) byChar.set(g.char, g);
     const LOWER = 'abcdefghijklmnopqrstuvwxyz';
