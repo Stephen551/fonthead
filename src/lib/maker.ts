@@ -1042,6 +1042,11 @@ export interface BuildOpts {
    *  table so a repeated letter cycles through its variants. Mutually exclusive
    *  with connect/trimFlourishes (a plain mono build with cycling variants). */
   naturalVariation?: boolean;
+  /** Seam joins (ADR 0048, connect only, default ON): a measured high exit
+   *  gains a .jn01 alternate lowered onto the entry line, substituted by calt
+   *  before a low-entry follower so the seam merges instead of crossing.
+   *  false is the off switch. */
+  seamAlternates?: boolean;
 }
 
 // ---- flourish trim: body advances with overhang -----------------------------
@@ -1868,6 +1873,164 @@ export function snapConnectorHeights(
   return { glyphs: out, snapped, mismatch };
 }
 
+// Contextual seam alternates (ADR 0048). A knot forms where a HIGH exit stroke
+// crosses the next letter's LOW entry hook at an angle: the two strokes pool
+// ink into a small loop at the seam (fo, on, ve on the smooth-script hand).
+// The snap cannot fix these: its scan stops at the connection band's 0.6·xh
+// ceiling so a stub riding at 0.8·xh is never measured, and lowering the BASE
+// glyph's exit is the reverted stub-snap that flattened the copperplate swash
+// (ADR 0038 exempts HIGH_EXIT by design). So the base glyph keeps its drawn
+// flick, and a COPY (.jn01, appended unicode-less exactly like a .cvNN
+// variant) carries the exit warped down onto the face's entry line; a GSUB
+// calt lookahead rule substitutes it only when a low-entry letter follows.
+// Word-final and before-high-entry positions keep the drawn exit.
+// ·xh above the join line — an exit tip this high crosses a low entry. Live
+// calibration on the smooth-script hand: the gentle crossings the eye still
+// reads as knots (o .21, b .18, w .21, v .245 over the line) sit under the
+// first-cut 0.28; the clean class (a/e/h/u/k at ~0) sits far below 0.15.
+const SEAM_EXIT_GATE = 0.15;
+const SEAM_ENTRY_TOL = 0.15; // ·xh — a follower's entry tip within this of the line reads low
+// Exit-tip scan ceiling sits just above the x-height: the o/s/v exit stubs
+// live at 0.6-1.0·xh, while an ascender loop's right side (l, d) and a cap
+// swash read as huge fake "tails" at any higher ceiling — the first live
+// calibration flagged A/D/O/S/T and l/d at the 1.3 ceiling while missing the
+// real knots. Above-the-ceiling ink is structure, not a connector.
+const SEAM_ZONE_HI = 1.05;
+// Structure check band: right-of-body ink WELL above the exit ceiling is an
+// ascender loop or a swash (the l false positive), never a connector — a real
+// exit stub ends inside the zone. The band starts above optical-overshoot
+// territory: a pointed letter's stroke top (v, w) pokes to ~1.1·xh and must
+// not read as structure.
+const SEAM_LOOP_CHECK_LO = 1.15; // ·xh
+const SEAM_LOOP_CHECK_HI = 1.4; // ·xh
+const SEAM_WARP_MAX = 1.0; // ·xh — cap one exit's downward travel
+const SEAM_CROSSBAR = new Set(['f', 't']); // crossbars overhang high by design; never offenders
+const SEAM_ALT_SUFFIX = '.jn01';
+// Lowercase joiners only: a cap's right side swashes by design (the corpus
+// exempts script caps from the overhang metric for the same reason), and the
+// field knots are all lowercase seams.
+const SEAM_LOWERCASE = /^[a-z]$/;
+
+export function makeSeamAlternates(
+  glyphs: Glyph[],
+  profilesIn?: (ReturnType<typeof glyphColumnAreas>)[],
+): {
+  alternates: Glyph[];
+  rights: string[];
+  offenders: Array<{ char: string; exitFrac: number }>;
+  joinFrac: number;
+  terminals: Array<{ char: string; entryFrac: number | null; exitFrac: number | null }>;
+} {
+  const profiles = profilesIn ?? glyphs.map((g) => glyphColumnAreas(g));
+  const fm = faceMetrics(glyphs, profiles);
+  const xhPx = Math.max(1, fm.xhPx);
+  type M = { i: number; char: string; joinsLeft: boolean; joinsRight: boolean; bodyMin: number; bodyMax: number; last: number; loopAbove: boolean; entryFrac: number | null; exitFrac: number | null; exitTipY: number };
+  const meas: M[] = [];
+  glyphs.forEach((g, i) => {
+    const prof = profiles[i];
+    if (!prof) return;
+    const cls = joinClass(g.char);
+    if (cls.kind !== 'join') return;
+    const body = bodyBoundsFromColumns(prof.cols, BODY_CONNECT_OPTS, prof.spans);
+    if (!body) return;
+    let last = -1;
+    for (let c = prof.cols.length - 1; c >= 0; c--)
+      if (prof.cols[c] > 0) {
+        last = c;
+        break;
+      }
+    if (last < 0) return;
+    const baseY = g.baselineYInCell;
+    const topY = Math.max(0, Math.round(baseY - SEAM_ZONE_HI * xhPx));
+    const botY = Math.min(g.cellH - 1, Math.round(baseY - CONNECT_BAND_LO * xhPx));
+    // Entry hooks live in the low CONNECT band by definition; scanning higher
+    // let an arch shoulder (m, n) occlude the low tick and read the entry at
+    // shoulder height, dropping real followers from the lookahead set.
+    const entryTopY = Math.max(0, Math.round(baseY - CONNECT_BAND_HI * xhPx));
+    // tail tips, measured only on ink OUTSIDE the dense body: the y of the
+    // furthest reach is the terminal's height. A bare stem topping the zone
+    // has no tail and never registers.
+    let entryReach = Infinity,
+      entryY = -1,
+      exitReach = -Infinity,
+      exitY = -1;
+    for (let y = topY; y <= botY; y++) {
+      const l = prof.rowLeft[y];
+      const r = prof.rowRight[y];
+      if (y >= entryTopY && isFinite(l) && l < body.min - 1 && l < entryReach) {
+        entryReach = l;
+        entryY = y;
+      }
+      if (isFinite(r) && r > body.max + 1 && r > exitReach) {
+        exitReach = r;
+        exitY = y;
+      }
+    }
+    // structure check: right-of-body ink continuing well above the exit ceiling
+    let loopAbove = false;
+    const loopTopY = Math.max(0, Math.round(baseY - SEAM_LOOP_CHECK_HI * xhPx));
+    const loopBotY = Math.min(g.cellH - 1, Math.round(baseY - SEAM_LOOP_CHECK_LO * xhPx));
+    for (let y = loopTopY; y <= loopBotY; y++) {
+      const r = prof.rowRight[y];
+      if (isFinite(r) && r > body.max + 1) {
+        loopAbove = true;
+        break;
+      }
+    }
+    meas.push({
+      i,
+      char: g.char,
+      joinsLeft: cls.joinsLeft,
+      joinsRight: cls.joinsRight,
+      bodyMin: body.min,
+      bodyMax: body.max,
+      last,
+      loopAbove,
+      entryFrac: entryY >= 0 ? (baseY - entryY) / xhPx : null,
+      exitFrac: exitY >= 0 ? (baseY - exitY) / xhPx : null,
+      exitTipY: exitY,
+    });
+  });
+
+  const terminals = meas.map((m) => ({ char: m.char, entryFrac: m.entryFrac, exitFrac: m.exitFrac }));
+  const entries = meas.filter((m) => m.joinsLeft && m.entryFrac !== null).map((m) => m.entryFrac as number);
+  if (entries.length < TAIL_MIN_JOINERS) return { alternates: [], rights: [], offenders: [], joinFrac: 0, terminals };
+  const sorted = entries.slice().sort((a, b) => a - b);
+  // The hand's OWN entry line, unclamped: a copperplate-class hand joins at
+  // mid-height (entries and exits both ~0.45·xh, already meeting) and clamping
+  // to the snap's 0.3 ceiling read every one of its exits as high — 18 needless
+  // alternates on cc-3, caught by the corpus. The snap's clamp protects ITS
+  // warp target; measurement compares exits against where the entries really
+  // are. Floor at the baseline band only.
+  const joinFrac = Math.max(SNAP_JOIN_LO, sorted[Math.floor(sorted.length / 2)]);
+
+  // Followers whose entry the lowered exit can land on: a low entry hook, or a
+  // hook-less letter whose body edge carries ink across the join line anyway.
+  const rights = Array.from(
+    new Set(meas.filter((m) => m.joinsLeft && (m.entryFrac === null || m.entryFrac <= joinFrac + SEAM_ENTRY_TOL)).map((m) => m.char)),
+  );
+
+  const offenders: Array<{ char: string; exitFrac: number }> = [];
+  const alternates: Glyph[] = [];
+  for (const m of meas) {
+    if (!m.joinsRight || m.exitFrac === null || m.loopAbove) continue;
+    if (!SEAM_LOWERCASE.test(m.char)) continue;
+    if (SEAM_CROSSBAR.has(m.char) || DESC_EXIT.has(m.char)) continue;
+    if (m.exitFrac - joinFrac <= SEAM_EXIT_GATE) continue;
+    const g = glyphs[m.i];
+    const joinY = g.baselineYInCell - joinFrac * xhPx;
+    const dy = Math.min(SEAM_WARP_MAX * xhPx, joinY - m.exitTipY);
+    if (dy < 1) continue;
+    offenders.push({ char: m.char, exitFrac: m.exitFrac });
+    alternates.push({
+      ...g,
+      variantSuffix: SEAM_ALT_SUFFIX,
+      paths: g.paths.map((d) => warpTailY(d, m.bodyMax, m.last, dy, 'right')),
+    });
+  }
+  return { alternates, rights, offenders, joinFrac, terminals };
+}
+
 /** Connected-cursive fit: place each glyph by its connection plugs so the exit
  *  of one letter meets the entry of the next, instead of trimming tails. A
  *  sibling of trimGlyphOverhangs (never a wrapper). Mutates paths via
@@ -1899,7 +2062,9 @@ export function connectGlyphs(
   // dense bodies carry the join (solid ink) and the thin strokes ride over it,
   // instead of relying on the hairlines to bridge the wider default gap. Scoped
   // to variation so the corpus (non-variation) keeps its calibrated 0.16 gap.
-  const hasVariants = glyphs.some((g) => !!g.variantSuffix);
+  // .cv-scoped on purpose: a .jnNN seam alternate (ADR 0048) is a same-sheet
+  // copy and must not flip a plain build onto the variation gap.
+  const hasVariants = glyphs.some((g) => !!g.variantSuffix && g.variantSuffix.startsWith('.cv'));
   const connectGapPx = Math.round((hasVariants ? 0.05 : CONNECT_GAP_PCT) * xhPx);
   const leftPadPx = Math.max(LEFT_PAD_FLOOR, Math.round((0.1 / 100) * (fm.maxAscBBox / 0.8)));
   const maxPenPx = Math.max(3, Math.round((0.018 * fm.maxAscBBox) / 0.8));
@@ -2389,6 +2554,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   // and shoved 27/29 joins apart), keeping descender clearance, cap floors,
   // and the word-space evening.
   let connectBridged = false;
+  let seamAltRights: string[] | undefined;
   if (opts.connect) {
     // Connected cursive. COMPOSES with natural variation: connectGlyphs runs on
     // the MERGED palette (it preserves variantSuffix), so the .cv01/.cv02 variant
@@ -2421,7 +2587,29 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
       snapped: snap.snapped,
       mismatch: snap.mismatch,
     };
-    const fit = connectGlyphs(snap.glyphs, { overlapPct: opts.connectOverlapPct });
+    // Seam alternates (ADR 0048): measured on the snapped ink, ride through
+    // placement as .jn01 copies (the variant inheritance gives them the base
+    // advance and shift), substituted by a GSUB calt lookahead rule in the
+    // worker. Non-variation builds only in v1 (the cycling calt owns GSUB on
+    // a palette; composing the rule sets is a follow-up).
+    let toFit = snap.glyphs;
+    if (!opts.naturalVariation && opts.seamAlternates !== false) {
+      const sa = makeSeamAlternates(snap.glyphs);
+      if (sa.alternates.length) {
+        toFit = [...snap.glyphs, ...sa.alternates];
+        seamAltRights = sa.rights;
+      }
+      (globalThis as unknown as { __lastSeamAlts?: object | null }).__lastSeamAlts = {
+        count: sa.alternates.length,
+        offenders: sa.offenders,
+        joinFrac: sa.joinFrac,
+        rights: sa.rights,
+        terminals: sa.terminals,
+      };
+    } else {
+      (globalThis as unknown as { __lastSeamAlts?: object | null }).__lastSeamAlts = null;
+    }
+    const fit = connectGlyphs(toFit, { overlapPct: opts.connectOverlapPct });
     glyphsIn = fit.glyphs;
     connectBridged = fit.entryNorm;
     // A bridged face's letter daylight sits at the hand's natural pitch (wider
@@ -2494,6 +2682,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
       kerning: true,
       connectKern: opts.connect ? (connectBridged ? { bridgedPlacement: true } : {}) : undefined,
       naturalVariation: opts.naturalVariation ? true : undefined,
+      joinAltRights: seamAltRights,
     },
     embedHints: false,
     embedTTHints: false,

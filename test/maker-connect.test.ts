@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { joinClass, anchorAdvance, connectGlyphs, isScriptFace } from '../src/lib/maker';
+import { joinClass, anchorAdvance, connectGlyphs, isScriptFace, makeSeamAlternates } from '../src/lib/maker';
 
 // Connected-cursive join classification. Pure, position-independent (a glyph's
 // class is a property of the character alone), no canvas, no engine.
@@ -280,5 +280,194 @@ describe('connectGlyphs (entry-reach normalization, ADR 0043)', () => {
     expect(out.glyphs[5].cellW).toBe(out.glyphs[1].cellW); // n.cv01 = n
     expect(out.glyphs[6].cellW).toBe(out.glyphs[2].cellW); // m.cv01 = m
     expect(out.glyphs[8].cellW).toBe(out.glyphs[4].cellW); // h.cv01 = h
+  });
+});
+
+describe('connectGlyphs (variation gap is .cv-scoped)', () => {
+  // The tightened variation gap (0.05·xh, ADR 0036) belongs to the .cvNN
+  // palette only. A seam alternate (.jnNN, ADR 0048) is a same-sheet copy and
+  // must NOT flip the face onto the variation gap.
+  const CELL_W = 40;
+  const CELL_H = 100;
+  const BASE = 80;
+  const rect = (x0: number, x1: number, h: number) => {
+    const cols = new Array(CELL_W).fill(0);
+    for (let x = x0; x <= x1; x++) cols[x] = h;
+    const spans = cols.map((n) => (n > 0 ? 0.9 : 0));
+    const rowLeft = new Array(CELL_H).fill(Infinity);
+    const rowRight = new Array(CELL_H).fill(-Infinity);
+    for (let y = BASE - h; y <= BASE; y++) {
+      rowLeft[y] = x0;
+      rowRight[y] = x1;
+    }
+    return { cols, spans, rowLeft, rowRight, inkTopRow: BASE - h };
+  };
+  const g = (char: string, x0: number, x1: number, h = 30) => ({ char, italic: false, paths: [`M${x0} 0`], cellW: CELL_W, cellH: CELL_H, baselineYInCell: BASE, _p: rect(x0, x1, h) });
+
+  it('a .jn seam alternate keeps the classic connector gap', () => {
+    const gs = [g('x', 2, 20), g('n', 3, 22), { ...g('n', 3, 22), variantSuffix: '.jn01' }];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.glyphs[0].cellW).toBe(23); // x: (20 - 2) + classic gap(5), NOT the variation gap(2)
+  });
+
+  it('a .cv variant tightens the gap (the variation build)', () => {
+    const gs = [g('x', 2, 20), g('n', 3, 22), { ...g('n', 3, 22), variantSuffix: '.cv01' }];
+    const out = connectGlyphs(gs as never, {}, gs.map((x) => x._p) as never);
+    expect(out.glyphs[0].cellW).toBe(20); // x: (20 - 2) + variation gap(2)
+  });
+});
+
+describe('makeSeamAlternates (ADR 0048)', () => {
+  // Synthetic profiles, jsdom-safe: a dense body plus optional thin entry/exit
+  // tails whose tip heights are exact, so the offender gate and the warp are
+  // asserted in closed form. xh = 30 (the x glyph), baseline y = 80.
+  const CW = 48;
+  const CH = 100;
+  const BASE = 80;
+  type Tail = { tipFrac: number; reach: number };
+  const prof = (bodyX0: number, bodyX1: number, entry?: Tail, exit?: Tail) => {
+    const cols = new Array(CW).fill(0);
+    for (let x = bodyX0; x <= bodyX1; x++) cols[x] = 30;
+    const rowLeft = new Array(CH).fill(Infinity);
+    const rowRight = new Array(CH).fill(-Infinity);
+    for (let y = BASE - 30; y <= BASE; y++) {
+      rowLeft[y] = bodyX0;
+      rowRight[y] = bodyX1;
+    }
+    if (entry) {
+      const tipY = Math.round(BASE - entry.tipFrac * 30);
+      for (let y = tipY; y <= Math.min(BASE, tipY + 4); y++) rowLeft[y] = bodyX0 - entry.reach;
+      for (let x = bodyX0 - entry.reach; x < bodyX0; x++) cols[x] = 5;
+    }
+    if (exit) {
+      const tipY = Math.round(BASE - exit.tipFrac * 30);
+      for (let y = tipY; y <= Math.min(BASE, tipY + 4); y++) rowRight[y] = bodyX1 + exit.reach;
+      for (let x = bodyX1 + 1; x <= bodyX1 + exit.reach; x++) cols[x] = 5;
+    }
+    // thin tails read as tails (low span fraction), the body as body
+    const spans = cols.map((n) => (n > 0 ? (n > 10 ? 0.9 : 0.1) : 0));
+    return { cols, spans, rowLeft, rowRight, inkTopRow: BASE - 30 };
+  };
+  const mk = (char: string, entry?: Tail, exit?: Tail, tipPath = 'M4 0') => ({
+    char,
+    italic: false,
+    paths: [tipPath],
+    cellW: CW,
+    cellH: CH,
+    baselineYInCell: BASE,
+    _p: prof(10, 26, entry, exit),
+  });
+  const lowHands = () => [
+    mk('n', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.2, reach: 4 }),
+    mk('m', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.2, reach: 4 }),
+    mk('u', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.2, reach: 4 }),
+    mk('h', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.2, reach: 4 }),
+  ];
+
+  it('a high-exit glyph gains a .jn01 alternate with its exit tip lowered onto the join line', () => {
+    // o: exit stub tip at 0.8·xh (y 56), reach to x=34. Join line = median entry
+    // 0.2·xh -> joinY 74. dy = 74 - 56 = 18; at the tip the warp applies in full.
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.8, reach: 8 }, 'M34 56')];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.joinFrac).toBeCloseTo(0.2, 5);
+    expect(out.offenders.map((o) => o.char)).toEqual(['o']);
+    expect(out.alternates).toHaveLength(1);
+    const alt = out.alternates[0];
+    expect(alt.char).toBe('o');
+    expect(alt.variantSuffix).toBe('.jn01');
+    expect(alt.cellW).toBe(CW); // a copy: metrics untouched
+    expect(alt.paths[0]).toBe('M34 74'); // tip y 56 + dy 18 = the join line
+    // low-entry followers (hooks at 0.2) and the hook-less x (body-edge entry)
+    expect([...out.rights].sort()).toEqual(['h', 'm', 'n', 'o', 'u', 'x']);
+  });
+
+  it('a face whose exit tips already sit on the entry line generates nothing', () => {
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.25, reach: 8 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders).toEqual([]);
+    expect(out.alternates).toEqual([]);
+  });
+
+  it('crossbar letters f and t are never offenders (the crossbar rides high by design)', () => {
+    const gs = [mk('x'), ...lowHands(), mk('f', { tipFrac: 0.2, reach: 6 }, { tipFrac: 1.0, reach: 10 }), mk('t', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.95, reach: 9 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders).toEqual([]);
+  });
+
+  it('descender-exit letters keep their drawn exit', () => {
+    const gs = [mk('x'), ...lowHands(), mk('z', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.8, reach: 8 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders).toEqual([]);
+  });
+
+  it('bails whole when too few joiners carry an entry tail to fix the join line', () => {
+    const gs = [mk('x'), mk('n', { tipFrac: 0.2, reach: 6 }), mk('o', undefined, { tipFrac: 0.8, reach: 8 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.alternates).toEqual([]);
+    expect(out.offenders).toEqual([]);
+  });
+
+  it('a glyph with no ink past its body is not an offender even when its body tops the zone', () => {
+    // a bare stem/bowl reaching x-height has no exit tail; nothing to warp.
+    const gs = [mk('x'), ...lowHands(), mk('i', { tipFrac: 0.2, reach: 6 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders).toEqual([]);
+  });
+
+  it('an ascender loop leaning past the body is structure, not an exit tail (the l false positive)', () => {
+    // right-of-body ink continues ABOVE the exit-scan ceiling: a loop, never a
+    // connector. Live calibration flagged l at the ceiling; warping it would
+    // bend the ascender.
+    const looped = mk('l', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.9, reach: 8 });
+    const lp = looped._p;
+    for (let y = BASE - Math.round(1.25 * 30); y <= BASE - Math.round(1.1 * 30); y++) lp.rowRight[y] = 26 + 8; // the loop keeps leaning right above the zone
+    const gs = [mk('x'), ...lowHands(), looped];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders).toEqual([]);
+  });
+
+  it('a gentle high exit crossing the line still corrects (the o/v class)', () => {
+    // exit tip at 0.45·xh over a 0.2 join line: under the old 0.28 gate, but a
+    // visible crossing knot in the field renders. Fires with a small warp.
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.45, reach: 8 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders.map((o) => o.char)).toEqual(['o']);
+  });
+
+  it('optical overshoot just past the zone ceiling is not a loop (the v/w class)', () => {
+    // a pointed letter's stroke top overshoots the x-height by a few percent;
+    // that poke must not read as ascender structure or the v/w knots go
+    // uncorrected (live calibration: v topped ~1.08 and fell out).
+    const over = mk('v', undefined, { tipFrac: 0.5, reach: 8 });
+    const vp = over._p;
+    const pokeY = BASE - Math.round(1.08 * 30);
+    vp.rowRight[pokeY] = 26 + 4; // stroke top pokes right of the body, just over the ceiling
+    const gs = [mk('x'), ...lowHands(), over];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders.map((o) => o.char)).toEqual(['v']);
+  });
+
+  it('a hand that joins at mid-height is measured against its own entry line', () => {
+    // copperplate class: entries AND exits both ride ~0.45-0.5·xh and already
+    // meet. Clamping the line to the snap's 0.3 ceiling made every exit read
+    // high and over-fired 18 alternates on cc-3 (corpus catch). The line is
+    // the hand's own median entry height, unclamped.
+    const mid = (c: string, exitTip: number) => mk(c, { tipFrac: 0.45, reach: 6 }, { tipFrac: exitTip, reach: 4 });
+    const gs = [mk('x'), mid('n', 0.5), mid('m', 0.5), mid('u', 0.45), mid('h', 0.5), mid('o', 0.5)];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.joinFrac).toBeCloseTo(0.45, 1); // row rounding in the synthetic puts the tip at 0.433
+    expect(out.offenders).toEqual([]);
+  });
+
+  it('an entry hook is read in the low connect band, under an occluding arch shoulder', () => {
+    // an arch shoulder bulges left of the stem ABOVE the band; the low tick is
+    // the entry. Measured at the shoulder, m and n fell out of the followers
+    // set on the live sheet and the o>n knot went unfixed.
+    const arched = mk('w', { tipFrac: 0.2, reach: 6 });
+    const ap = arched._p;
+    for (let y = BASE - Math.round(0.9 * 30); y <= BASE - Math.round(0.75 * 30); y++) ap.rowLeft[y] = 10 - 8; // shoulder leans further left than the tick
+    const gs = [mk('x'), ...lowHands(), arched, mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.8, reach: 8 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.rights).toContain('w');
   });
 });
