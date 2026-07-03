@@ -1,6 +1,9 @@
 ﻿import { test, expect, type Page } from '@playwright/test';
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import * as fontkitNs from 'fontkit';
+
+const fontkit: any = (fontkitNs as any).create ? fontkitNs : (fontkitNs as any).default;
 
 // The typographic lint. Every fixture sheet builds through the real maker,
 // and the resulting font is measured for the failure classes found in the
@@ -106,6 +109,10 @@ const sheets = [
     .filter((f) => f.endsWith('.png'))
     .map((f) => ({ name: f.replace('.png', ''), path: join(CORPUS_DIR, f) })),
   { name: 'field-chancery', path: join(ROOT, 'e2e', 'fixtures', 'chancery-sheet.png') },
+  // The smooth-script hand: the fo/on/ve/so knots that motivated the seam
+  // milestone (ADR 0048/0049). A connect face like the cc fixtures; also the
+  // calibration hand for the assembled-pair seam sensor below.
+  { name: 'connected-cursive-smooth', path: join(ROOT, 'e2e', 'fixtures', 'smooth-script-sheet.jpg') },
 ];
 
 test.beforeEach(async ({ page }) => {
@@ -116,6 +123,12 @@ test.beforeEach(async ({ page }) => {
       // the connect toggle explicitly (off for the trim/overhang fixtures, on for
       // the connected-cursive fixture), so it must not auto-connect script faces.
       localStorage.setItem('fh-test-no-autoconnect', '1');
+      // ADR 0049 Stage E rollout: connect faces build WITH the reconstruction
+      // seam alternates, so the corpus gates the future connect default. Only
+      // connect builds read this flag; production default stays plain (the
+      // seam e2e proves that separately). Base placement is unchanged — .jn
+      // copies are skipped from every face median and inherit base decisions.
+      localStorage.setItem('fh-test-seam-alts', '1');
     } catch {
       /* private mode */
     }
@@ -126,6 +139,255 @@ test.beforeEach(async ({ page }) => {
 // glyph, no descender-exit left member). The realized gap should be a touch,
 // never visible daylight, or the "connected" face reads disconnected.
 const JOIN_PAIRS = ['an', 'ne', 'en', 'nn', 'mi', 'in', 're', 'er', 'ou', 'un', 'th', 'he', 'ic', 'ck', 'ow', 'wn', 'el', 'll', 'or', 'ab', 'cd', 'de', 'ef', 'ro', 'br', 'fr', 'lo', 'oo', 'ee'];
+
+// --- Assembled-pair seam sensor (ADR 0049 Stage E) -------------------------
+// The reconstruction's defects only exist once the glyphs are ASSEMBLED (the
+// ADR 0040 lesson: no build-time measure sees the rendered seam). So the
+// corpus shapes probe texts through the REAL GSUB/GPOS (fontkit), rasters
+// each seam where a .jn alternate fired at final metrics, and reads the zone
+// between the two dense bodies in the connect band (-0.1..1.1 x-height):
+//   gapCols   : columns with no ink at all — a connector failing to span
+//   crossCols : columns crossed by 2+ distinct strokes — the knot class (the
+//               drawn exit riding over the follower's entry without merging)
+//   poolRatio : thickest column's ink over the seam's own median — pooling
+// Metric transparency (alternate advance = base advance, kern fanned out)
+// means the plain render sits at IDENTICAL positions, so each seam is also
+// read with the alternates mapped back to their bases: every log line carries
+// the defect contrast the alternate bought, and calibration is built in.
+// The triples exercise the .jn03 both-sides composition ('awa' -> w.jn03).
+const SEAM_TEXTS = [...JOIN_PAIRS, 'awa', 'ana', 'ama', 'ara', 'ava', 'ono', 'owo'];
+// Thresholds calibrated 2026-07-03 on the smooth hand (panel-verified clean,
+// ADR 0050) and the cc corpus faces (SEAM-SENSOR lines + seam-sensor-*.json).
+// What each catches, honestly: gap is the sharp one (healthy faces read 0,
+// the two bridged faces one raster column; a connector failing to span reads
+// 8+). Crossing columns are DOMINATED by legitimate two-run geometry — cc-3's
+// r arm rides its whole seam at 62 columns, the smooth hand's verified-clean
+// seams read up to 25 — so the absolute gate is the catastrophe floor, not a
+// taste instrument (the alternates measurably reduce crossings vs the plain
+// render on the smooth knots: on 11 vs 17, va 1 vs 6). Pooling's healthy max
+// is 6.13 where a window abuts an arch shoulder, so its gate only catches
+// runaway blobbing. Subtle seam-quality regressions belong to the Stage F
+// panel; these gates lock the reconstruction's verified-clean scale.
+const SEAM_GAP_COLS_MAX = 3;
+const SEAM_CROSS_COLS_MAX = 90;
+const SEAM_POOL_RATIO_MAX = 8;
+
+type ShapedRun = {
+  text: string;
+  names: string[];
+  gids: number[];
+  baseGids: number[];
+  xs: number[];
+  advs: number[];
+  seams: number[]; // left-glyph indices of seams to read (either side is .jn)
+};
+
+type SeamZoneRead = { cols: number; gapCols: number; crossCols: number; maxRuns: number; poolRatio: number };
+type SeamRead = { text: string; seam: string; seamW: number; alt: SeamZoneRead; plain: SeamZoneRead };
+
+/** Shape the probe texts with the real feature pipeline; keep only runs where
+ *  a .jn seam alternate actually fired. Positions come from the shaped
+ *  advances (GPOS included), so the raster sits at final metrics. */
+function shapeSeamRuns(buf: Buffer): ShapedRun[] {
+  const font = fontkit.create(buf);
+  const nameToGid = new Map<string, number>();
+  for (let i = 0; i < font.numGlyphs; i++) {
+    const n = font.getGlyph(i)?.name;
+    if (n && !nameToGid.has(n)) nameToGid.set(n, i);
+  }
+  const out: ShapedRun[] = [];
+  for (const text of SEAM_TEXTS) {
+    let run: any;
+    try {
+      run = font.layout(text, ['calt', 'kern']);
+    } catch {
+      continue;
+    }
+    const names: string[] = run.glyphs.map((g: any, i: number) => g.name ?? `gid${run.glyphs[i].id}`);
+    if (!names.some((n) => /\.jn\d\d$/.test(n))) continue;
+    const xs: number[] = [];
+    const advs: number[] = [];
+    const gids: number[] = [];
+    let x = 0;
+    for (let i = 0; i < run.glyphs.length; i++) {
+      xs.push(x + (run.positions[i].xOffset || 0));
+      advs.push(run.positions[i].xAdvance);
+      gids.push(run.glyphs[i].id);
+      x += run.positions[i].xAdvance;
+    }
+    const baseGids = names.map((n, i) => nameToGid.get(n.replace(/\.jn\d\d$/, '')) ?? gids[i]);
+    const seams: number[] = [];
+    for (let i = 0; i + 1 < names.length; i++) if (/\.jn\d\d$/.test(names[i]) || /\.jn\d\d$/.test(names[i + 1])) seams.push(i);
+    out.push({ text, names, gids, baseGids, xs, advs, seams });
+  }
+  return out;
+}
+
+/** Raster each shaped run twice (alternates as built, bases at the same
+ *  positions) at 100px x-height and measure every fired seam's zone. Runs in
+ *  the page so the engine's opentype.js parses the same bytes the shaping
+ *  read; glyph ids agree between the two parsers by construction. */
+async function senseSeams(page: Page, otfPath: string, runs: ShapedRun[]): Promise<SeamRead[]> {
+  if (!runs.length) return [];
+  const b64 = readFileSync(otfPath).toString('base64');
+  return page.evaluate(
+    ({ b, runs }) => {
+      const bin = atob(b);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const font = (window as unknown as { opentype: { parse: (x: ArrayBuffer) => any } }).opentype.parse(bytes.buffer);
+      const upm = font.unitsPerEm || 1000;
+      const xg = font.charToGlyph('x');
+      const xb = xg && xg.getBoundingBox ? xg.getBoundingBox() : null;
+      const xh = xb && xb.y2 > 0 ? xb.y2 : upm * 0.5;
+      const S = 100 / xh; // 100px x-height forensic raster
+      const Y_TOP = 1.4 * xh; // canvas ceiling above baseline
+      const Y_BOT = -0.5 * xh; // canvas floor below baseline
+      const H = Math.ceil((Y_TOP - Y_BOT) * S);
+      const BAND_HI = 1.1 * xh; // measured band: the connect/seam zone
+      const BAND_LO = -0.1 * xh;
+
+      const drawGlyph = (ctx: OffscreenCanvasRenderingContext2D, gid: number, dxUnits: number) => {
+        const g = font.glyphs.get(gid);
+        if (!g || !g.path || !g.path.commands) return;
+        const tx = (x: number) => (x + dxUnits) * S;
+        const ty = (y: number) => (Y_TOP - y) * S;
+        ctx.beginPath();
+        for (const c of g.path.commands) {
+          if (c.type === 'M') ctx.moveTo(tx(c.x), ty(c.y));
+          else if (c.type === 'L') ctx.lineTo(tx(c.x), ty(c.y));
+          else if (c.type === 'C') ctx.bezierCurveTo(tx(c.x1), ty(c.y1), tx(c.x2), ty(c.y2), tx(c.x), ty(c.y));
+          else if (c.type === 'Q') ctx.quadraticCurveTo(tx(c.x1), ty(c.y1), tx(c.x), ty(c.y));
+          else if (c.type === 'Z') ctx.closePath();
+        }
+        ctx.fill('nonzero');
+      };
+
+      // dense-body edges per gid (same tall-column read as the rhythm metric:
+      // a body column spans most of the x-height; thin connectors don't)
+      const bodyCache = new Map<number, { bl: number; br: number } | null>();
+      const bodyEdges = (gid: number) => {
+        if (bodyCache.has(gid)) return bodyCache.get(gid)!;
+        const g = font.glyphs.get(gid);
+        if (!g || !g.path || !g.path.commands || !g.path.commands.length) {
+          bodyCache.set(gid, null);
+          return null;
+        }
+        const bb = g.getBoundingBox();
+        const pad = 4;
+        const w = Math.max(1, Math.ceil((bb.x2 - bb.x1) * S) + pad * 2);
+        const cv = new OffscreenCanvas(w, H);
+        const ctx = cv.getContext('2d')!;
+        ctx.fillStyle = '#000';
+        drawGlyph(ctx, gid, -bb.x1 + pad / S);
+        const img = ctx.getImageData(0, 0, w, H).data;
+        const th = 0.45 * xh * S;
+        let bl = -1;
+        let br = -1;
+        for (let x = 0; x < w; x++) {
+          let cnt = 0;
+          for (let y = 0; y < H; y++) if (img[(y * w + x) * 4 + 3] > 128) cnt++;
+          if (cnt > th) {
+            if (bl < 0) bl = x;
+            br = x;
+          }
+        }
+        if (bl < 0) {
+          bodyCache.set(gid, null);
+          return null;
+        }
+        const out = { bl: (bl - pad) / S + bb.x1, br: (br - pad) / S + bb.x1 };
+        bodyCache.set(gid, out);
+        return out;
+      };
+
+      // rows of the measured band inside the canvas
+      const row0 = Math.max(0, Math.round((Y_TOP - BAND_HI) * S));
+      const row1 = Math.min(H - 1, Math.round((Y_TOP - BAND_LO) * S));
+
+      const readZone = (img: Uint8ClampedArray, W: number, px0: number, px1: number): { cols: number; gapCols: number; crossCols: number; maxRuns: number; poolRatio: number } => {
+        let gapCols = 0;
+        let crossCols = 0;
+        let maxRuns = 0;
+        const inks: number[] = [];
+        for (let x = px0; x <= px1; x++) {
+          let runs = 0;
+          let runLen = 0;
+          let ink = 0;
+          for (let y = row0; y <= row1; y++) {
+            const on = img[(y * W + x) * 4 + 3] > 128;
+            if (on) {
+              runLen++;
+              ink++;
+            } else {
+              if (runLen >= 2) runs++;
+              runLen = 0;
+            }
+          }
+          if (runLen >= 2) runs++;
+          if (runs === 0) gapCols++;
+          else inks.push(ink);
+          if (runs >= 2) crossCols++;
+          if (runs > maxRuns) maxRuns = runs;
+        }
+        inks.sort((a, b) => a - b);
+        const inkMed = inks.length ? inks[Math.floor(inks.length / 2)] : 0;
+        const inkMax = inks.length ? inks[inks.length - 1] : 0;
+        return {
+          cols: px1 - px0 + 1,
+          gapCols,
+          crossCols,
+          maxRuns,
+          poolRatio: inkMed > 0 ? Math.round((inkMax / inkMed) * 100) / 100 : 0,
+        };
+      };
+
+      const rasterRun = (gids: number[], xs: number[], advs: number[]) => {
+        const total = xs[xs.length - 1] + advs[advs.length - 1];
+        const ox = xh; // left margin in units (room for negative bearings)
+        const W = Math.ceil((total + 2 * xh) * S);
+        const cv = new OffscreenCanvas(W, H);
+        const ctx = cv.getContext('2d')!;
+        ctx.fillStyle = '#000';
+        for (let i = 0; i < gids.length; i++) drawGlyph(ctx, gids[i], xs[i] + ox);
+        return { img: ctx.getImageData(0, 0, W, H).data, W, ox };
+      };
+
+      const out: Array<{ text: string; seam: string; seamW: number; alt: any; plain: any }> = [];
+      for (const run of runs) {
+        const altR = rasterRun(run.gids, run.xs, run.advs);
+        const plainR = rasterRun(run.baseGids, run.xs, run.advs);
+        for (const i of run.seams) {
+          // the seam window comes from each raster's own glyphs (an entry
+          // collapse can nudge a thin protrusion, never the dense body)
+          const zone = (gids: number[], r: { img: Uint8ClampedArray; W: number; ox: number }) => {
+            const L = bodyEdges(gids[i]);
+            const R = bodyEdges(gids[i + 1]);
+            if (!L || !R) return null;
+            const x0u = run.xs[i] + L.br;
+            const x1u = run.xs[i + 1] + R.bl;
+            const px0 = Math.floor((x0u + r.ox) * S) + 1;
+            const px1 = Math.ceil((x1u + r.ox) * S) - 1;
+            if (px1 - px0 + 1 < 2) return { cols: 0, gapCols: 0, crossCols: 0, maxRuns: 0, poolRatio: 0, seamW: x1u - x0u };
+            return { ...readZone(r.img, r.W, Math.max(0, px0), Math.min(r.W - 1, px1)), seamW: x1u - x0u };
+          };
+          const alt = zone(run.gids, altR);
+          const plain = zone(run.baseGids, plainR);
+          if (!alt || !plain) continue;
+          out.push({
+            text: run.text,
+            seam: `${run.names[i]}|${run.names[i + 1]}`,
+            seamW: Math.round(alt.seamW),
+            alt: { cols: alt.cols, gapCols: alt.gapCols, crossCols: alt.crossCols, maxRuns: alt.maxRuns, poolRatio: alt.poolRatio },
+            plain: { cols: plain.cols, gapCols: plain.gapCols, crossCols: plain.crossCols, maxRuns: plain.maxRuns, poolRatio: plain.poolRatio },
+          });
+        }
+      }
+      return out;
+    },
+    { b: b64, runs },
+  );
+}
 
 type Metrics = {
   glyphs: number;
@@ -628,6 +890,9 @@ async function measure(page: Page, otfPath: string, wantProbe = false, bridged =
 for (const sheet of sheets) {
   test(`corpus: ${sheet.name}`, async ({ page }) => {
     const isConnect = sheet.name.startsWith('connected-cursive');
+    // connect faces build twice (auto pass + connect rebuild) and then run the
+    // assembled-pair seam sensor; the photographed smooth sheet is the slowest
+    if (isConnect) test.setTimeout(300_000);
     await page.goto('/make');
     await page.locator('#sheet-file').setInputFiles(sheet.path);
     await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 150_000 });
@@ -704,6 +969,28 @@ for (const sheet of sheets) {
       );
     }
 
+    // Assembled-pair seam sensor (Stage E): every fired .jn seam, read at
+    // final metrics from the real shaped positions, alternate vs plain.
+    let seamWorst = { gap: 0, gapAt: '-', cross: 0, crossAt: '-', pool: 0, poolAt: '-' , fired: 0 };
+    if (isConnect) {
+      const shaped = shapeSeamRuns(readFileSync(otfPath));
+      const seams = await senseSeams(page, otfPath, shaped);
+      seamWorst.fired = seams.length;
+      for (const s of seams) {
+        if (s.alt.gapCols > seamWorst.gap) { seamWorst.gap = s.alt.gapCols; seamWorst.gapAt = s.seam; }
+        if (s.alt.crossCols > seamWorst.cross) { seamWorst.cross = s.alt.crossCols; seamWorst.crossAt = s.seam; }
+        if (s.alt.poolRatio > seamWorst.pool) { seamWorst.pool = s.alt.poolRatio; seamWorst.poolAt = s.seam; }
+      }
+      if (seams.length) {
+        mkdirSync(OUT_DIR, { recursive: true });
+        writeFileSync(join(OUT_DIR, `seam-sensor-${sheet.name}.json`), JSON.stringify(seams, null, 2));
+      }
+      console.log(
+        `SEAM-SENSOR | ${sheet.name.padEnd(24)} | fired=${seams.length} gapMax=${seamWorst.gap}(${seamWorst.gapAt}) crossMax=${seamWorst.cross}(${seamWorst.crossAt}) poolMax=${seamWorst.pool}(${seamWorst.poolAt}) | ` +
+          seams.map((s) => `${s.seam}:w${s.seamW} g${s.alt.gapCols}/x${s.alt.crossCols}/p${s.alt.poolRatio}<-g${s.plain.gapCols}/x${s.plain.crossCols}/p${s.plain.poolRatio}`).join(' '),
+      );
+    }
+
     // render the contact-sheet strip for this face (real shaping, kern on)
     const b64 = readFileSync(otfPath).toString('base64');
     await page.setContent(`
@@ -734,6 +1021,13 @@ for (const sheet of sheets) {
         conn?.entryNorm ? JOIN_GAP_MEDIAN_MAX_BRIDGED : JOIN_GAP_MEDIAN_MAX,
       );
       expect(m.fullJoinMax, `connect full-height join gap (worst ${m.fullJoinWorst})`).toBeLessThanOrEqual(FULL_JOIN_MAX);
+      // Stage E gate: every fired seam must span its gap, merge (not cross),
+      // and hold the stroke norm through the join zone.
+      if (seamWorst.fired > 0) {
+        expect(seamWorst.gap, `seam gap columns (worst ${seamWorst.gapAt})`).toBeLessThanOrEqual(SEAM_GAP_COLS_MAX);
+        expect(seamWorst.cross, `seam crossing columns (worst ${seamWorst.crossAt})`).toBeLessThanOrEqual(SEAM_CROSS_COLS_MAX);
+        expect(seamWorst.pool, `seam ink pooling (worst ${seamWorst.poolAt})`).toBeLessThanOrEqual(SEAM_POOL_RATIO_MAX);
+      }
     }
   });
 }
