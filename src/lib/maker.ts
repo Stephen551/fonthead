@@ -1305,6 +1305,135 @@ export function traceTerminalStroke(
   return { points, width, attach, tip, tangent: { dx: dxr / len, dy: dyr / len } };
 }
 
+/** Stage B of connector reconstruction (ADR 0049): the face's STANDARD JOIN,
+ *  reduced from the per-glyph entry terminals (Stage A output) — median reach
+ *  (how far the entry tip sits from the body edge, px), median tip height
+ *  (·xh above baseline), median approach tangent (component-wise, renormalized).
+ *  Null under the joiner minimum, same bar as the other median-driven passes. */
+export function standardJoinFromEntries(
+  entries: Array<{ reach: number; tipFrac: number; tangent: { dx: number; dy: number } }>,
+): { reach: number; tipFrac: number; tangent: { dx: number; dy: number } } | null {
+  if (entries.length < TAIL_MIN_JOINERS) return null;
+  const med = (vals: number[]) => {
+    const s = vals.slice().sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)];
+  };
+  const dx = med(entries.map((e) => e.tangent.dx));
+  const dy = med(entries.map((e) => e.tangent.dy));
+  const len = Math.max(1e-6, Math.hypot(dx, dy));
+  return {
+    reach: med(entries.map((e) => e.reach)),
+    tipFrac: med(entries.map((e) => e.tipFrac)),
+    tangent: { dx: dx / len, dy: dy / len },
+  };
+}
+
+// The synthesized stroke's tip tapers to this fraction of the measured width:
+// enough thinning to bury shallowly in the follower's entry corridor, never a
+// needle (the panel's word for a starved terminal).
+const CONNECTOR_TIP_TAPER = 0.35;
+const CONNECTOR_TAPER_START = 0.65; // t along the centerline where the taper begins
+const CONNECTOR_SAMPLES = 24;
+
+/** Stage B of connector reconstruction (ADR 0049): DRAW the connecting stroke
+ *  from measured parameters. One cubic centerline tangent-matched at the
+ *  attachment (inside the body ink), ending past the standard join point by
+ *  `overlapLen` along the standard tangent; stroked at ±width/2 along the
+ *  normals with the half-width clamped under the local radius of curvature
+ *  (the inner offset of a tight bend would loop back and self-intersect);
+ *  round start cap buried behind the attachment, tapered tip. Returns one
+ *  closed absolute M/L path in cell coordinates, plus the sampled centerline
+ *  and the tip for diagnostics. Null when a tangent is degenerate or the span
+ *  is too short to carry a stroke. */
+export function synthesizeConnector(
+  attach: { x: number; y: number },
+  tangentIn: { dx: number; dy: number },
+  joinPoint: { x: number; y: number },
+  tangentOut: { dx: number; dy: number },
+  width: number,
+  overlapLen?: number,
+): { d: string; centerline: Array<{ x: number; y: number }>; tip: { x: number; y: number } } | null {
+  const lIn = Math.hypot(tangentIn.dx, tangentIn.dy);
+  const lOut = Math.hypot(tangentOut.dx, tangentOut.dy);
+  if (lIn < 1e-6 || lOut < 1e-6 || !(width > 0)) return null;
+  const tIn = { dx: tangentIn.dx / lIn, dy: tangentIn.dy / lIn };
+  const tOut = { dx: tangentOut.dx / lOut, dy: tangentOut.dy / lOut };
+  const over = overlapLen ?? 2 * width;
+  const tip = { x: joinPoint.x + over * tOut.dx, y: joinPoint.y + over * tOut.dy };
+  const span = Math.hypot(tip.x - attach.x, tip.y - attach.y);
+  if (span < Math.max(2, width)) return null;
+
+  // cubic centerline: control arms at a third of the span along each tangent
+  const c = span / 3;
+  const p0 = attach;
+  const p1 = { x: attach.x + c * tIn.dx, y: attach.y + c * tIn.dy };
+  const p2 = { x: tip.x - c * tOut.dx, y: tip.y - c * tOut.dy };
+  const p3 = tip;
+  const centerline: Array<{ x: number; y: number }> = [];
+  const derivs: Array<{ dx: number; dy: number }> = [];
+  const curvs: number[] = [];
+  for (let i = 0; i <= CONNECTOR_SAMPLES; i++) {
+    const t = i / CONNECTOR_SAMPLES;
+    const u = 1 - t;
+    centerline.push({
+      x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+      y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
+    });
+    const dx = 3 * u * u * (p1.x - p0.x) + 6 * u * t * (p2.x - p1.x) + 3 * t * t * (p3.x - p2.x);
+    const dy = 3 * u * u * (p1.y - p0.y) + 6 * u * t * (p2.y - p1.y) + 3 * t * t * (p3.y - p2.y);
+    const ddx = 6 * u * (p2.x - 2 * p1.x + p0.x) + 6 * t * (p3.x - 2 * p2.x + p1.x);
+    const ddy = 6 * u * (p2.y - 2 * p1.y + p0.y) + 6 * t * (p3.y - 2 * p2.y + p1.y);
+    const speed = Math.max(1e-6, Math.hypot(dx, dy));
+    derivs.push({ dx: dx / speed, dy: dy / speed });
+    curvs.push(Math.abs(dx * ddy - dy * ddx) / (speed * speed * speed));
+  }
+
+  // half-width profile: full width until the taper start, then linear to the tip
+  const half = (t: number) => {
+    const base = width / 2;
+    const f =
+      t <= CONNECTOR_TAPER_START
+        ? 1
+        : 1 - (1 - CONNECTOR_TIP_TAPER) * ((t - CONNECTOR_TAPER_START) / (1 - CONNECTOR_TAPER_START));
+    return base * f;
+  };
+
+  const left: Array<{ x: number; y: number }> = [];
+  const right: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i <= CONNECTOR_SAMPLES; i++) {
+    const t = i / CONNECTOR_SAMPLES;
+    // clamp under the local radius of curvature so the inner offset never loops
+    const rad = curvs[i] > 1e-6 ? 1 / curvs[i] : Infinity;
+    const hw = Math.min(half(t), 0.85 * rad);
+    const n = { dx: -derivs[i].dy, dy: derivs[i].dx };
+    left.push({ x: centerline[i].x + n.dx * hw, y: centerline[i].y + n.dy * hw });
+    right.push({ x: centerline[i].x - n.dx * hw, y: centerline[i].y - n.dy * hw });
+  }
+
+  // round start cap: semicircle behind the attachment (buried in body ink),
+  // sweeping from the right rail around -tangentIn to the left rail
+  const cap: Array<{ x: number; y: number }> = [];
+  const hw0 = half(0);
+  const n0 = { dx: -tIn.dy, dy: tIn.dx };
+  for (let i = 1; i < 8; i++) {
+    const a = (i / 8) * Math.PI;
+    // rotate the -normal toward -tangent and on to +normal
+    const cx = -Math.cos(a);
+    const sx = Math.sin(a);
+    cap.push({
+      x: attach.x + hw0 * (cx * n0.dx - sx * tIn.dx),
+      y: attach.y + hw0 * (cx * n0.dy - sx * tIn.dy),
+    });
+  }
+
+  const fmt = (v: number) => String(Math.round(v * 1000) / 1000);
+  const ring = [...left, ...right.slice().reverse(), ...cap];
+  let d = `M ${fmt(ring[0].x)} ${fmt(ring[0].y)}`;
+  for (let i = 1; i < ring.length; i++) d += ` L ${fmt(ring[i].x)} ${fmt(ring[i].y)}`;
+  d += ' Z';
+  return { d, centerline, tip };
+}
+
 /** Pure: dense-body edges from a column ink-count histogram — the leftmost and
  *  rightmost columns whose ink exceeds the threshold (the eye-body criterion). */
 export function eyeBodyFromCols(cols: number[], th: number): { min: number; max: number } | null {
