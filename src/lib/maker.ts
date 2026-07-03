@@ -2132,6 +2132,10 @@ const SEAM_DY_MAX = 0.35;
 const SEAM_CROSSBAR = new Set(['f', 't']); // crossbars overhang high by design; never offenders
 const SEAM_ALT_SUFFIX = '.jn01';
 const SEAM_ENTRY_SUFFIX = '.jn02'; // entry lead-in hook collapsed (backtrack calt)
+// ·xh — the entry collapse reaches this far PAST the body edge: a flick's
+// root straddles the clip line, and clipping only left of it left a needle
+// flank of the n's flick standing (the entry-side verifier's catch)
+const SEAM_HOOK_PAD = 0.03;
 const SEAM_BOTH_SUFFIX = '.jn03'; // exit reconstructed AND entry collapsed
 // Lowercase joiners only: a cap's right side swashes by design (the corpus
 // exempts script caps from the overhang metric for the same reason), and the
@@ -2148,7 +2152,7 @@ const SEAM_LOWERCASE = /^[a-z]$/;
 // protrusion (x < clipX) instead — the high lead-in hook (director's catch:
 // this hand starts its arch letters at the top, and the hook floats un-joined
 // over every seam).
-function collapseSeamTail(d: string, clipX: number, yLo: number, yHi: number, side: 'left' | 'right' = 'right'): string {
+function collapseSeamTail(d: string, clipX: number, yLo: number, yHi: number, side: 'left' | 'right' = 'right', pad = 0): string {
   const NUM_OR_LETTER = /[-+]?\d*\.?\d+(?:e[-+]?\d+)?|[A-Za-z]/g;
   const xs: number[] = [];
   const ys: number[] = [];
@@ -2178,7 +2182,9 @@ function collapseSeamTail(d: string, clipX: number, yLo: number, yHi: number, si
     if (isX) {
       isX = false;
       const y = ys[i];
-      const past = side === 'right' ? xs[i] > clipX : xs[i] < clipX;
+      // pad: a hook's root straddles the clip line, so points a hair past it
+      // still collapse (the live n left a needle flank of its flick standing)
+      const past = side === 'right' ? xs[i] > clipX - pad : xs[i] < clipX + pad;
       return y !== undefined && past && y >= yLo && y <= yHi ? fmt(clipX) : tok;
     }
     isX = true;
@@ -2485,7 +2491,7 @@ export function makeSeamAlternates(
     entryOffenders.push({ char: m.char, hookFrac, reach: m.hookReach });
     const yLo = g.baselineYInCell - SEAM_ZONE_HI * xhPx;
     const yHi = g.baselineYInCell - CONNECT_BAND_HI * xhPx;
-    const collapseEntry = (d: string) => collapseSeamTail(d, m.bodyMin, yLo, yHi, 'left');
+    const collapseEntry = (d: string) => collapseSeamTail(d, m.bodyMin, yLo, yHi, 'left', SEAM_HOOK_PAD * xhPx);
     alternates.push({ ...g, variantSuffix: SEAM_ENTRY_SUFFIX, paths: g.paths.map(collapseEntry) });
     const exitPaths = exitAltPaths.get(m.char);
     if (exitPaths) alternates.push({ ...g, variantSuffix: SEAM_BOTH_SUFFIX, paths: exitPaths.map(collapseEntry) });

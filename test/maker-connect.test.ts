@@ -589,6 +589,8 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
     // edge; ink in the connect band never moves.
     const hooked = mk('w', { tipFrac: 0.9, reach: 5 }, undefined, 'M6 53');
     hooked.paths.push('M6 74'); // low-band point left of the body: NOT the hook, must survive
+    hooked.paths.push('M10.5 54'); // the flick root, a hair past the body edge
+    hooked.paths.push('M13 55'); // arch ink, clearly inside the body
     const gs = [mk('x'), ...lowHands(), hooked];
     const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
     expect(out.entryOffenders.map((o) => o.char)).toEqual(['w']);
@@ -597,6 +599,11 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
     expect(alt!.variantSuffix).toBe('.jn02');
     expect(alt!.paths[0]).toBe('M10 53'); // hook point collapsed to the body edge
     expect(alt!.paths[1]).toBe('M6 74'); // connect-band ink untouched
+    // the flick's root straddles the body edge: ink just PAST the clip line
+    // still collapses (the live n left a 3px needle flank standing), while
+    // in-band ink clearly inside the body never moves
+    expect(alt!.paths[2]).toBe('M10 54'); // 10.5 is inside the pad: collapsed
+    expect(alt!.paths[3]).toBe('M13 55'); // well inside the body: untouched
     // the backtrack class: letters whose exit joins into a follower
     expect(out.lefts).toContain('n');
     expect(out.lefts).toContain('h');
