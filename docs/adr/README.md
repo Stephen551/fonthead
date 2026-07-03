@@ -60,6 +60,7 @@ left out — they live in CLAUDE.md, not here.
 | [0045](0045-fidelity-build-natural-pitch-judged-toward-award-bar.md) | The fidelity build: trace the hand at resolution, place it at its own pitch; judged toward the award bar | Accepted |
 | [0046](0046-generator-sheet-class-and-the-placement-mode-boundary.md) | Reading the generator sheet class, and the placement-mode boundary that floated the e | Accepted |
 | [0047](0047-variation-build-mode-boundary-not-registration.md) | The variation build joins classic: the mode boundary was the whole defect, not variant registration | Accepted |
+| [0048](0048-seam-alternates-contextual-not-base-surgery.md) | Seam knots fix by contextual alternates: a lowered-exit .jn01 copy fires before low-entry followers | Accepted |
 
 ## Format
 
