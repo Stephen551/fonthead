@@ -45,7 +45,7 @@ left out — they live in CLAUDE.md, not here.
 | [0030](0030-connect-mode-staged-two-stage.md) | Connected-cursive ships as a two-stage mode behind one flag (touch floor, then opt-in seamless overlap) | Accepted |
 | [0031](0031-connect-plug-to-plug-x-only-placement.md) | Connect via plug-to-plug x-only placement with a single shared anchor/advance origin | Accepted |
 | [0032](0032-connect-sibling-of-trim-mutually-exclusive.md) | connectGlyphs is a sibling of trim, mutually exclusive with it; connect-mode disables italic/spacing/kern/optical-sidebearings | Accepted (kerning point superseded by 0039) |
-| [0033](0033-connect-no-synthesis-real-ink-join-classes.md) | Connect uses real ink only with position-independent join classes and a loosen-only weld pass | Accepted |
+| [0033](0033-connect-no-synthesis-real-ink-join-classes.md) | Connect uses real ink only with position-independent join classes and a loosen-only weld pass | Accepted (no-synthesis rule amended by 0049) |
 | [0034](0034-connect-input-contract-preset-and-guide.md) | Input contract for seamless joins: a 'script' generate preset and a non-tracing connector guide | Accepted |
 | [0035](0035-connect-no-engine-files-pure-core-tests.md) | Connect touches no vendored engine file; pure decision core is unit-tested, raster gated by corpus/e2e | Accepted |
 | [0036](0036-natural-variation-gsub-calt-palette.md) | Natural variation: a 3-sheet same-hand palette cycled by GSUB calt, metrically transparent | Accepted |
@@ -60,7 +60,8 @@ left out — they live in CLAUDE.md, not here.
 | [0045](0045-fidelity-build-natural-pitch-judged-toward-award-bar.md) | The fidelity build: trace the hand at resolution, place it at its own pitch; judged toward the award bar | Accepted |
 | [0046](0046-generator-sheet-class-and-the-placement-mode-boundary.md) | Reading the generator sheet class, and the placement-mode boundary that floated the e | Accepted |
 | [0047](0047-variation-build-mode-boundary-not-registration.md) | The variation build joins classic: the mode boundary was the whole defect, not variant registration | Accepted |
-| [0048](0048-seam-alternates-contextual-not-base-surgery.md) | Seam knots fix by contextual alternates: a lowered-exit .jn01 copy fires before low-entry followers | Accepted |
+| [0048](0048-seam-alternates-contextual-not-base-surgery.md) | Seam knots fix by contextual alternates: a lowered-exit .jn01 copy fires before low-entry followers | Parked (warps failed the panel; machinery banked) |
+| [0049](0049-measured-parameter-connector-reconstruction.md) | Measured-parameter connector reconstruction permitted; invented letterform variation stays banned | Accepted (amends 0033) |
 
 ## Format
 

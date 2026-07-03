@@ -1,6 +1,8 @@
 # ADR 0048 — Seam knots fix by contextual alternates, not base surgery
 
-**Status:** Accepted (verified green, deploy gated)
+**Status:** Parked (the selection machinery is banked and test-gated; both
+warp geometries failed the judge panel — see "Parked" below; the stroke-model
+rework is ADR 0049)
 **Date:** 2026-07-02
 **Builds on:** ADR 0038 (the snap and its HIGH_EXIT exemption), ADR 0036 (the variant glyph carrier), ADR 0045 (which named crossing-knot pools as remaining distance)
 
@@ -98,6 +100,41 @@ through the gid-pair expansion. Faces that fire despite already-meeting seams
 (cc-3 jn=9 against its mid-height line) were A/B rendered and read
 neutral-to-slightly-smoother; no daylight condition was added on that
 evidence.
+
+## Parked (same day): both warp geometries failed the judge panel
+
+The 3-lens adversarial A/B panel (deployed build vs the alternates build,
+blind) failed BOTH warp iterations, with converging defect content:
+
+1. **v1, lower-through (the linear y-ramp):** craft 70/63, award 64/56,
+   fidelity 84/87 against the deployed build. The lowered exit descends
+   THROUGH the follower's rising entry and closes a white eyelet loop at
+   nearly every v/w/r junction; an identical below-baseline pigtail repeats
+   at join after join ("the identical curl everywhere reads as mechanical
+   tampering"); the thin lowered strokes read as wire laid over the letters.
+2. **v3, terminate-at-join (bounded descent + x-truncation to the seam,
+   y-banded):** craft 75/66, award 74/67, fidelity 88/75 — unanimous. The
+   compressed curl collapses into a hairline RETRACE NEEDLE repeated at
+   nearly every high-exit join; white cracks where the truncated stub stops
+   short of the entry (a broken join at province v-i); thorn debris below
+   seams; ink below the baseline at b-r; the v drifting toward a y/u hybrid.
+
+The two modes bracket the root cause: **coordinate-warping a fixed-width
+OUTLINE cannot draw a connector.** Lowering it through the entry shears it
+(eyelets); truncating it at the seam starves its width (needles/cracks). The
+deployed build's knots read as pen-weight pooling — imperfect but human;
+both warps read as machine editing. Do NOT build a third warp variant.
+
+**Disposition:** the warp is retired; the SELECTION machinery is banked and
+stays gated — the measurement layer and its calibration rules, the GSUB calt
+lookahead builder, the kern-analyzer excision, the fixture, and the tests.
+Production builds never fire the feature (no user surface; `seamAlternates`
+is explicit opt-in only, set by the e2e `fh-test-seam-alts` hook). The fix
+that replaces the warp is stroke-aware connector reconstruction on the
+connection-point spec's standard-join model, enabled by the ADR 0049
+doctrine amendment. Panel-score note for future arcs: identical specimens
+scored ±10 across panel instances — defect CONTENT is the durable signal,
+never the scalar.
 
 ## Evidence
 
