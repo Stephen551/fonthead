@@ -2131,6 +2131,8 @@ const SEAM_LOOP_CHECK_HI = 1.4; // ·xh
 const SEAM_DY_MAX = 0.35;
 const SEAM_CROSSBAR = new Set(['f', 't']); // crossbars overhang high by design; never offenders
 const SEAM_ALT_SUFFIX = '.jn01';
+const SEAM_ENTRY_SUFFIX = '.jn02'; // entry lead-in hook collapsed (backtrack calt)
+const SEAM_BOTH_SUFFIX = '.jn03'; // exit reconstructed AND entry collapsed
 // Lowercase joiners only: a cap's right side swashes by design (the corpus
 // exempts script caps from the overhang metric for the same reason), and the
 // field knots are all lowercase seams.
@@ -2142,8 +2144,11 @@ const SEAM_LOWERCASE = /^[a-z]$/;
 // under the synthesized stroke's ink. Ink outside the band never moves — an
 // ascender loop leaning right of a narrow body (the b) must not shear (the
 // un-banded warp first cut drifted b.jn01's ascender by 8 units). Two passes
-// so the x decision can see its own y.
-function collapseSeamTail(d: string, clipX: number, yLo: number, yHi: number): string {
+// so the x decision can see its own y. side 'left' collapses an ENTRY-side
+// protrusion (x < clipX) instead — the high lead-in hook (director's catch:
+// this hand starts its arch letters at the top, and the hook floats un-joined
+// over every seam).
+function collapseSeamTail(d: string, clipX: number, yLo: number, yHi: number, side: 'left' | 'right' = 'right'): string {
   const NUM_OR_LETTER = /[-+]?\d*\.?\d+(?:e[-+]?\d+)?|[A-Za-z]/g;
   const xs: number[] = [];
   const ys: number[] = [];
@@ -2173,7 +2178,8 @@ function collapseSeamTail(d: string, clipX: number, yLo: number, yHi: number): s
     if (isX) {
       isX = false;
       const y = ys[i];
-      return y !== undefined && xs[i] > clipX && y >= yLo && y <= yHi ? fmt(clipX) : tok;
+      const past = side === 'right' ? xs[i] > clipX : xs[i] < clipX;
+      return y !== undefined && past && y >= yLo && y <= yHi ? fmt(clipX) : tok;
     }
     isX = true;
     i++;
@@ -2226,11 +2232,17 @@ export function makeSeamAlternates(
   terminals: Array<{ char: string; entryFrac: number | null; exitFrac: number | null }>;
   join: { tipOffsetX: number; tipFrac: number; tangent: { dx: number; dy: number } } | null;
   skipped: string[];
+  /** entry-side offenders: letters whose drawn lead-in hook rides high, left
+   *  of the body, above the join line (the director's w) */
+  entryOffenders: Array<{ char: string; hookFrac: number; reach: number }>;
+  /** the backtrack class for the entry-side calt rule: letters whose exit
+   *  joins into a follower */
+  lefts: string[];
 } {
   const profiles = profilesIn ?? glyphs.map((g) => glyphColumnAreas(g));
   const fm = faceMetrics(glyphs, profiles);
   const xhPx = Math.max(1, fm.xhPx);
-  type M = { i: number; char: string; joinsLeft: boolean; joinsRight: boolean; bodyMin: number; bodyMax: number; last: number; loopAbove: boolean; entryFrac: number | null; exitFrac: number | null; exitTipY: number };
+  type M = { i: number; char: string; joinsLeft: boolean; joinsRight: boolean; bodyMin: number; bodyMax: number; last: number; loopAbove: boolean; entryFrac: number | null; exitFrac: number | null; exitTipY: number; hookY: number; hookReach: number; loopLeft: boolean };
   const meas: M[] = [];
   // Stage A entry-terminal strokes, reduced to the STANDARD JOIN (ADR 0049
   // Stage C): the synthesized connector terminates at the median entry tip
@@ -2290,6 +2302,31 @@ export function makeSeamAlternates(
         break;
       }
     }
+    // Entry-side hook (the director's w): the drawn lead-in riding HIGH, left
+    // of the body, above the connect band — the low-band entry scan reads
+    // null there, so the hook floats un-joined over every seam. Measured in
+    // the band between the connect ceiling and the exit-zone ceiling; the
+    // structure guard mirrors the exit side (an ascender leaning LEFT of a
+    // narrow body is letterform, never a hook).
+    let hookY = -1;
+    let hookReach = Infinity;
+    const hookTopY = Math.max(0, Math.round(baseY - SEAM_ZONE_HI * xhPx));
+    const hookBotY = Math.min(g.cellH - 1, Math.round(baseY - CONNECT_BAND_HI * xhPx));
+    for (let y = hookTopY; y <= hookBotY; y++) {
+      const l = prof.rowLeft[y];
+      if (isFinite(l) && l < body.min - 1 && l < hookReach) {
+        hookReach = l;
+        hookY = y;
+      }
+    }
+    let loopLeft = false;
+    for (let y = loopTopY; y <= loopBotY; y++) {
+      const l = prof.rowLeft[y];
+      if (isFinite(l) && l < body.min - 1) {
+        loopLeft = true;
+        break;
+      }
+    }
     // entry-terminal stroke (Stage A model) for the standard-join median: the
     // tip's offset from the leftmost ink (where placement anchors the origin)
     // and the tangent AT THE TIP — the direction the connector must arrive
@@ -2330,12 +2367,16 @@ export function makeSeamAlternates(
       entryFrac: entryY >= 0 ? (baseY - entryY) / xhPx : null,
       exitFrac: exitY >= 0 ? (baseY - exitY) / xhPx : null,
       exitTipY: exitY,
+      hookY,
+      hookReach: hookY >= 0 ? body.min - hookReach : 0,
+      loopLeft,
     });
   });
 
   const terminals = meas.map((m) => ({ char: m.char, entryFrac: m.entryFrac, exitFrac: m.exitFrac }));
   const entries = meas.filter((m) => m.joinsLeft && m.entryFrac !== null).map((m) => m.entryFrac as number);
-  if (entries.length < TAIL_MIN_JOINERS) return { alternates: [], rights: [], offenders: [], joinFrac: 0, terminals, join: null, skipped: [] };
+  if (entries.length < TAIL_MIN_JOINERS)
+    return { alternates: [], rights: [], offenders: [], joinFrac: 0, terminals, join: null, skipped: [], entryOffenders: [], lefts: [] };
   const sorted = entries.slice().sort((a, b) => a - b);
   // The hand's OWN entry line, unclamped: a copperplate-class hand joins at
   // mid-height (entries and exits both ~0.45·xh, already meeting) and clamping
@@ -2356,11 +2397,13 @@ export function makeSeamAlternates(
   // the connector FROM — bail whole (reconstruction is measured-parameter
   // only; the doctrine bans invented geometry).
   const stdJoin = standardJoinFromEntries(entryStrokes);
-  if (!stdJoin) return { alternates: [], rights, offenders: [], joinFrac, terminals, join: null, skipped: [] };
+  if (!stdJoin)
+    return { alternates: [], rights, offenders: [], joinFrac, terminals, join: null, skipped: [], entryOffenders: [], lefts: [] };
 
   const offenders: Array<{ char: string; exitFrac: number; width: number; widthProfile: number[] }> = [];
   const alternates: Glyph[] = [];
   const skipped: string[] = [];
+  const exitAltPaths = new Map<string, string[]>();
   const gapPx = Math.round(CONNECT_GAP_PCT * xhPx);
   for (const m of meas) {
     if (!m.joinsRight || m.exitFrac === null || m.loopAbove) continue;
@@ -2411,12 +2454,49 @@ export function makeSeamAlternates(
     const collapsed = g.paths.map((d) => collapseSeamTail(d, m.bodyMax, yLo, yHi));
     const baseSign = pathAreaSign(g.paths[0] ?? '');
     const ringD = baseSign !== 0 && pathAreaSign(synth.d) !== baseSign ? reverseClosedPath(synth.d) : synth.d;
+    const exitPaths = [...collapsed, ringD];
+    exitAltPaths.set(m.char, exitPaths);
     alternates.push({
       ...g,
       variantSuffix: SEAM_ALT_SUFFIX,
-      paths: [...collapsed, ringD],
+      paths: exitPaths,
     });
   }
+
+  // Entry side (the director's catch, the deferred half of the v1 scope): a
+  // lowercase joiner whose lead-in hook rides above the join line gains a
+  // .jn02 copy with the hook collapsed onto the body edge, substituted by a
+  // BACKTRACK calt rule only after a joining exit — word-initially the drawn
+  // lead-in survives, the mirror of the word-final drawn flick. A letter
+  // carrying BOTH treatments also gains .jn03 (the exit-reconstructed paths
+  // entry-collapsed) so the two calt passes compose mid-word.
+  const entryOffenders: Array<{ char: string; hookFrac: number; reach: number }> = [];
+  for (const m of meas) {
+    if (!m.joinsLeft || m.hookY < 0 || m.loopLeft) continue;
+    if (!SEAM_LOWERCASE.test(m.char) || SEAM_CROSSBAR.has(m.char)) continue;
+    // a letter with a REAL low entry has no floating lead-in: its high-band
+    // ink is the entry sweep's own continuation crossing the band floor, and
+    // collapsing it would chop a live connector mid-flight (live catch: h/k/q
+    // fired at exactly 0.6 with 30px reaches on the smooth hand)
+    if (m.entryFrac !== null) continue;
+    const g = glyphs[m.i];
+    const hookFrac = (g.baselineYInCell - m.hookY) / xhPx;
+    if (hookFrac - joinFrac <= SEAM_EXIT_GATE) continue;
+    entryOffenders.push({ char: m.char, hookFrac, reach: m.hookReach });
+    const yLo = g.baselineYInCell - SEAM_ZONE_HI * xhPx;
+    const yHi = g.baselineYInCell - CONNECT_BAND_HI * xhPx;
+    const collapseEntry = (d: string) => collapseSeamTail(d, m.bodyMin, yLo, yHi, 'left');
+    alternates.push({ ...g, variantSuffix: SEAM_ENTRY_SUFFIX, paths: g.paths.map(collapseEntry) });
+    const exitPaths = exitAltPaths.get(m.char);
+    if (exitPaths) alternates.push({ ...g, variantSuffix: SEAM_BOTH_SUFFIX, paths: exitPaths.map(collapseEntry) });
+  }
+  // lowercase joiners only: a cap does not connect on this engine (break-class
+  // advances, kern reserved for cap-to-lower), so a follower after a cap keeps
+  // its drawn lead-in
+  const lefts = entryOffenders.length
+    ? Array.from(new Set(meas.filter((m) => m.joinsRight && SEAM_LOWERCASE.test(m.char)).map((m) => m.char)))
+    : [];
+
   return {
     alternates,
     rights,
@@ -2425,6 +2505,8 @@ export function makeSeamAlternates(
     terminals,
     join: { tipOffsetX: stdJoin.reach, tipFrac: stdJoin.tipFrac, tangent: stdJoin.tangent },
     skipped,
+    entryOffenders,
+    lefts,
   };
 }
 
@@ -2952,6 +3034,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   // and the word-space evening.
   let connectBridged = false;
   let seamAltRights: string[] | undefined;
+  let seamAltLefts: string[] | undefined;
   if (opts.connect) {
     // Connected cursive. COMPOSES with natural variation: connectGlyphs runs on
     // the MERGED palette (it preserves variantSuffix), so the .cv01/.cv02 variant
@@ -2995,6 +3078,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
       if (sa.alternates.length) {
         toFit = [...snap.glyphs, ...sa.alternates];
         seamAltRights = sa.rights;
+        seamAltLefts = sa.lefts.length ? sa.lefts : undefined;
       }
       (globalThis as unknown as { __lastSeamAlts?: object | null }).__lastSeamAlts = {
         count: sa.alternates.length,
@@ -3004,6 +3088,8 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
         terminals: sa.terminals,
         join: sa.join,
         skipped: sa.skipped,
+        entryOffenders: sa.entryOffenders,
+        lefts: sa.lefts,
       };
     } else {
       (globalThis as unknown as { __lastSeamAlts?: object | null }).__lastSeamAlts = null;
@@ -3082,6 +3168,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
       connectKern: opts.connect ? (connectBridged ? { bridgedPlacement: true } : {}) : undefined,
       naturalVariation: opts.naturalVariation ? true : undefined,
       joinAltRights: seamAltRights,
+      joinAltLefts: seamAltLefts,
     },
     embedHints: false,
     embedTTHints: false,

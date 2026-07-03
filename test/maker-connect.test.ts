@@ -581,6 +581,81 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
     expect(out.offenders.map((o) => o.char)).toEqual(['v']);
   });
 
+  it('a high lead-in hook gains a .jn02 entry alternate: the hook collapses, low ink stays', () => {
+    // the w case (director's catch): this hand draws its arch letters with the
+    // pen's lead-in at the TOP of the first stroke, left of the body around
+    // 0.9·xh — unmeasured by the low-band entry scan, so it floats un-joined
+    // over every seam. The entry alternate collapses the hook onto the body
+    // edge; ink in the connect band never moves.
+    const hooked = mk('w', { tipFrac: 0.9, reach: 5 }, undefined, 'M6 53');
+    hooked.paths.push('M6 74'); // low-band point left of the body: NOT the hook, must survive
+    const gs = [mk('x'), ...lowHands(), hooked];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.entryOffenders.map((o) => o.char)).toEqual(['w']);
+    const alt = out.alternates.find((a) => a.char === 'w');
+    expect(alt).toBeTruthy();
+    expect(alt!.variantSuffix).toBe('.jn02');
+    expect(alt!.paths[0]).toBe('M10 53'); // hook point collapsed to the body edge
+    expect(alt!.paths[1]).toBe('M6 74'); // connect-band ink untouched
+    // the backtrack class: letters whose exit joins into a follower
+    expect(out.lefts).toContain('n');
+    expect(out.lefts).toContain('h');
+  });
+
+  it('a both-sides letter gains .jn01, .jn02, and .jn03 so the two calt passes compose', () => {
+    // high exit AND high lead-in: before a low-entry follower it needs the
+    // reconstructed exit (.jn01), after a joiner the collapsed entry (.jn02),
+    // and mid-word between both it needs both at once (.jn03).
+    const both = mk('o', { tipFrac: 0.85, reach: 5 }, { tipFrac: 0.5, reach: 8 }, 'M34 65');
+    const gs = [mk('x'), ...lowHands(), both];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders.map((o) => o.char)).toEqual(['o']);
+    expect(out.entryOffenders.map((o) => o.char)).toEqual(['o']);
+    const sufs = out.alternates.filter((a) => a.char === 'o').map((a) => a.variantSuffix).sort();
+    expect(sufs).toEqual(['.jn01', '.jn02', '.jn03']);
+    const jn03 = out.alternates.find((a) => a.variantSuffix === '.jn03')!;
+    expect(jn03.paths[0]).toBe('M26 65'); // exit collapsed like .jn01
+    expect(jn03.paths.length).toBe(2); // plus the synthesized connector
+  });
+
+  it('an ascender leaning left above the zone is structure, never an entry hook', () => {
+    const asc = mk('b', { tipFrac: 0.9, reach: 5 });
+    const bp = asc._p;
+    for (let y = BASE - Math.round(1.35 * 30); y <= BASE - Math.round(1.2 * 30); y++) bp.rowLeft[y] = 10 - 5;
+    const gs = [mk('x'), ...lowHands(), asc];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.entryOffenders).toEqual([]);
+  });
+
+  it('a letter with a real low entry never fires the entry side (the h/k sweep case)', () => {
+    // a rising entry sweep crosses the high band's floor and reads as a fake
+    // hook at exactly the band boundary — but the letter HAS a low entry, so
+    // its high ink is the sweep's continuation, not a floating lead-in.
+    // Collapsing it would chop a live connector mid-flight (live catch:
+    // h/k/q fired at 0.6 with 30px reaches on the smooth hand).
+    const swept = mk('h', { tipFrac: 0.2, reach: 6 });
+    const hp = swept._p;
+    // the sweep's upper half: rows from 0.6 up to 0.9·xh lean left of the body
+    for (let y = BASE - Math.round(0.9 * 30); y <= BASE - Math.round(0.6 * 30); y++) hp.rowLeft[y] = 10 - 8;
+    const gs = [mk('x'), ...lowHands(), swept];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.entryOffenders).toEqual([]);
+  });
+
+  it('a low entry hook never fires the entry side', () => {
+    // the lowHands enter at 0.2·xh: on the join line, nothing to collapse
+    const gs = [mk('x'), ...lowHands(), mk('o', { tipFrac: 0.2, reach: 6 }, { tipFrac: 0.5, reach: 8 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.entryOffenders).toEqual([]);
+    expect(out.alternates.map((a) => a.variantSuffix)).toEqual(['.jn01']);
+  });
+
+  it('crossbar letters never fire the entry side', () => {
+    const gs = [mk('x'), ...lowHands(), mk('f', { tipFrac: 0.95, reach: 6 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.entryOffenders).toEqual([]);
+  });
+
   it('a hand that joins at mid-height is measured against its own entry line', () => {
     // copperplate class: entries AND exits both ride ~0.45-0.5·xh and already
     // meet. Clamping the line to the snap's 0.3 ceiling made every exit read
