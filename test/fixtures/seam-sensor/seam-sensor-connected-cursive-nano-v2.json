@@ -1,0 +1,97 @@
+[
+  {
+    "text": "wn",
+    "seam": "w.jn01|n",
+    "seamW": 487,
+    "alt": {
+      "cols": 143,
+      "gapCols": 0,
+      "crossCols": 8,
+      "maxRuns": 2,
+      "poolRatio": 2.76
+    },
+    "plain": {
+      "cols": 142,
+      "gapCols": 0,
+      "crossCols": 8,
+      "maxRuns": 2,
+      "poolRatio": 3.13
+    }
+  },
+  {
+    "text": "awa",
+    "seam": "a|w.jn01",
+    "seamW": 259,
+    "alt": {
+      "cols": 76,
+      "gapCols": 0,
+      "crossCols": 9,
+      "maxRuns": 2,
+      "poolRatio": 2.37
+    },
+    "plain": {
+      "cols": 76,
+      "gapCols": 0,
+      "crossCols": 9,
+      "maxRuns": 2,
+      "poolRatio": 1.96
+    }
+  },
+  {
+    "text": "awa",
+    "seam": "w.jn01|a",
+    "seamW": 377,
+    "alt": {
+      "cols": 111,
+      "gapCols": 0,
+      "crossCols": 0,
+      "maxRuns": 1,
+      "poolRatio": 3.13
+    },
+    "plain": {
+      "cols": 110,
+      "gapCols": 0,
+      "crossCols": 1,
+      "maxRuns": 2,
+      "poolRatio": 3.13
+    }
+  },
+  {
+    "text": "owo",
+    "seam": "o|w.jn01",
+    "seamW": 290,
+    "alt": {
+      "cols": 85,
+      "gapCols": 0,
+      "crossCols": 26,
+      "maxRuns": 2,
+      "poolRatio": 2.5
+    },
+    "plain": {
+      "cols": 85,
+      "gapCols": 0,
+      "crossCols": 31,
+      "maxRuns": 2,
+      "poolRatio": 2.37
+    }
+  },
+  {
+    "text": "owo",
+    "seam": "w.jn01|o",
+    "seamW": 323,
+    "alt": {
+      "cols": 95,
+      "gapCols": 0,
+      "crossCols": 0,
+      "maxRuns": 1,
+      "poolRatio": 3.13
+    },
+    "plain": {
+      "cols": 94,
+      "gapCols": 0,
+      "crossCols": 17,
+      "maxRuns": 2,
+      "poolRatio": 3
+    }
+  }
+]

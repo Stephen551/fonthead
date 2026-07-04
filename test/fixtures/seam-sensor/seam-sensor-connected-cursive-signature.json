@@ -1,0 +1,116 @@
+[
+  {
+    "text": "ou",
+    "seam": "o.jn01|u",
+    "seamW": 285,
+    "alt": {
+      "cols": 110,
+      "gapCols": 0,
+      "crossCols": 30,
+      "maxRuns": 2,
+      "poolRatio": 3.31
+    },
+    "plain": {
+      "cols": 111,
+      "gapCols": 0,
+      "crossCols": 21,
+      "maxRuns": 2,
+      "poolRatio": 3.2
+    }
+  },
+  {
+    "text": "ow",
+    "seam": "o.jn01|w",
+    "seamW": 275,
+    "alt": {
+      "cols": 107,
+      "gapCols": 0,
+      "crossCols": 31,
+      "maxRuns": 2,
+      "poolRatio": 3.31
+    },
+    "plain": {
+      "cols": 108,
+      "gapCols": 0,
+      "crossCols": 16,
+      "maxRuns": 2,
+      "poolRatio": 3.2
+    }
+  },
+  {
+    "text": "or",
+    "seam": "o.jn01|r",
+    "seamW": 351,
+    "alt": {
+      "cols": 136,
+      "gapCols": 0,
+      "crossCols": 11,
+      "maxRuns": 2,
+      "poolRatio": 2.3
+    },
+    "plain": {
+      "cols": 137,
+      "gapCols": 0,
+      "crossCols": 27,
+      "maxRuns": 2,
+      "poolRatio": 1.92
+    }
+  },
+  {
+    "text": "oo",
+    "seam": "o.jn01|o",
+    "seamW": 288,
+    "alt": {
+      "cols": 111,
+      "gapCols": 0,
+      "crossCols": 25,
+      "maxRuns": 2,
+      "poolRatio": 3.31
+    },
+    "plain": {
+      "cols": 112,
+      "gapCols": 0,
+      "crossCols": 20,
+      "maxRuns": 2,
+      "poolRatio": 3.2
+    }
+  },
+  {
+    "text": "ono",
+    "seam": "o.jn01|n",
+    "seamW": 356,
+    "alt": {
+      "cols": 138,
+      "gapCols": 0,
+      "crossCols": 19,
+      "maxRuns": 2,
+      "poolRatio": 3.31
+    },
+    "plain": {
+      "cols": 139,
+      "gapCols": 0,
+      "crossCols": 12,
+      "maxRuns": 2,
+      "poolRatio": 3.4
+    }
+  },
+  {
+    "text": "owo",
+    "seam": "o.jn01|w",
+    "seamW": 275,
+    "alt": {
+      "cols": 107,
+      "gapCols": 0,
+      "crossCols": 31,
+      "maxRuns": 2,
+      "poolRatio": 3.31
+    },
+    "plain": {
+      "cols": 108,
+      "gapCols": 0,
+      "crossCols": 16,
+      "maxRuns": 2,
+      "poolRatio": 3.2
+    }
+  }
+]

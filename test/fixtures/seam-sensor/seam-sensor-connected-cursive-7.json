@@ -1,0 +1,154 @@
+[
+  {
+    "text": "ou",
+    "seam": "o|u.jn02",
+    "seamW": 106,
+    "alt": {
+      "cols": 35,
+      "gapCols": 0,
+      "crossCols": 7,
+      "maxRuns": 2,
+      "poolRatio": 4.89
+    },
+    "plain": {
+      "cols": 35,
+      "gapCols": 0,
+      "crossCols": 12,
+      "maxRuns": 3,
+      "poolRatio": 4.6
+    }
+  },
+  {
+    "text": "ow",
+    "seam": "o|w.jn02",
+    "seamW": 100,
+    "alt": {
+      "cols": 33,
+      "gapCols": 0,
+      "crossCols": 6,
+      "maxRuns": 2,
+      "poolRatio": 5.11
+    },
+    "plain": {
+      "cols": 33,
+      "gapCols": 0,
+      "crossCols": 15,
+      "maxRuns": 2,
+      "poolRatio": 4.1
+    }
+  },
+  {
+    "text": "awa",
+    "seam": "a|w.jn02",
+    "seamW": 108,
+    "alt": {
+      "cols": 36,
+      "gapCols": 0,
+      "crossCols": 8,
+      "maxRuns": 3,
+      "poolRatio": 6.13
+    },
+    "plain": {
+      "cols": 36,
+      "gapCols": 0,
+      "crossCols": 18,
+      "maxRuns": 3,
+      "poolRatio": 4.5
+    }
+  },
+  {
+    "text": "awa",
+    "seam": "w.jn02|a",
+    "seamW": 96,
+    "alt": {
+      "cols": 32,
+      "gapCols": 0,
+      "crossCols": 5,
+      "maxRuns": 2,
+      "poolRatio": 4.7
+    },
+    "plain": {
+      "cols": 32,
+      "gapCols": 0,
+      "crossCols": 5,
+      "maxRuns": 2,
+      "poolRatio": 4.7
+    }
+  },
+  {
+    "text": "ava",
+    "seam": "a|v.jn02",
+    "seamW": 114,
+    "alt": {
+      "cols": 38,
+      "gapCols": 0,
+      "crossCols": 8,
+      "maxRuns": 3,
+      "poolRatio": 5.75
+    },
+    "plain": {
+      "cols": 37,
+      "gapCols": 0,
+      "crossCols": 23,
+      "maxRuns": 3,
+      "poolRatio": 3.46
+    }
+  },
+  {
+    "text": "ava",
+    "seam": "v.jn02|a",
+    "seamW": 94,
+    "alt": {
+      "cols": 31,
+      "gapCols": 0,
+      "crossCols": 8,
+      "maxRuns": 2,
+      "poolRatio": 4.4
+    },
+    "plain": {
+      "cols": 32,
+      "gapCols": 0,
+      "crossCols": 9,
+      "maxRuns": 2,
+      "poolRatio": 4.36
+    }
+  },
+  {
+    "text": "owo",
+    "seam": "o|w.jn02",
+    "seamW": 100,
+    "alt": {
+      "cols": 33,
+      "gapCols": 0,
+      "crossCols": 6,
+      "maxRuns": 2,
+      "poolRatio": 5.11
+    },
+    "plain": {
+      "cols": 33,
+      "gapCols": 0,
+      "crossCols": 15,
+      "maxRuns": 2,
+      "poolRatio": 4.1
+    }
+  },
+  {
+    "text": "owo",
+    "seam": "w.jn02|o",
+    "seamW": 88,
+    "alt": {
+      "cols": 30,
+      "gapCols": 0,
+      "crossCols": 7,
+      "maxRuns": 2,
+      "poolRatio": 4.6
+    },
+    "plain": {
+      "cols": 30,
+      "gapCols": 0,
+      "crossCols": 8,
+      "maxRuns": 2,
+      "poolRatio": 4.6
+    }
+  }
+]

@@ -1,0 +1,40 @@
+[
+  {
+    "text": "ava",
+    "seam": "a|v.jn01",
+    "seamW": 210,
+    "alt": {
+      "cols": 66,
+      "gapCols": 0,
+      "crossCols": 7,
+      "maxRuns": 3,
+      "poolRatio": 2.94
+    },
+    "plain": {
+      "cols": 66,
+      "gapCols": 0,
+      "crossCols": 7,
+      "maxRuns": 3,
+      "poolRatio": 2.76
+    }
+  },
+  {
+    "text": "ava",
+    "seam": "v.jn01|a",
+    "seamW": 200,
+    "alt": {
+      "cols": 63,
+      "gapCols": 0,
+      "crossCols": 6,
+      "maxRuns": 2,
+      "poolRatio": 1.62
+    },
+    "plain": {
+      "cols": 61,
+      "gapCols": 0,
+      "crossCols": 8,
+      "maxRuns": 2,
+      "poolRatio": 2.48
+    }
+  }
+]
