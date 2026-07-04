@@ -192,21 +192,35 @@ Requirements:
     // (the connect build places a variant at its base letter's advance). Generate the
     // three, drop them into the maker's natural-variation slots; the GSUB calt pipeline
     // cycles the repeated letters. (Auto-filling the slots from the preset is a follow-up.)
+    //
+    // Sheet spec is eval-calibrated against GPT Image (ADR 0053): SIX rows, the two
+    // exotic symbol rows cut to 12 familiar marks (the model garbled them on every
+    // baseline sheet), explicit per-row counts + leave-the-line-empty + rows-never-touch
+    // (kills reflow and vertical fusion), pen weight 1/9 of body height (clears the
+    // engine's 0.05 wispy floor), canvas-filling layout instead of a resolution the
+    // model can't honor. Do NOT re-add a drawn grid (the model invents its own column
+    // count and reflows the charset through it) or shrink rows below the alphabet
+    // halves (same failure). PRESET_CHARSETS.script mirrors the 6 rows below.
     const SCRIPT = (style: string) =>
-      `Hand-drawn cursive alphabet, drawn as THREE versions of the SAME hand so a font tool can later pick the best-fitting form of each letter. Produce three sheets (Version 1, Version 2, Version 3), each the full 7 rows below on white paper:
-Row 1: capitals A B C D E F G H I J K L M
-Row 2: capitals N O P Q R S T U V W X Y Z
-Row 3: lowercase a b c d e f g h i j k l m
-Row 4: lowercase n o p q r s t u v w x y z
-Row 5: digits 0 1 2 3 4 5 6 7 8 9
-Row 6: symbols ! ? @ # $ % ^ & * ( ) - _ + = [ ]
-Row 7: symbols { } ; : ' " , . < > / \\ |
+      `Hand-drawn cursive alphabet for a font tool that reads each character by its position in the grid, drawn as THREE versions of the SAME hand so the tool can cycle natural variation. Produce three sheets (Version 1, Version 2, Version 3), each with the SAME six rows on white paper:
+Row 1 — 13 capitals: A B C D E F G H I J K L M
+Row 2 — 13 capitals: N O P Q R S T U V W X Y Z
+Row 3 — 13 lowercase: a b c d e f g h i j k l m
+Row 4 — 13 lowercase: n o p q r s t u v w x y z
+Row 5 — 10 digits: 0 1 2 3 4 5 6 7 8 9
+Row 6 — 12 marks: . , ! ? : ; ' " - & @ #
+
+THE GRID IS THE CONTRACT — the tool reads characters by position, so:
+- Each row contains EXACTLY the characters listed for it, in EXACTLY that order, each drawn ONCE. Never repeat a character, never skip one, never let a character slide into the next row
+- Row 5 has only 10 shapes and Row 6 only 12: draw them and leave the rest of that line as empty white paper. Never pad a row with extra characters
+- Rows never touch: keep a clear band of white paper between every pair of rows. No descender, loop, or tail may reach the row below; no capital may touch the row above
+- After drawing each sheet, check every row against its list, character by character. If any character is doubled, missing, or out of order, redraw that sheet before moving on
 
 MOST IMPORTANT RULE — letters must be SEPARATE, never joined:
 - Every letter is its own island. Leave a WIDE white gap (at least one letter-width) between every pair of letters. NO part of any letter may touch, overlap, or run into the next one. Do NOT draw a continuous connected line. The tool joins the letters itself later; if they are already joined it cannot read them. This rule overrides everything below.
 
-JUST AS IMPORTANT — only the letters, no labels on the sheet:
-- Do NOT write any title, heading, caption, label, the word "Version", a version number, or any other text anywhere on a sheet. Each sheet shows ONLY the 7 rows of characters listed above and nothing else. The three versions are three SEPARATE image files; the version is which file it is, never text drawn on the page. Any stray word or number would be read as a letter and ruin the font.
+JUST AS IMPORTANT — only the characters, no labels:
+- Do NOT write any title, heading, caption, row number, the word "Version", a version number, or any other text anywhere on a sheet. Each sheet shows ONLY the six rows listed above and nothing else. The three versions are three SEPARATE image files; the version is which file it is, never text drawn on the page. Any stray word or number would be read as a letter and ruin the font.
 
 CONNECTING STROKES — how every lowercase letter starts and ends (the tool joins letters by these):
 - Every lowercase letter BEGINS with a short entry stroke reaching in from the lower left, and ENDS with a short exit stroke reaching out to the lower right, each stopping in the white gap well short of its neighbor
@@ -220,14 +234,13 @@ Requirements:
 - NEVER change a letter's STRUCTURE, only its texture: an a stays a one-storey a, an e keeps its eye, an n keeps its two arches. Vary HOW the strokes are drawn, never WHAT letter it is, and never break, double, smear, or distort a letter into an unreadable or different shape
 - KEEP each letter's overall WIDTH and HEIGHT similar across the three versions, so every version sits the same on the line and takes the same space. Vary the stroke shape, not the size or proportion
 - Every capital is unmistakably a LETTER: the Q never resembling the digit 2, the Z never the digit 3, the S never the 5. Counters stay clearly OPEN: the eye of the e, the bowls of a and o, the cup of the u
-- ONE consistent pen weight across the whole sheet, every letter and every stroke; a delicate line is fine but keep it uniform, and never retrace, double, or touch up a stroke
-- Pure BLACK ink on white background, no grayscale, no anti-aliased fuzziness
+- ONE consistent pen weight across the whole sheet, about 1/9 of the lowercase body height — a smooth round pen, never a wispy hairline, never retraced, doubled, or touched up
+- Pure BLACK ink on white background with hard crisp edges, no grayscale, no anti-aliased fuzziness
 - Perfectly FLAT ink: absolutely no drop shadow, no emboss, no 3D effect, no soft gray halo under or beside any stroke; every stroke is flat solid black on flat white
-- All letters rest on ONE steady baseline at a consistent x-height. Descenders drop below the line, ascenders rise above it, bodies sit on one line
+- All letters in a row rest on ONE steady baseline at a consistent x-height. Descenders drop below the line, ascenders rise above it, bodies sit on one line
 - Clean single-stroke letterforms; no two strokes overprinting or tangling into a knot
-- One character per position, evenly spaced with the wide white gap between them, all 7 rows in each version
-- High resolution: the full sheet at 4096px wide (4K), so every row of letters is drawn large and sharp
-- Output: three clean sheet images as three separate files, the same hand in all three, every letter SEPARATE in all three, and NO version text, title, or label drawn anywhere on any sheet`;
+- All six rows the SAME height and evenly spaced, the grid filling the sheet edge to edge with small margins, so every character is drawn as LARGE as the sheet allows
+- Output: three clean sheet images as three separate files, the same hand in all three, every character SEPARATE in all three, exactly the six rows above, and NO version text, title, or label drawn anywhere on any sheet`;
 
     const MONOLINE = () =>
       `Hand-drawn MONOLINE alphabet sheet, 7 rows on white paper:
@@ -319,7 +332,9 @@ Other requirements:
     const ALPHA = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789'];
     const PRESET_CHARSETS: Record<Preset, string[]> = {
       standard: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
-      script: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
+      // script's row 6 is the eval-calibrated 12-mark row (ADR 0053), not the
+      // two exotic symbol rows: image models garble those on every sheet.
+      script: [...ALPHA, '.,!?:;\'"-&@#'],
       monoline: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
       flat: [...ALPHA, '.,!?:;\'"-&@#'],
       gradient: [...ALPHA, '.,!?:;\'"-&@#'],
