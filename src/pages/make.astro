@@ -84,6 +84,12 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
         <button type="button" class="fh-chip fh-preset" data-preset="flat" aria-pressed="false">flat color</button>
         <button type="button" class="fh-chip fh-preset" data-preset="gradient" aria-pressed="false">gradient color</button>
       </div>
+      <!-- script only: one sheet for a single font, or a 3-version palette for
+           natural variation (the maker's variation slots cycle the letters) -->
+      <div class="fh-gen-styles" id="gen-scriptmode" role="group" aria-label="Script sheet mode" hidden>
+        <button type="button" class="fh-chip fh-scriptmode" data-mode="single" aria-pressed="true">one sheet</button>
+        <button type="button" class="fh-chip fh-scriptmode" data-mode="palette" aria-pressed="false">three versions</button>
+      </div>
       <!-- standard only: quick style chips that fill the box below -->
       <div class="fh-gen-styles" id="gen-stylechips">
         <button type="button" class="fh-chip" data-style="bold geometric sans-serif">geometric sans</button>
@@ -183,7 +189,47 @@ Requirements:
 - High resolution: at least 2000px wide
 - Output: one clean PNG image, 7 rows of letters as specified above`;
 
-    // The script preset generates a 3-version PALETTE of the SAME hand for natural
+    // The script preset has two modes. SINGLE is one sheet for one cursive font:
+    // the eval-winning prompt from ADR 0053 verbatim (it was measured in exactly
+    // this single-sheet form), plus the style slot and the self-check line.
+    const SCRIPT_SINGLE = (style: string) =>
+      `Hand-drawn cursive alphabet sheet for a font tool that reads each character by its position in the grid. One sheet, exactly SIX rows on white paper:
+Row 1 — 13 capitals: A B C D E F G H I J K L M
+Row 2 — 13 capitals: N O P Q R S T U V W X Y Z
+Row 3 — 13 lowercase: a b c d e f g h i j k l m
+Row 4 — 13 lowercase: n o p q r s t u v w x y z
+Row 5 — 10 digits: 0 1 2 3 4 5 6 7 8 9
+Row 6 — 12 marks: . , ! ? : ; ' " - & @ #
+
+THE GRID IS THE CONTRACT — the tool reads characters by position, so:
+- Each row contains EXACTLY the characters listed for it, in EXACTLY that order, each drawn ONCE. Never repeat a character, never skip one, never let a character slide into the next row
+- Row 5 has only 10 shapes and Row 6 only 12: draw them and leave the rest of that line as empty white paper. Never pad a row with extra characters
+- Rows never touch: keep a clear band of white paper between every pair of rows. No descender, loop, or tail may reach the row below; no capital may touch the row above
+- After drawing the sheet, check every row against its list, character by character. If any character is doubled, missing, or out of order, redraw the sheet
+
+MOST IMPORTANT RULE — letters must be SEPARATE, never joined:
+- Every letter is its own island. Leave a WIDE white gap (at least one letter-width) between every pair of letters. NO part of any letter may touch, overlap, or run into the next one. Do NOT draw a continuous connected line. The tool joins the letters itself later; if they are already joined it cannot read them. This rule overrides everything below.
+
+JUST AS IMPORTANT — only the characters, no labels:
+- Do NOT write any title, heading, caption, row number, or any other text anywhere on the sheet. The sheet shows ONLY the six rows listed above and nothing else. Any stray word or number would be read as a letter and ruin the font.
+
+CONNECTING STROKES — how every lowercase letter starts and ends (the tool joins letters by these):
+- Every lowercase letter BEGINS with a short entry stroke reaching in from the lower left, and ENDS with a short exit stroke reaching out to the lower right, each stopping in the white gap well short of its neighbor
+- ALL entries and exits sit at the SAME low height, just above the baseline, and run the SAME length, about a quarter of the letter body height, on every letter of the sheet
+- Draw them at the letter's own pen weight, never a fading hairline taper
+
+Requirements:
+- A natural cursive hand${style ? ` in this style: ${style}` : ''}, the kind you would write by hand
+- Every capital is unmistakably a LETTER: the Q never resembling the digit 2, the Z never the digit 3, the S never the 5. Counters stay clearly OPEN: the eye of the e, the bowls of a and o, the cup of the u
+- ONE consistent pen weight across the whole sheet, about 1/9 of the lowercase body height — a smooth round pen, never a wispy hairline, never retraced, doubled, or touched up
+- Pure BLACK ink on white background with hard crisp edges, no grayscale, no anti-aliased fuzziness
+- Perfectly FLAT ink: absolutely no drop shadow, no emboss, no 3D effect, no soft gray halo under or beside any stroke; every stroke is flat solid black on flat white
+- All letters in a row rest on ONE steady baseline at a consistent x-height. Descenders drop below the line, ascenders rise above it, bodies sit on one line
+- Clean single-stroke letterforms; no two strokes overprinting or tangling into a knot
+- All six rows the SAME height and evenly spaced, the grid filling the sheet edge to edge with small margins, so every character is drawn as LARGE as the sheet allows
+- Output: one clean sheet image, every character SEPARATE, exactly the six rows above, and NO title or label drawn anywhere`;
+
+    // PALETTE mode generates a 3-version palette of the SAME hand for natural
     // variation. Two HARD rules: SEPARATION (a fused row can't be sliced) and letter
     // STRUCTURE stays correct (vary the texture of the strokes, never the skeleton, or
     // the variant degrades into a different/broken letter). Within those, each version
@@ -317,9 +363,13 @@ Other requirements:
 - High resolution: at least 2400px wide
 - Output: one clean PNG image, the 6 rows above and nothing else`;
 
+    // Script mode: 'single' = one sheet, one font; 'palette' = the 3-version
+    // natural-variation palette. Resets to 'single' whenever script is picked.
+    let scriptMode: 'single' | 'palette' = 'single';
+
     const PRESETS: Record<Preset, { build: (v: string) => string; chips: boolean; label: string | null; placeholder: string }> = {
       standard: { build: STANDARD, chips: true, label: 'YOUR STYLE', placeholder: 'type a style: brush script, bubbly, monospace tech, hand-cut stencil...' },
-      script: { build: SCRIPT, chips: false, label: 'YOUR STYLE', placeholder: 'type a cursive style: elegant, casual, brush, spencerian...' },
+      script: { build: (v) => (scriptMode === 'palette' ? SCRIPT(v) : SCRIPT_SINGLE(v)), chips: false, label: 'YOUR STYLE', placeholder: 'type a cursive style: elegant, casual, brush, spencerian...' },
       monoline: { build: () => MONOLINE(), chips: false, label: null, placeholder: '' },
       flat: { build: FLAT, chips: false, label: 'YOUR PALETTE', placeholder: 'list 2 to 4 flat colors' },
       gradient: { build: GRADIENT, chips: false, label: 'COLOR FAMILY', placeholder: 'name one color family' },
@@ -352,10 +402,18 @@ Other requirements:
     const extraLabel = document.getElementById('gen-extra-label');
     const field = document.getElementById('gen-field');
     const stylechips = document.getElementById('gen-stylechips');
+    const scriptmode = document.getElementById('gen-scriptmode');
     const promptEl = document.getElementById('gen-prompt');
 
     const renderPrompt = () => {
       if (promptEl) promptEl.textContent = PRESETS[activePreset].build(extra?.value.trim() || '');
+    };
+
+    const setScriptMode = (m: 'single' | 'palette') => {
+      scriptMode = m;
+      document.querySelectorAll<HTMLElement>('.fh-scriptmode').forEach((b) =>
+        b.setAttribute('aria-pressed', String(b.dataset.mode === m)),
+      );
     };
 
     const applyPreset = (p: Preset) => {
@@ -365,6 +423,8 @@ Other requirements:
         b.setAttribute('aria-pressed', String(b.dataset.preset === p)),
       );
       if (stylechips) stylechips.hidden = !cfg.chips;
+      if (scriptmode) scriptmode.hidden = p !== 'script';
+      if (p === 'script') setScriptMode('single'); // predictable default on every entry
       if (field) field.hidden = cfg.label === null;
       if (cfg.label && extraLabel) extraLabel.textContent = cfg.label;
       if (cfg.label && extra) extra.placeholder = cfg.placeholder;
@@ -380,6 +440,12 @@ Other requirements:
       }),
     );
     extra?.addEventListener('input', renderPrompt);
+    document.querySelectorAll<HTMLElement>('.fh-scriptmode').forEach((b) =>
+      b.addEventListener('click', () => {
+        setScriptMode(b.dataset.mode === 'palette' ? 'palette' : 'single');
+        renderPrompt();
+      }),
+    );
     document.querySelectorAll<HTMLElement>('#gen-stylechips .fh-chip').forEach((chip) =>
       chip.addEventListener('click', () => {
         if (!extra) return;
