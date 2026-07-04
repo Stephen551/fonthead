@@ -32,11 +32,17 @@ test('walkthrough shows, dismisses, retriggers; prompt builder reflects the styl
   await page.locator('#gen-extra').fill('charcoal, red, cream');
   await expect(page.locator('#gen-prompt')).toContainText('charcoal, red, cream');
 
-  // the script preset prompts for a natural cursive drawn as THREE versions of the
-  // same hand (natural variation), whose letters stay SEPARATE with a clear gap (the
-  // maker joins them itself)
+  // the script preset defaults to ONE sheet (a single cursive font), whose letters
+  // stay SEPARATE with a clear gap (the maker joins them itself); the "three
+  // versions" chip swaps to the natural-variation palette prompt
   await page.getByRole('button', { name: 'script', exact: true }).click();
   await expect(page.locator('#gen-prompt')).toContainText('cursive');
-  await expect(page.locator('#gen-prompt')).toContainText('THREE versions of the SAME hand');
+  await expect(page.locator('#gen-prompt')).toContainText('One sheet, exactly SIX rows');
   await expect(page.locator('#gen-prompt')).toContainText('SEPARATE');
+  await page.getByRole('button', { name: 'three versions', exact: true }).click();
+  await expect(page.locator('#gen-prompt')).toContainText('THREE versions of the SAME hand');
+  // and re-entering the preset resets to the one-sheet default
+  await page.getByRole('button', { name: 'standard', exact: true }).click();
+  await page.getByRole('button', { name: 'script', exact: true }).click();
+  await expect(page.locator('#gen-prompt')).toContainText('One sheet, exactly SIX rows');
 });
