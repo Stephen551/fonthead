@@ -71,6 +71,14 @@ units it already knows (alphabet halves, digits) in landscape. Exact per-glyph
 counts are NOT reachable by prompt: the residual is 1-2 duplicates/drops per
 sheet, concentrated in lowercase rows.
 
+## Addendum (2026-07-04): single-sheet mode
+
+The script preset gained a mode toggle (director request): "one sheet" (default)
+generates a single cursive sheet using the eval-winning prompt VERBATIM (it was
+measured in exactly this single-sheet form), "three versions" keeps the 3-sheet
+natural-variation palette. Same six rows, same PRESET_CHARSETS.script for both.
+The toggle resets to "one sheet" on every entry to the preset.
+
 ## Follow-ups
 
 - The maker could compare per-row glyph counts against the armed preset charset
