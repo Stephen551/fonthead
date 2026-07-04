@@ -1,6 +1,11 @@
 # ADR 0052 — The assembled seam feedback pass: a losing alternate parks itself
 
-**Status:** Accepted (Stage F correction; the director's strip gate remains, deploy held)
+**Status:** Accepted (Stage F correction; the director accepted and the
+milestone CLOSED 2026-07-03 — deployed, wrangler version 646b8e39, production
+connect plain, the reconstruction opt-in via fh-test-seam-alts. His verdict:
+a large improvement, polish ceiling acknowledged — the residue lives in
+ADR 0045's decomposition, not in seam defects. Open follow-ups: the
+connect-default decision, his live-test verdict, the spaceAdvance dead store)
 **Date:** 2026-07-03
 **Executes:** the pass ADR 0040 parked ("deferred until the field justifies it")
 **Builds on:** ADR 0051 (the sensor), ADR 0049/0050 (the reconstruction)

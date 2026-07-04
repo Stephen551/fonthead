@@ -1,7 +1,8 @@
 # ADR 0049 — Measured-parameter connector reconstruction (amends ADR 0033's no-synthesis rule)
 
-**Status:** Accepted (doctrine amendment; the milestone it enables is in
-progress — the connection-point spec, stroke-model route)
+**Status:** Accepted (doctrine amendment; the milestone it enabled CLOSED
+2026-07-03 at the director's gate — all stages executed, deployed hook-gated,
+production connect plain; ADR 0050/0051/0052 record the execution)
 **Date:** 2026-07-02
 **Amends:** ADR 0033 (connect uses real ink only)
 **Builds on:** ADR 0048 (both outline warps failed the panel), ADR 0041/0042

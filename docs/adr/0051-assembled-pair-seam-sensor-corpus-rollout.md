@@ -1,6 +1,8 @@
 # ADR 0051 — The assembled-pair seam sensor: the corpus builds connect faces on the hook and reads every fired seam
 
-**Status:** Accepted (Stage E of ADR 0049; Stage F remains, deploy held)
+**Status:** Accepted (Stage E of ADR 0049; Stage F closed in ADR 0052 —
+milestone closed and deployed 2026-07-03, production connect plain, the
+reconstruction rides the fh-test-seam-alts hook)
 **Date:** 2026-07-03
 **Executes:** ADR 0049 Stage E (rollout + assembled-pair sensor)
 **Builds on:** ADR 0050 (the executed gates), ADR 0040 (the assembled-pair wall)

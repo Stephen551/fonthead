@@ -1,7 +1,8 @@
 # ADR 0050 — The reconstruction's executed gates: connector-weight attach, entry-side backtrack, the dive gate
 
 **Status:** Accepted (Stages A-D + entry side shipped behind the test hook;
-Stage E's corpus sensor landed in ADR 0051, Stage F remains)
+Stage E's corpus sensor landed in ADR 0051, Stage F closed in ADR 0052 —
+milestone closed and deployed 2026-07-03, production connect plain)
 **Date:** 2026-07-03
 **Executes:** ADR 0049 (measured-parameter reconstruction)
 **Builds on:** ADR 0048 (delivery machinery), ADR 0040 (the assembled-pair wall)

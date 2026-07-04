@@ -62,9 +62,9 @@ left out — they live in CLAUDE.md, not here.
 | [0047](0047-variation-build-mode-boundary-not-registration.md) | The variation build joins classic: the mode boundary was the whole defect, not variant registration | Accepted |
 | [0048](0048-seam-alternates-contextual-not-base-surgery.md) | Seam knots fix by contextual alternates: a lowered-exit .jn01 copy fires before low-entry followers | Parked (warps failed the panel; machinery banked) |
 | [0049](0049-measured-parameter-connector-reconstruction.md) | Measured-parameter connector reconstruction permitted; invented letterform variation stays banned | Accepted (amends 0033) |
-| [0050](0050-connector-reconstruction-executed-gates.md) | The reconstruction's executed gates: connector-weight attach, entry-side backtrack alternates, the dive gate | Accepted (hook-gated; Stage E done in 0051, Stage F remains) |
-| [0051](0051-assembled-pair-seam-sensor-corpus-rollout.md) | The assembled-pair seam sensor: the corpus builds connect faces on the hook and reads every fired seam | Accepted (Stage F remains, deploy held) |
-| [0052](0052-assembled-seam-feedback-pass-losers-park-themselves.md) | The assembled seam feedback pass: a probe build senses every fired exit seam and a losing alternate parks itself | Accepted (director strip gate remains, deploy held) |
+| [0050](0050-connector-reconstruction-executed-gates.md) | The reconstruction's executed gates: connector-weight attach, entry-side backtrack alternates, the dive gate | Accepted (milestone closed + deployed 2026-07-03) |
+| [0051](0051-assembled-pair-seam-sensor-corpus-rollout.md) | The assembled-pair seam sensor: the corpus builds connect faces on the hook and reads every fired seam | Accepted (milestone closed + deployed 2026-07-03) |
+| [0052](0052-assembled-seam-feedback-pass-losers-park-themselves.md) | The assembled seam feedback pass: a probe build senses every fired exit seam and a losing alternate parks itself | Accepted (director accepted; milestone closed + deployed 2026-07-03, hook opt-in) |
 
 ## Format
 
