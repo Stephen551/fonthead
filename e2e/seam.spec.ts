@@ -68,11 +68,14 @@ test.describe('seam alternates (banked behind the test hook)', () => {
     await page.locator('#sheet-file').setInputFiles(SHEET);
     await buildDone(page);
 
-    // the measured offender class on this hand: the o/v/w/b gentle crossings
+    // the measured offender class on this hand: the o/w/b gentle crossings
     // (plus r). Stage E replaced the flat descent cap with the measured DIVE
     // gate: s (2.66) and x (2.08) both need a steeper synthesized descent
     // than the verified-clean class (0.88-1.49) and park with their drawn
-    // sweeps; a roomier hand's s/x will fire on its own geometry. Never the
+    // sweeps; a roomier hand's s/x will fire on its own geometry. v parks at
+    // the DIRECTOR gate (ADR 0052: the synthesized exit reads heavier than
+    // its drawn loop-born crossing on ve, and the sensor scores that seam
+    // better, so no measured gate can implement the call). Never the
     // crossbars (f, t), an ascender loop (l), or the low-exit class (a, e).
     const sa = await page.evaluate(
       () =>
@@ -81,9 +84,10 @@ test.describe('seam alternates (banked behind the test hook)', () => {
     );
     expect(sa, 'seam alternates ran').toBeTruthy();
     const offenders = sa!.offenders.map((o) => o.char);
-    for (const c of ['o', 'v', 'w', 'b']) expect(offenders, `offender ${c}`).toContain(c);
-    for (const c of ['f', 't', 'l', 'a', 'e', 's', 'x']) expect(offenders, `${c} is never an offender`).not.toContain(c);
+    for (const c of ['o', 'w', 'b']) expect(offenders, `offender ${c}`).toContain(c);
+    for (const c of ['f', 't', 'l', 'a', 'e', 's', 'x', 'v']) expect(offenders, `${c} is never an offender`).not.toContain(c);
     for (const c of ['s', 'x']) expect(sa!.skipped, `${c} parks at the dive gate, keeping its drawn sweep`).toContain(c);
+    expect(sa!.skipped, 'v parks at the director gate, keeping its drawn loop-born exit').toContain('v');
     expect(sa!.rights.length, 'low-entry follower set covers the lowercase').toBeGreaterThanOrEqual(20);
 
     const otf = await captureOtf(page);
@@ -102,7 +106,8 @@ test.describe('seam alternates (banked behind the test hook)', () => {
     // mid-word: the exit alternate applies before a low-entry follower, and
     // the follower's own floating lead-in collapses after a joining exit
     expect(shapeNames(font, 'on')).toEqual(['o.jn01', 'n.jn02']);
-    expect(shapeNames(font, 've')).toEqual(['v.jn01', 'e']);
+    // v parked at the director gate: ve keeps the drawn crossing
+    expect(shapeNames(font, 've')).toEqual(['v', 'e']);
     expect(shapeNames(font, 'ow')).toEqual(['o.jn01', 'w.jn02']);
     // entry-only context: a clean exit still collapses the follower's hook
     expect(shapeNames(font, 'aw')).toEqual(['a', 'w.jn02']);

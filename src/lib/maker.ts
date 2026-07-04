@@ -2143,6 +2143,15 @@ const SEAM_LOOP_CHECK_HI = 1.4; // ·xh
 // class), but a SYNTHESIZED stroke is drawn down the whole descent at the
 // tail's measured width, so steepness is geometry, not shearing.
 const SEAM_CROSSBAR = new Set(['f', 't']); // crossbars overhang high by design; never offenders
+// Director-park class (Stephen's Stage F gate, 2026-07-03; ADR 0052): the v
+// exit descends from a drawn eyelet loop, and its synthesized replacement
+// reads heavier than the hand at the ve crossing — while the assembled
+// sensor scores that seam BETTER (crossings −6: the metric reads the merged
+// junction as improvement), so no measured gate can implement the call.
+// v keeps its drawn exit everywhere; costs the single-digit crossing wins
+// on cc-3/cc-4/cc-6 (never eye-reviewed), accepted at the gate. The entry
+// side (.jn02) is unaffected. One line reverts it.
+const SEAM_DIRECTOR_PARK = new Set(['v']);
 const SEAM_ALT_SUFFIX = '.jn01';
 const SEAM_ENTRY_SUFFIX = '.jn02'; // entry lead-in hook collapsed (backtrack calt)
 // ·xh — the entry collapse reaches this far PAST the body edge: a flick's
@@ -2724,9 +2733,9 @@ export function makeSeamAlternates(
     if (!SEAM_LOWERCASE.test(m.char)) continue;
     if (SEAM_CROSSBAR.has(m.char) || DESC_EXIT.has(m.char)) continue;
     if (m.exitFrac - joinFrac <= SEAM_EXIT_GATE) continue;
-    // assembled-feedback park: this exit's seams measured worse than the
-    // drawn hand once assembled — same exit treatment as a dive park
-    if (dropExits?.has(m.char)) {
+    // director park (taste class) and assembled-feedback park: the exit
+    // keeps its drawn form — same treatment as a dive park
+    if (SEAM_DIRECTOR_PARK.has(m.char) || dropExits?.has(m.char)) {
       skipped.push(m.char);
       continue;
     }

@@ -546,6 +546,21 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
     expect(out.lefts).not.toContain('o'); // the parked high exit does not
   });
 
+  it('the v exit class parks at the director gate: drawn loop-born exit kept everywhere', () => {
+    // Stephen's Stage F gate (2026-07-03): the synthesized v exit reads
+    // heavier than the drawn crossing on ve, and the sensor scores that seam
+    // BETTER (the crossing metric reads the merged junction as improvement),
+    // so no measured gate can implement the call — v is a taste-class park
+    // like the crossbars. Entry side (.jn02) unaffected; out of the
+    // backtrack lefts like any parked high exit.
+    const gs = [mk('x'), ...lowHands(), mk('v', { tipFrac: 0.9, reach: 5 }, { tipFrac: 0.5, reach: 8 })];
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(out.offenders).toEqual([]);
+    expect(out.skipped).toContain('v');
+    expect(out.alternates.map((a) => `${a.char}${a.variantSuffix}`)).toEqual(['v.jn02']);
+    expect(out.lefts).not.toContain('v');
+  });
+
   it('a sensed-worse offender drops whole: exit reconstruction parked, entry collapse kept (assembled feedback)', () => {
     // The assembled seam feedback pass re-runs selection with the losers
     // parked (the signature o, cc-3's c — measured worse than plain once
@@ -647,14 +662,15 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
   it('optical overshoot just past the zone ceiling is not a loop (the v/w class)', () => {
     // a pointed letter's stroke top overshoots the x-height by a few percent;
     // that poke must not read as ascender structure or the v/w knots go
-    // uncorrected (live calibration: v topped ~1.08 and fell out).
-    const over = mk('v', undefined, { tipFrac: 0.5, reach: 8 });
-    const vp = over._p;
+    // uncorrected (live calibration: v topped ~1.08 and fell out; the fixture
+    // rides w since v parks at the director gate, ADR 0052).
+    const over = mk('w', undefined, { tipFrac: 0.5, reach: 8 });
+    const wp = over._p;
     const pokeY = BASE - Math.round(1.08 * 30);
-    vp.rowRight[pokeY] = 26 + 4; // stroke top pokes right of the body, just over the ceiling
+    wp.rowRight[pokeY] = 26 + 4; // stroke top pokes right of the body, just over the ceiling
     const gs = [mk('x'), ...lowHands(), over];
     const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
-    expect(out.offenders.map((o) => o.char)).toEqual(['v']);
+    expect(out.offenders.map((o) => o.char)).toEqual(['w']);
   });
 
   it('a high lead-in hook gains a .jn02 entry alternate: the hook collapses, low ink stays', () => {
