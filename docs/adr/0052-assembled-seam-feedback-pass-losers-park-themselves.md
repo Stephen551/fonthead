@@ -95,11 +95,22 @@ parks. Suites: unit 238, corpus 35/35, e2e 57/57.
 
 Costs and bounds, honestly: a hook build with offenders runs one extra
 worker build (~seconds; production builds never reach the pass). Exit-side
-only (.jn02 stays ungated; every sensed one measures better or tie). The
-smooth ve seam survives by measurement — v's sensed seams win and 've' is
-not in the sensed pair set — so the director's ve call remains an open
-taste item at his gate: accept, add ve to the sensed set, or park v by
-hand.
+only (.jn02 stays ungated; every sensed one measures better or tie).
+
+**Addendum (same day): the director resolved the ve call — v parks by
+class.** The smooth ve seam survived the pass by measurement (crossings −6,
+pool −1.09: the metric reads the merged junction as improvement), and the
+director's eye confirmed the drawn crossing reads better — a defect class
+the sensor cannot see (the synthesized exit carries more mass through the
+crossing than the drawn loop-born stroke). No scalar separates smooth's v
+from the measured v wins elsewhere (the dive ceiling cannot come below
+cc-4's o at 1.7), so v joins the taste-class exclusions
+(`SEAM_DIRECTOR_PARK`, beside the crossbars and descender exits): its
+drawn exit everywhere, .jn02 entry side unaffected, out of the backtrack
+lefts like any parked high exit. Accepted cost: the single-digit crossing
+wins on cc-3/cc-4/cc-6 v seams (never eye-reviewed). One line reverts it.
+Suites after the park: unit 239, connect corpus 15/15, seam e2e green;
+smooth fires 11 alternates.
 
 ## Do not re-walk
 

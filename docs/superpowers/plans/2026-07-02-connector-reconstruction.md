@@ -142,9 +142,13 @@ face builds plain), cc-3 c/o/p/r, handmade o/v, light o; every measured
 winner keeps firing; corpus gapMax now 0 everywhere; unit 238 / corpus
 35/35 / e2e 57 green.
 
-Remaining: the director's eye on the re-rendered strips (his ve call is
-the open taste item — v survives by measurement, 've' is outside the
-sensed pair set), then deploy.
+The director then resolved the ve call the same day: the drawn crossing
+reads better and the sensor scores the seam the other way (a defect class
+the crossing metric cannot see), so v parks by taste class
+(SEAM_DIRECTOR_PARK, ADR 0052 addendum) — drawn exit everywhere, .jn02
+untouched, the cc-3/cc-4/cc-6 v crossing wins accepted as the cost.
+
+Remaining: the director's final look at the re-rendered set, then deploy.
 
 ## Do-not-re-walk (carried from ADR 0048)
 
