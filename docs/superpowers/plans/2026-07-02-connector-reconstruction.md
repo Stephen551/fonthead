@@ -125,10 +125,26 @@ the smooth knots the alternates measurably beat the plain render (on 11 vs
 17 crossing cols, va 1 vs 6). GATE PASSED: corpus 35/35 (existing gates all
 held with the hook on), unit 219, e2e 57.
 
-Remaining: Stage F (full-specimen 3-lens A/B vs the deployed build + a real
-12-16px waterfall + the director's gate). Carry-in look-item for the panel:
-the signature face's o.jn01|w seam reads crossing 31 vs 16 plain (the w's
-high lead-in geometry; the strip renders clean, under gate — worth a lens).
+Stage F ran 2026-07-03. The blinded 3-lens A/B + real 12-16px waterfalls:
+small sizes are a production tie (high confidence, the Stage D worry
+settled), reading rhythm split, and the instrumented probe cleared the
+synthesis of floor-class content (no daylight, no needles — the "needle"
+read was the designed tip taper). The DIRECTOR'S GATE then failed the
+signature o seams (ow/ov/own, the carry-in look-item) and smooth ve: the
+build fired alternates on seams where the drawn hand wins. Every build-time
+scalar separator was refuted by measurement (depth, dive floor, dive
+ceiling — same face, same dive, opposite outcomes), so the correction is
+the pass ADR 0040 parked, now built and banked as ADR 0052: a probe build
+senses every fired exit seam alternate-vs-plain at the font's own metrics
+and a losing offender parks itself (plan:
+2026-07-03-assembled-seam-feedback.md). Validated drops: signature o (the
+face builds plain), cc-3 c/o/p/r, handmade o/v, light o; every measured
+winner keeps firing; corpus gapMax now 0 everywhere; unit 238 / corpus
+35/35 / e2e 57 green.
+
+Remaining: the director's eye on the re-rendered strips (his ve call is
+the open taste item — v survives by measurement, 've' is outside the
+sensed pair set), then deploy.
 
 ## Do-not-re-walk (carried from ADR 0048)
 
