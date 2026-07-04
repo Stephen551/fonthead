@@ -1,7 +1,10 @@
 # 0053 — The script preset prompt is eval-calibrated: six rows, grid-contract rules, measured against the engine
 
 Date: 2026-07-03
-Status: accepted (Stephen approved the copy in session)
+Status: accepted (Stephen approved the copy in session); DEPLOYED to prod
+2026-07-03, wrangler version 34a6c005 — verified live: the /make page bundle
+carries the grid-contract prompt and the 12-mark row. The eval API key was
+deleted after the run.
 Spec: docs/superpowers/specs/2026-07-03-script-prompt-optimization-design.md
 
 ## Context
