@@ -2234,6 +2234,286 @@ function pathAreaSign(d: string): number {
   return Math.sign(a);
 }
 
+// --- The assembled seam feedback pass (ADR 0040's parked pass) --------------
+// Built after the Stage F director gate: the reconstruction fired alternates
+// on seams where it loses to the drawn hand (the signature o, cc-3's c) and
+// no build-time scalar separates them from the winners (depth, dive floor and
+// ceiling all refuted by measurement, 2026-07-03 diag — same face, same dive,
+// opposite outcomes). The defect only exists ASSEMBLED, so the maker senses
+// every fired exit seam alternate-vs-plain at identical positions and a
+// losing offender parks itself back to the drawn exit.
+
+/** One assembled seam zone, the corpus sensor's read (gap / cross / pool). */
+export type SeamZoneRead = { cols: number; gapCols: number; crossCols: number; maxRuns: number; poolRatio: number };
+
+// Verdict tolerances, calibrated on the banked Stage E sensor table (the
+// test/fixtures/seam-sensor JSONs): the smallest director-confirmed WORSE
+// crossing delta is +5 (signature o|o), the largest healthy jitter on a
+// keep-side seam is ±2; pooling separates at +2.2 (handmade o|w) vs ±1
+// healthy. Gap is absolute: an alternate must never introduce daylight.
+const SEAM_FEEDBACK_CROSS_TOL = 2;
+const SEAM_FEEDBACK_POOL_TOL = 1;
+
+/** Per-seam drop verdict: gap regression is always worse; crossings (the knot
+ *  metric, the defect class the milestone exists to remove) decide next;
+ *  pooling breaks crossing ties. */
+export function seamVerdict(alt: SeamZoneRead, plain: SeamZoneRead): 'worse' | 'better' | 'tie' {
+  if (alt.gapCols > plain.gapCols) return 'worse';
+  const crossD = alt.crossCols - plain.crossCols;
+  if (crossD > SEAM_FEEDBACK_CROSS_TOL) return 'worse';
+  if (crossD < -SEAM_FEEDBACK_CROSS_TOL) return 'better';
+  const poolD = alt.poolRatio - plain.poolRatio;
+  if (poolD > SEAM_FEEDBACK_POOL_TOL) return 'worse';
+  if (poolD < -SEAM_FEEDBACK_POOL_TOL) return 'better';
+  return 'tie';
+}
+
+// The seams whose crossing/pool verdicts VOTE: the corpus sensor's own pair
+// set (JOIN_PAIRS + the triple-derived pairs in e2e-corpus/corpus.spec.ts),
+// i.e. common English bigrams — what a reader actually sees. Exhaustive
+// offender-by-rights sensing DILUTED the decision (validation catch: the
+// signature o's five banked worse-seams were outvoted by 21 rare pairs the
+// corpus never validated, ox/ob/oa), so rare pairs carry no crossing vote.
+// Gap regressions are different: daylight is never legitimate, so the gap
+// veto below reads EVERY sensed seam.
+const SEAM_CLASSIC_BIGRAMS = new Set([
+  'an', 'ne', 'en', 'nn', 'mi', 'in', 're', 'er', 'ou', 'un', 'th', 'he', 'ic', 'ck', 'ow', 'wn', 'el', 'll', 'or',
+  'ab', 'cd', 'de', 'ef', 'ro', 'br', 'fr', 'lo', 'oo', 'ee',
+  'aw', 'wa', 'na', 'am', 'ma', 'ar', 'ra', 'av', 'va', 'on', 'no', 'wo',
+]);
+// gap veto: drop when this fraction of an offender's base-follower seams
+// introduce daylight (cc-3's p gaps on every one of its 24; the healthy
+// jitter cases sit at 1-3 of 26)
+const SEAM_GAP_VETO_FRAC = 1 / 3;
+
+/** Decide which exit offenders park, from assembled seam reads. A seam is
+ *  attributed to the LEFT glyph's exit only when the left carries the
+ *  reconstruction (.jn01, or .jn03 whose exit half is the same synthesis);
+ *  a plain-left or .jn02-left seam carries no exit information. The same
+ *  pair sensed twice (probe texts, or base + collapsed follower forms)
+ *  votes once. Two ways to drop:
+ *  1. GAP VETO — daylight introduced on >= a third of the offender's
+ *     base-follower seams (a collapsed .jn02 follower removes its own hook
+ *     ink, so its gaps are not the left glyph's to answer for).
+ *  2. CLASSIC VOTE — worse beats better on the common-bigram pairs (the
+ *     banked calibration set); rare pairs don't vote.
+ *  The park state is always the drawn hand. */
+export function decideSeamDrops(seams: Array<{ seam: string; alt: SeamZoneRead; plain: SeamZoneRead }>): string[] {
+  const votes = new Map<string, { worse: number; better: number; gapWorse: number; baseSeams: number }>();
+  const seen = new Set<string>();
+  for (const s of seams) {
+    const [left = '', right = ''] = s.seam.split('|');
+    const m = left.match(/^(.+)\.jn0([13])$/);
+    if (!m) continue;
+    const char = m[1];
+    const follower = right.replace(/\.jn0\d$/, '');
+    const key = `${char}|${follower}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const tally = votes.get(char) ?? { worse: 0, better: 0, gapWorse: 0, baseSeams: 0 };
+    votes.set(char, tally);
+    const collapsedFollower = /\.jn0[23]$/.test(right);
+    if (!collapsedFollower) {
+      tally.baseSeams++;
+      if (s.alt.gapCols > s.plain.gapCols) tally.gapWorse++;
+    }
+    if (!SEAM_CLASSIC_BIGRAMS.has(char + follower)) continue;
+    const v = seamVerdict(s.alt, s.plain);
+    if (v === 'tie') continue;
+    tally[v === 'worse' ? 'worse' : 'better']++;
+  }
+  return Array.from(votes.entries())
+    .filter(([, t]) => (t.baseSeams > 0 && t.gapWorse / t.baseSeams >= SEAM_GAP_VETO_FRAC) || t.worse > t.better)
+    .map(([c]) => c)
+    .sort();
+}
+
+// The corpus sensor, ported to build time: parse the PROBE build's OTF (the
+// engine's opentype.js is already on the page) and raster every fired exit
+// seam alternate-vs-plain at the font's OWN metrics — advance plus the GPOS
+// connect kern, the positions a reader gets. The first cut sensed cell paths
+// at kernless fit advances instead and FAILED validation: the connect model
+// corrects per-pair spacing through the kern, so the signature ow verdict
+// flipped sign and cc-4 grew phantom gap columns. 100px x-height forensic
+// raster, band -0.1..1.1 x-height, per-column ink runs of 2px+. Browser-only
+// (canvas); production builds never reach it — the pass rides the seam hook.
+function senseBuiltSeams(
+  otf: Uint8Array,
+  offenders: string[],
+  rights: string[],
+): Array<{ seam: string; seamW: number; alt: SeamZoneRead; plain: SeamZoneRead }> {
+  if (!offenders.length || !rights.length) return [];
+  const ot = w().opentype;
+  if (!ot?.parse) return [];
+  let font: any;
+  try {
+    font = ot.parse(otf.buffer.slice(otf.byteOffset, otf.byteOffset + otf.byteLength));
+  } catch {
+    return [];
+  }
+  const upm = font.unitsPerEm || 1000;
+  const byName = new Map<string, any>();
+  for (let i = 0; i < font.numGlyphs; i++) {
+    const g = font.glyphs.get(i);
+    if (g?.name && !byName.has(g.name)) byName.set(g.name, g);
+  }
+  const xg = font.charToGlyph('x');
+  const xb = xg && xg.getBoundingBox ? xg.getBoundingBox() : null;
+  const xh = xb && xb.y2 > 0 ? xb.y2 : upm * 0.5;
+  const S = 100 / xh; // the corpus sensor's 100px x-height forensic raster
+  const Y_TOP = 1.4 * xh; // canvas ceiling above baseline (font units, y up)
+  const Y_BOT = -0.5 * xh;
+  const H = Math.ceil((Y_TOP - Y_BOT) * S);
+  // measured band rows: the connect/seam zone, -0.1..1.1 x-height
+  const row0 = Math.max(0, Math.round((Y_TOP - 1.1 * xh) * S));
+  const row1 = Math.min(H - 1, Math.round((Y_TOP - -0.1 * xh) * S));
+  const mkCanvas = (cw: number, ch: number): OffscreenCanvas | HTMLCanvasElement => {
+    if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(cw, ch);
+    const c = document.createElement('canvas');
+    c.width = cw;
+    c.height = ch;
+    return c;
+  };
+  const draw = (ctx: CanvasRenderingContext2D, g: any, dxUnits: number) => {
+    if (!g?.path?.commands?.length) return;
+    const tx = (x: number) => (x + dxUnits) * S;
+    const ty = (y: number) => (Y_TOP - y) * S;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    for (const c of g.path.commands) {
+      if (c.type === 'M') ctx.moveTo(tx(c.x), ty(c.y));
+      else if (c.type === 'L') ctx.lineTo(tx(c.x), ty(c.y));
+      else if (c.type === 'C') ctx.bezierCurveTo(tx(c.x1), ty(c.y1), tx(c.x2), ty(c.y2), tx(c.x), ty(c.y));
+      else if (c.type === 'Q') ctx.quadraticCurveTo(tx(c.x1), ty(c.y1), tx(c.x), ty(c.y));
+      else if (c.type === 'Z') ctx.closePath();
+    }
+    ctx.fill('nonzero');
+  };
+  const alpha = (img: Uint8ClampedArray, W: number, x: number, y: number) => img[(y * W + x) * 4 + 3];
+  // dense-body edges in font units (ink spanning most of the x-height; thin
+  // connectors don't) — the corpus sensor's tall-column read
+  const bodyCache = new Map<string, { bl: number; br: number } | null>();
+  const bodyEdges = (g: any, key: string) => {
+    if (bodyCache.has(key)) return bodyCache.get(key)!;
+    if (!g?.path?.commands?.length) {
+      bodyCache.set(key, null);
+      return null;
+    }
+    const bb = g.getBoundingBox();
+    const pad = 4;
+    const W = Math.max(2, Math.ceil((bb.x2 - bb.x1) * S) + pad * 2);
+    const cv = mkCanvas(W, H);
+    const ctx = cv.getContext('2d') as CanvasRenderingContext2D;
+    draw(ctx, g, -bb.x1 + pad / S);
+    const img = ctx.getImageData(0, 0, W, H).data;
+    const th = 0.45 * xh * S;
+    let bl = -1;
+    let br = -1;
+    for (let x = 0; x < W; x++) {
+      let cnt = 0;
+      for (let y = 0; y < H; y++) if (alpha(img, W, x, y) > 128) cnt++;
+      if (cnt > th) {
+        if (bl < 0) bl = x;
+        br = x;
+      }
+    }
+    const out = bl < 0 ? null : { bl: (bl - pad) / S + bb.x1, br: (br - pad) / S + bb.x1 };
+    bodyCache.set(key, out);
+    return out;
+  };
+  const readZone = (img: Uint8ClampedArray, W: number, px0: number, px1: number): SeamZoneRead => {
+    let gapCols = 0;
+    let crossCols = 0;
+    let maxRuns = 0;
+    const inks: number[] = [];
+    for (let x = px0; x <= px1; x++) {
+      let runs = 0;
+      let runLen = 0;
+      let ink = 0;
+      for (let y = row0; y <= row1; y++) {
+        if (alpha(img, W, x, y) > 128) {
+          runLen++;
+          ink++;
+        } else {
+          if (runLen >= 2) runs++;
+          runLen = 0;
+        }
+      }
+      if (runLen >= 2) runs++;
+      if (runs === 0) gapCols++;
+      else inks.push(ink);
+      if (runs >= 2) crossCols++;
+      if (runs > maxRuns) maxRuns = runs;
+    }
+    inks.sort((a, b) => a - b);
+    const inkMed = inks.length ? inks[Math.floor(inks.length / 2)] : 0;
+    const inkMax = inks.length ? inks[inks.length - 1] : 0;
+    return {
+      cols: px1 - px0 + 1,
+      gapCols,
+      crossCols,
+      maxRuns,
+      poolRatio: inkMed > 0 ? Math.round((inkMax / inkMed) * 100) / 100 : 0,
+    };
+  };
+  const kern = (l: any, r: any) => {
+    try {
+      return font.getKerningValue(l, r) || 0;
+    } catch {
+      return 0;
+    }
+  };
+  const out: Array<{ seam: string; seamW: number; alt: SeamZoneRead; plain: SeamZoneRead }> = [];
+  const margin = xh; // left margin in units (room for negative bearings)
+  for (const char of offenders) {
+    const baseL = font.charToGlyph(char);
+    const altL = byName.get(char + SEAM_ALT_SUFFIX);
+    if (!baseL?.path?.commands?.length || !altL) continue;
+    for (const r of rights) {
+      const baseR = font.charToGlyph(r);
+      if (!baseR?.path?.commands?.length) continue;
+      // mid-word the follower renders with its entry collapsed when it has
+      // one — sense the seam the reader actually gets
+      const altR = byName.get(r + SEAM_ENTRY_SUFFIX) ?? baseR;
+      // metric transparency + kern fanout: the alternate render sits at the
+      // base pair's advance and kern — identical positions by construction
+      const adv = (baseL.advanceWidth ?? 0) + kern(baseL, baseR);
+      const pair = (L: any, R: any, keyL: string, keyR: string): SeamZoneRead | null => {
+        const bL = bodyEdges(L, keyL);
+        const bR = bodyEdges(R, keyR);
+        if (!bL || !bR) return null;
+        const W = Math.max(2, Math.ceil((adv + (R.advanceWidth ?? 0) + 2 * margin) * S));
+        const cv = mkCanvas(W, H);
+        const ctx = cv.getContext('2d') as CanvasRenderingContext2D;
+        draw(ctx, L, margin);
+        draw(ctx, R, margin + adv);
+        const img = ctx.getImageData(0, 0, W, H).data;
+        // the seam window comes from each render's own glyphs (an entry
+        // collapse can nudge a thin protrusion, never the dense body)
+        const px0 = Math.floor((bL.br + margin) * S) + 1;
+        const px1 = Math.ceil((adv + bR.bl + margin) * S) - 1;
+        if (px1 - px0 + 1 < 2) return { cols: 0, gapCols: 0, crossCols: 0, maxRuns: 0, poolRatio: 0 };
+        return readZone(img, W, Math.max(0, px0), Math.min(W - 1, px1));
+      };
+      const alt = pair(altL, altR, char + SEAM_ALT_SUFFIX, altR === baseR ? r : r + SEAM_ENTRY_SUFFIX);
+      const plain = pair(baseL, baseR, char, r);
+      if (!alt || !plain) continue;
+      const bL = bodyEdges(baseL, char)!;
+      const bR = bodyEdges(baseR, r)!;
+      // the follower's rendered form rides in the seam name: a collapsed
+      // .jn02 follower removes its own hook ink, and the drop rule must not
+      // blame its gaps on the left glyph
+      out.push({
+        seam: `${char}${SEAM_ALT_SUFFIX}|${r}${altR !== baseR ? SEAM_ENTRY_SUFFIX : ''}`,
+        seamW: Math.round(adv + bR.bl - bL.br),
+        alt,
+        plain,
+      });
+    }
+  }
+  return out;
+}
+
 // Reverse a closed M/L polyline path (the synthesized connector's own format).
 function reverseClosedPath(d: string): string {
   const nums = d.match(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/g)!;
@@ -2249,11 +2529,17 @@ function reverseClosedPath(d: string): string {
 export function makeSeamAlternates(
   glyphs: Glyph[],
   profilesIn?: (ReturnType<typeof glyphColumnAreas>)[],
+  /** Assembled-feedback drops (second pass): exit offenders whose sensed
+   *  seams measured worse than plain park here — no .jn01/.jn03, out of the
+   *  backtrack lefts (like a dive park), .jn02 untouched. */
+  dropExits?: ReadonlySet<string>,
 ): {
   alternates: Glyph[];
   rights: string[];
   offenders: Array<{ char: string; exitFrac: number; width: number; run: number; widthProfile: number[] }>;
   joinFrac: number;
+  /** the face x-height in cell px — the assembled-feedback sensor's scale */
+  xhPx: number;
   terminals: Array<{ char: string; entryFrac: number | null; exitFrac: number | null }>;
   join: { tipOffsetX: number; tipFrac: number; tangent: { dx: number; dy: number } } | null;
   skipped: string[];
@@ -2403,7 +2689,7 @@ export function makeSeamAlternates(
   const terminals = meas.map((m) => ({ char: m.char, entryFrac: m.entryFrac, exitFrac: m.exitFrac }));
   const entries = meas.filter((m) => m.joinsLeft && m.entryFrac !== null).map((m) => m.entryFrac as number);
   if (entries.length < TAIL_MIN_JOINERS)
-    return { alternates: [], rights: [], offenders: [], joinFrac: 0, terminals, join: null, skipped: [], dives: [], entryOffenders: [], lefts: [] };
+    return { alternates: [], rights: [], offenders: [], joinFrac: 0, xhPx, terminals, join: null, skipped: [], dives: [], entryOffenders: [], lefts: [] };
   const sorted = entries.slice().sort((a, b) => a - b);
   // The hand's OWN entry line, unclamped: a copperplate-class hand joins at
   // mid-height (entries and exits both ~0.45·xh, already meeting) and clamping
@@ -2425,7 +2711,7 @@ export function makeSeamAlternates(
   // only; the doctrine bans invented geometry).
   const stdJoin = standardJoinFromEntries(entryStrokes);
   if (!stdJoin)
-    return { alternates: [], rights, offenders: [], joinFrac, terminals, join: null, skipped: [], dives: [], entryOffenders: [], lefts: [] };
+    return { alternates: [], rights, offenders: [], joinFrac, xhPx, terminals, join: null, skipped: [], dives: [], entryOffenders: [], lefts: [] };
 
   const offenders: Array<{ char: string; exitFrac: number; width: number; run: number; widthProfile: number[] }> = [];
   const alternates: Glyph[] = [];
@@ -2438,6 +2724,12 @@ export function makeSeamAlternates(
     if (!SEAM_LOWERCASE.test(m.char)) continue;
     if (SEAM_CROSSBAR.has(m.char) || DESC_EXIT.has(m.char)) continue;
     if (m.exitFrac - joinFrac <= SEAM_EXIT_GATE) continue;
+    // assembled-feedback park: this exit's seams measured worse than the
+    // drawn hand once assembled — same exit treatment as a dive park
+    if (dropExits?.has(m.char)) {
+      skipped.push(m.char);
+      continue;
+    }
     const g = glyphs[m.i];
     const joinY = g.baselineYInCell - joinFrac * xhPx;
     const dy = joinY - m.exitTipY;
@@ -2559,6 +2851,7 @@ export function makeSeamAlternates(
     rights,
     offenders,
     joinFrac,
+    xhPx,
     terminals,
     join: { tipOffsetX: stdJoin.reach, tipFrac: stdJoin.tipFrac, tangent: stdJoin.tangent },
     skipped,
@@ -3132,7 +3425,60 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // stroke-model rework (ADR 0049) replaces the warp.
     let toFit = snap.glyphs;
     if (!opts.naturalVariation && opts.seamAlternates === true) {
-      const sa = makeSeamAlternates(snap.glyphs);
+      let sa = makeSeamAlternates(snap.glyphs);
+      // The assembled seam feedback pass (ADR 0040's parked pass): build a
+      // PROBE font with every alternate riding (real GSUB/GPOS, otf only),
+      // sense each fired exit seam alternate-vs-plain at the font's own
+      // metrics, and re-run selection with the measured losers parked. The
+      // probe fit runs on copies — connectGlyphs mutates paths/cellW, and
+      // the real fit below must see pristine glyphs. Sensing the built font
+      // is load-bearing: the first cut measured cell paths at kernless fit
+      // advances and the validation gate failed (the connect kern moves
+      // per-pair positions enough to flip the signature ow verdict).
+      let senses: ReturnType<typeof senseBuiltSeams> = [];
+      let seamDrops: string[] = [];
+      if (sa.alternates.length && sa.offenders.length) {
+        onProgress?.('connect', 'connected cursive · sensing assembled seams');
+        const clone = (g: Glyph) => ({ ...g, paths: [...g.paths] });
+        const probeFit = connectGlyphs([...snap.glyphs, ...sa.alternates].map(clone), { overlapPct: opts.connectOverlapPct });
+        const probePayload = {
+          glyphs: probeFit.glyphs.map((g) => ({
+            char: g.char,
+            italic: false,
+            paths: g.paths,
+            cellW: g.cellW,
+            cellH: g.cellH,
+            baselineYInCell: g.baselineYInCell,
+            variantSuffix: g.variantSuffix,
+          })),
+          family: opts.family,
+          style: 'Regular',
+          upm: opts.upm ?? 1000,
+          ...flags,
+          spaceAdvance: 0.3,
+          formats: ['otf'],
+          features: {
+            kerning: true,
+            connectKern: probeFit.entryNorm ? { bridgedPlacement: true } : {},
+            joinAltRights: sa.rights,
+            joinAltLefts: sa.lefts.length ? sa.lefts : undefined,
+          },
+          embedHints: false,
+          embedTTHints: false,
+          opticalSidebearings: false,
+        };
+        try {
+          const probeRaw = await rawWorkerBuild(probePayload);
+          if (probeRaw.otf) {
+            senses = senseBuiltSeams(fixSfntChecksums(probeRaw.otf), sa.offenders.map((o) => o.char), sa.rights);
+            seamDrops = decideSeamDrops(senses);
+            if (seamDrops.length) sa = makeSeamAlternates(snap.glyphs, undefined, new Set(seamDrops));
+          }
+        } catch {
+          // a failed probe build parks nothing: the alternates ride as
+          // measured by selection, exactly the pre-feedback behavior
+        }
+      }
       if (sa.alternates.length) {
         toFit = [...snap.glyphs, ...sa.alternates];
         seamAltRights = sa.rights;
@@ -3149,6 +3495,8 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
         skipped: sa.skipped,
         entryOffenders: sa.entryOffenders,
         lefts: sa.lefts,
+        senses,
+        drops: seamDrops,
       };
     } else {
       (globalThis as unknown as { __lastSeamAlts?: object | null }).__lastSeamAlts = null;

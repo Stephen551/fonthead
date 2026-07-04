@@ -546,6 +546,26 @@ describe('makeSeamAlternates (ADR 0048 selection, ADR 0049 synthesis)', () => {
     expect(out.lefts).not.toContain('o'); // the parked high exit does not
   });
 
+  it('a sensed-worse offender drops whole: exit reconstruction parked, entry collapse kept (assembled feedback)', () => {
+    // The assembled seam feedback pass re-runs selection with the losers
+    // parked (the signature o, cc-3's c — measured worse than plain once
+    // assembled). The drop takes .jn01 AND .jn03 (its exit half is the same
+    // synthesis) but never .jn02 (the entry collapse is separately measured,
+    // all wins), and the parked exit leaves the backtrack class exactly like
+    // a dive-parked one — the follower's drawn hook must survive after it.
+    const gs = [mk('x'), ...lowHands(), mk('w', { tipFrac: 0.9, reach: 5 }, { tipFrac: 0.5, reach: 8 })];
+    const base = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never);
+    expect(base.offenders.map((o) => o.char)).toEqual(['w']);
+    expect(base.alternates.map((a) => a.variantSuffix).sort()).toEqual(['.jn01', '.jn02', '.jn03']);
+    expect(base.lefts).toContain('w');
+    const out = makeSeamAlternates(gs as never, gs.map((x) => x._p) as never, new Set(['w']));
+    expect(out.offenders).toEqual([]);
+    expect(out.skipped).toContain('w');
+    expect(out.alternates.map((a) => `${a.char}${a.variantSuffix}`)).toEqual(['w.jn02']);
+    expect(out.lefts).not.toContain('w');
+    expect(out.lefts).toContain('n');
+  });
+
   it('the collapse is y-banded to the join zone: ascender ink right of the body never moves', () => {
     // a b-class glyph: gentle exit stub AND an ascender loop whose right side
     // leans past the body edge high above the zone. The alternate collapses the
