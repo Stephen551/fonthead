@@ -291,6 +291,16 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         setColrStatus(colr);
         warn = cres.rowWarning || (cres.glowWarning ? 'several letters look filled in (counters lost). Check the result, or raise the threshold.' : '');
         rep = cres.report || [];
+        // color verification hook (harmless, mirrors __lastBuild): the corpus
+        // gates colrStatus, row alignment, and the confidence-flag budget
+        const flagCounts: Record<string, number> = {};
+        for (const r of rep) for (const f of r.flags) flagCounts[f] = (flagCounts[f] ?? 0) + 1;
+        (window as any).__lastColor = {
+          colrStatus: cres.colrStatus,
+          rowWarning: cres.rowWarning || '',
+          glowWarning: !!cres.glowWarning,
+          flags: flagCounts,
+        };
       } else {
         await waitForEngine();
         const img = await getImage();
