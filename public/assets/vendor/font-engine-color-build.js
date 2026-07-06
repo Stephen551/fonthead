@@ -24,8 +24,9 @@
 
   // Optional auto-kern. Builds silhouettes from each glyph's cell-space path and
   // asks analyzeAutoKern for pulls (mostly diagonal pairs: A V W Y T), then
-  // compileFeatures writes a real `kern` table into font._customTables. Needs
-  // chars to carry cellW/cellH (cell pixel dims) + baseD. Fails silent.
+  // compileFeatures writes a GPOS PairPos table into font._customTables (the
+  // cross-browser path; the legacy `kern` table stays opt-in and unused here).
+  // Needs chars to carry cellW/cellH (cell pixel dims) + baseD. Fails silent.
   function applyAutoKern(font, chars, scale, upm, strength) {
     if (!strength || strength <= 0) return;
     if (typeof global.analyzeAutoKern !== 'function' || typeof global.compileFeatures !== 'function') return;
@@ -37,11 +38,17 @@
       if (pairs && pairs.length) global.compileFeatures(font, { kerning: true, kerningStrength: strength }, upm, scale, pairs);
     } catch (e) { console.warn('autokern skipped: ' + (e && e.message)); }
   }
-  // Inject the kern table (written into font._customTables by compileFeatures)
-  // into the sfnt bytes — same surgery pipe as COLR/CPAL.
+  // Inject the kerning tables (written into font._customTables by
+  // compileFeatures) into the sfnt bytes — same surgery pipe as COLR/CPAL.
+  // GPOS is the one browsers read; legacy kern rides along only if a caller
+  // ever opts into it.
   function injectKernIfAny(bytes, font) {
-    if (font._customTables && font._customTables.kern && typeof global.injectCustomTables === 'function') {
-      try { return global.injectCustomTables(bytes, { kern: font._customTables.kern }); }
+    const t = (font && font._customTables) || {};
+    const inject = {};
+    if (t.kern) inject.kern = t.kern;
+    if (t.GPOS) inject.GPOS = t.GPOS;
+    if (Object.keys(inject).length && typeof global.injectCustomTables === 'function') {
+      try { return global.injectCustomTables(bytes, inject); }
       catch (e) { console.warn('kern inject skipped: ' + (e && e.message)); }
     }
     return bytes;

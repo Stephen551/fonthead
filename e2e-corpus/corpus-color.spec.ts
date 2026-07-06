@@ -20,14 +20,14 @@ const OUT_DIR = join(ROOT, 'test-results');
 const STRIPS = join(OUT_DIR, 'corpus-color-strips');
 
 // name -> expectations. palette = CPAL entry count for flat fixtures.
-const EXPECT: Record<string, { palette?: number }> = {
-  'flat-2color': { palette: 2 },
+const EXPECT: Record<string, { palette?: number; gpos?: boolean }> = {
+  'flat-2color': { palette: 2, gpos: true },
   'flat-3color': { palette: 3 },
   'flat-shadow': { palette: 2 },   // the dark offset copy strips, never a palette entry
   'flat-light': { palette: 2 },    // pale ink must not vanish
   'flat-outline': { palette: 2 },  // concentric outline is real ink, not a shadow
   'flat-lowres': { palette: 2 },
-  'gradient-basic': {},
+  'gradient-basic': { gpos: true },
   'gradient-shadow': {},
 };
 
@@ -89,6 +89,20 @@ for (const sheet of sheets) {
         `rowWarn=${lc.rowWarning ? 'YES' : 'no'} glow=${lc.glowWarning} flags=${JSON.stringify(lc.flags)}`,
     );
 
+    // strip for the contact sheet, rendered before the gates below so a
+    // fixture that fails an assertion still lands a strip on the contact sheet
+    const b64 = readFileSync(otfPath).toString('base64');
+    await page.setContent(`
+      <style>@font-face { font-family: f; src: url(data:font/otf;base64,${b64}); }</style>
+      <div id="strip" style="background:#fff;padding:10px 16px;width:1100px;">
+        <div style="font-family:monospace;font-size:12px;color:#888;">${sheet.name}</div>
+        <div style="font-family:f;font-size:42px;white-space:nowrap;">The quick brown fox jumps over</div>
+        <div style="font-family:f;font-size:42px;white-space:nowrap;">AVATAR To 0123456789 .,!?</div>
+      </div>`);
+    await page.waitForTimeout(400);
+    mkdirSync(STRIPS, { recursive: true });
+    await page.locator('#strip').screenshot({ path: join(STRIPS, `${sheet.name}.png`) });
+
     // validity
     expect(isOtf(otf), 'real OTF signature').toBe(true);
     const check = verifySfntChecksums(otf);
@@ -122,6 +136,13 @@ for (const sheet of sheets) {
       expect(u16At(colr!, 0), 'COLR version').toBe(1);
     }
 
+    // live kerning: Chrome and Firefox position from GPOS only; the legacy
+    // kern table this path used to describe was never written on the main
+    // thread (no GPOS writer loaded) so color fonts shipped un-kerned
+    if (exp.gpos) {
+      expect(tableSlice(otf, 'GPOS'), 'GPOS PairPos present').not.toBeNull();
+    }
+
     // confidence-flag budget: clean synthetic sheets earn zero
     // FINDING (2026-07-06 first run, Task 7): stray=1..2 on every clean fixture
     // (gradient-shadow 5). The color-path stray-island cull drops the detached
@@ -132,19 +153,6 @@ for (const sheet of sheets) {
     for (const f of ['stray', 'filled', 'empty'] as const) {
       expect(lc.flags[f] ?? 0, `${f} flags`).toBe(0);
     }
-
-    // strip for the contact sheet (Chromium renders COLR in color)
-    const b64 = readFileSync(otfPath).toString('base64');
-    await page.setContent(`
-      <style>@font-face { font-family: f; src: url(data:font/otf;base64,${b64}); }</style>
-      <div id="strip" style="background:#fff;padding:10px 16px;width:1100px;">
-        <div style="font-family:monospace;font-size:12px;color:#888;">${sheet.name}</div>
-        <div style="font-family:f;font-size:42px;white-space:nowrap;">The quick brown fox jumps over</div>
-        <div style="font-family:f;font-size:42px;white-space:nowrap;">AVATAR To 0123456789 .,!?</div>
-      </div>`);
-    await page.waitForTimeout(400);
-    mkdirSync(STRIPS, { recursive: true });
-    await page.locator('#strip').screenshot({ path: join(STRIPS, `${sheet.name}.png`) });
   });
 }
 

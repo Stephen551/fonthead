@@ -3825,7 +3825,8 @@ export interface ColorResult {
 export function waitForColorEngine(timeoutMs = 20000): Promise<void> {
   return new Promise((resolve, reject) => {
     const ready = () =>
-      w().ColorMaker && w().buildColorFont && w().buildGradientFont && w().ColorCore && w().wrapAsWoff2 && w().validateFont;
+      w().ColorMaker && w().buildColorFont && w().buildGradientFont && w().ColorCore && w().wrapAsWoff2 &&
+      w().validateFont && w().buildGposKern;
     if (ready()) return resolve();
     const t0 = Date.now();
     const iv = setInterval(() => {
