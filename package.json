@@ -18,7 +18,8 @@
     "test:cov": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:corpus": "playwright test -c playwright.corpus.config.ts",
-    "gen:corpus": "node scripts/gen-corpus.mjs"
+    "gen:corpus": "node scripts/gen-corpus.mjs",
+    "gen:color-corpus": "node scripts/gen-color-corpus.mjs"
   },
   "overrides": {
     "kysely": "0.28.17"
