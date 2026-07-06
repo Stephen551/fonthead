@@ -64,7 +64,7 @@ describe('separateGlyph', () => {
     expect(inkAt(g.union, w, 60, 50)).toBe(true);
   });
 
-  it('trims a neighbour-row strip fused to the top edge, spares a top-heavy cap', () => {
+  it('trims a neighbor-row strip fused to the top edge, spares a top-heavy cap', () => {
     const w = 80, h = 100;
     // bleed: wide strip rows 0-5, thin neck rows 6-11, much wider body below
     const bleed = blank(w, h);
@@ -94,7 +94,7 @@ describe('bodyBoundsX', () => {
     const m = mask(w, h, [
       [10, 10, 40, 60],  // body (largest)
       [15, 70, 35, 95],  // detached descender, x-overlaps the body
-      [60, 30, 75, 45],  // neighbour-bleed fragment beside the body
+      [60, 30, 75, 45],  // neighbor-bleed fragment beside the body
     ]);
     const b = CC.bodyBoundsX(m, w, h);
     expect(b.minX).toBe(10);

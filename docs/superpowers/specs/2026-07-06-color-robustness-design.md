@@ -57,7 +57,7 @@ not typeface:
 | `gradient-shadow` | gradient + drop shadow | shadow vs gradient tip trim interaction |
 | `flat-lowres` | small row height (under-resolved) | low-res robustness |
 
-Layout: six rows (A-M / N-Z / a-m / n-z / digits / `.,!?:;'"-&@#`), matching the
+Layout: six rows (A-M / N-Z / a-m / n-z / digits / `.,!?:;'-&@#`), matching the
 color generate presets. Static field-failure PNGs dropped into the directory
 survive regeneration, so the mono playbook carries over verbatim: a user's broken
 color sheet becomes a fixture, its failure becomes a metric.

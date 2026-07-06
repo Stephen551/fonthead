@@ -502,7 +502,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>'
 
 - [ ] **Step 1: Add the `__lastColor` hook in Maker.tsx**
 
-In the color branch of `run()`, immediately after `rep = cres.report || [];` (~line 293, inside the `if (isColor)` block, where `cres` is still in scope — the later `warn` variable conflates rowWarning with the glow message, so read the raw fields here):
+In the color branch of `run()`, immediately after `rep = cres.report || [];` (~line 293, inside the `if (isColor)` block, where `cres` is still in scope. The later `warn` variable conflates rowWarning with the glow message, so read the raw fields here):
 
 ```tsx
         // color verification hook (harmless, mirrors __lastBuild): the corpus
@@ -939,9 +939,9 @@ Import `colorBuildWarnings` in Maker.tsx's existing maker.ts import list. Also e
 
 - [ ] **Step 5: Type check, e2e smoke, corpus**
 
-Run: `npx tsc --noEmit -p tsconfig.json` — clean.
-Run: `npx playwright test e2e/maker.spec.ts -g "color"` (dev server killed first) — the two color sample tests still pass and show no warning (colrStatus ok, woff2 healthy).
-Run: `npx playwright test -c playwright.corpus.config.ts corpus-color -g "flat-2color"` — still green.
+Run: `npx tsc --noEmit -p tsconfig.json`, clean.
+Run: `npx playwright test e2e/maker.spec.ts -g "color"` (dev server killed first), the two color sample tests still pass and show no warning (colrStatus ok, woff2 healthy).
+Run: `npx playwright test -c playwright.corpus.config.ts corpus-color -g "flat-2color"`, still green.
 
 - [ ] **Step 6: Present the copy**
 
@@ -979,8 +979,8 @@ Expected: mono suite green; color suite green with final calibrated gates, or fa
 
 - [ ] **Step 2: Full unit + e2e**
 
-Run: `npm test` — green.
-Run: `npx playwright test` (dev server killed first) — the standard e2e suite green.
+Run: `npm test`, green.
+Run: `npx playwright test` (dev server killed first), the standard e2e suite green.
 
 - [ ] **Step 3: fontTools spot-check**
 
