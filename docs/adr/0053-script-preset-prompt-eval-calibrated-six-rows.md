@@ -73,11 +73,19 @@ sheet, concentrated in lowercase rows.
 
 ## Addendum (2026-07-04): single-sheet mode
 
-The script preset gained a mode toggle (director request): "one sheet" (default)
-generates a single cursive sheet using the eval-winning prompt VERBATIM (it was
-measured in exactly this single-sheet form), "three versions" keeps the 3-sheet
-natural-variation palette. Same six rows, same PRESET_CHARSETS.script for both.
-The toggle resets to "one sheet" on every entry to the preset.
+The script preset gained a mode toggle (director request): "one sheet" (default,
+director's call) generates a single cursive sheet using the eval-winning prompt
+VERBATIM (it was measured in exactly this single-sheet form), "three versions"
+keeps the 3-sheet natural-variation palette. Same six rows, same
+PRESET_CHARSETS.script for both. The toggle resets to "one sheet" on every entry
+to the preset.
+
+Shipped: commits 6d42e08 (feature) / 809db78 (this addendum) / 10fdded (e2e),
+deployed as wrangler version 3c2dfba5, both prompts verified in the live /make
+bundle, Playwright behavioral matrix run in session (visibility, default, both
+prompt texts, style slot, reset on re-entry). CI's e2e caught the onboarding
+spec still expecting the palette as the script default; the spec now covers
+single-on-entry, the palette chip swap, and the reset (CI green after).
 
 ## Follow-ups
 
