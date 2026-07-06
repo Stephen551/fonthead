@@ -312,7 +312,7 @@ function supersampleMonoCell(
  *  never touches the top, an ascender runs deep, a counter (hole contour) sits
  *  inside its parent's box, and a glyph that IS a small high mark (a quote)
  *  keeps itself because it is most of its own ink. */
-function cullForeignTopTails<T extends { d: string; bb: { minX: number; maxX: number; minY: number; maxY: number }; area: number }>(
+export function cullForeignTopTails<T extends { d: string; bb: { minX: number; maxX: number; minY: number; maxY: number }; area: number }>(
   paths: T[],
   cellH: number,
 ): T[] {
@@ -332,6 +332,23 @@ function cullForeignTopTails<T extends { d: string; bb: { minX: number; maxX: nu
   if (subs.length < 2) return paths;
   const total = subs.reduce((s, x) => s + x.area, 0);
   if (total <= 0) return paths;
+  // A DOCKED mark is a small piece hugging x-overlapping ink just beyond it
+  // (an i/j dot floating over its stem, a !-dot under its bar): a legitimate
+  // detached mark, never a foreign tail. The zonal gates alone can't tell them
+  // apart on a face whose dots ARE the row's tallest ink (field sheet
+  // 2026-07-06: the band starts AT the dots, so the j dot read nearTop and
+  // vanished, and the i dot sat a hair under the small gate and flickered with
+  // the trace preset). The separator is the GAP: the field dots hover ~2% of
+  // cellH above their stems; the judged foreign tips float ~18-27% off the
+  // x-height body they landed over. 0.12 leaves margin both ways.
+  const DOCK_GAP = cellH * 0.12;
+  const docked = (b: { minX: number; maxX: number; minY: number; maxY: number }, i: number, below: boolean) =>
+    subs.some((o, j) => {
+      if (j === i || !o.bb) return false;
+      if (Math.min(b.maxX, o.bb.maxX) - Math.max(b.minX, o.bb.minX) <= 0) return false;
+      const gap = below ? o.bb.minY - b.maxY : b.minY - o.bb.maxY;
+      return gap >= -1 && gap <= DOCK_GAP;
+    });
   const keptSubs = subs.filter((p, i) => {
     const b = p.bb;
     if (!b) return true;
@@ -343,16 +360,18 @@ function cullForeignTopTails<T extends { d: string; bb: { minX: number; maxX: nu
     const small = p.area / total < 0.2;
     // The tail's tip starts near (not exactly at) the band cut, so test the top
     // ZONE: begins within the top 6% of the cell and stays within the top 30%.
-    // An i/j dot begins ~a third down its ascender-tall cell and is untouched.
+    // A dot lower in its cell never enters the zone; a dot AT the band top is
+    // rescued by the docked exemption (ink right below it).
     const nearTop = b.minY <= cellH * 0.06;
     const shallowTop = b.maxY <= cellH * 0.3;
-    if (nearTop && shallowTop && small) return false;
+    if (nearTop && shallowTop && small && !docked(b, i, true)) return false;
     // and the mirror: the row BELOW's ascender tip crossing UP through the
     // band bottom (the dash judged under a cap B). A comma or period IS its
-    // whole glyph (never small); a descender's own tail is connected ink.
+    // whole glyph (never small); a descender's own tail is connected ink; a
+    // !-style dot docks on the bar above it.
     const nearBottom = b.maxY >= cellH * 0.94;
     const shallowBottom = b.minY >= cellH * 0.7;
-    if (nearBottom && shallowBottom && small) return false;
+    if (nearBottom && shallowBottom && small && !docked(b, i, false)) return false;
     return true;
   });
   if (keptSubs.length === subs.length) return paths;
