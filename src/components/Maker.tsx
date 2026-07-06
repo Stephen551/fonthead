@@ -524,6 +524,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       setReport(cres.report || []);
       setColrStatus(cres.colrStatus);
       setGlyphCount(cres.charCount);
+      const degrade = colorBuildWarnings(cres.colrStatus, !!cres.woff2Failed);
+      const warn = degrade.filter(Boolean).join(' ');
+      if (warn) setWarning(warn);
       const bytes = cres.woff2 || cres.otf;
       if (bytes) setPreviewFam(await loadPreviewFont(bytes));
       (window as any).__lastBuild = {
@@ -533,6 +536,15 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         otf: cres.otf?.length ?? 0,
         ttf: 0,
         woff2: cres.woff2?.length ?? 0,
+      };
+      const flagCounts: Record<string, number> = {};
+      for (const r of cres.report || []) for (const f of r.flags) flagCounts[f] = (flagCounts[f] ?? 0) + 1;
+      (window as any).__lastColor = {
+        colrStatus: cres.colrStatus,
+        rowWarning: cres.rowWarning || '',
+        glowWarning: !!cres.glowWarning,
+        flags: flagCounts,
+        warnings: degrade,
       };
     } catch (e) {
       // the session rolled back; keep the prior result and tell the user why
