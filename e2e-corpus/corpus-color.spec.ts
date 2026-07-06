@@ -112,7 +112,7 @@ for (const sheet of sheets) {
       // every colored base glyph keeps at least one layer
       expect(u16At(colr!, 2), 'base glyph records').toBeGreaterThanOrEqual(lb.glyphCount - 2);
       // FINDING (2026-07-06 first run, Task 7): every 2-color fixture measured
-      // CPAL=3, not 2 — detectPalette under the UI default K=3 keeps a third
+      // CPAL=3, not 2, detectPalette under the UI default K=3 keeps a third
       // cluster of anti-aliasing blend pixels (flat-2color measured RGB
       // 203,168,183 beside the real 194,43,31 / 32,81,195) and authors it as a
       // real layer (145 layer records on 73 base glyphs). Real defect, not a
@@ -127,7 +127,7 @@ for (const sheet of sheets) {
     // (gradient-shadow 5). The color-path stray-island cull drops the detached
     // dots of the drawn '!', '?' and ':' (fontTools: ampersand/at/numbersign,
     // the labels of those cells, 1 contour instead of 2) because the punct guess
-    // labels those cells '&', '@', '#' — outside the cull's detached-mark
+    // labels those cells '&', '@', '#', outside the cull's detached-mark
     // exemption set. Real ink dropped; real defect, gate stays at zero.
     for (const f of ['stray', 'filled', 'empty'] as const) {
       expect(lc.flags[f] ?? 0, `${f} flags`).toBe(0);
