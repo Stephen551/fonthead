@@ -131,6 +131,9 @@ for (const sheet of sheets) {
       // 203,168,183 beside the real 194,43,31 / 32,81,195) and authors it as a
       // real layer (145 layer records on 73 base glyphs). Real defect, not a
       // gate widen: the palette gate exists to catch exactly this.
+      // Reconfirmed byte-identical in the Task 7 full calibration run (same
+      // measured values, no gate adjustment); see the spec doc's calibration
+      // record for the fixture table and triage ranking.
       if (exp.palette != null) expect(u16At(cpal!, 2), 'CPAL palette entries').toBe(exp.palette);
     } else {
       expect(u16At(colr!, 0), 'COLR version').toBe(1);
@@ -150,6 +153,8 @@ for (const sheet of sheets) {
     // the labels of those cells, 1 contour instead of 2) because the punct guess
     // labels those cells '&', '@', '#', outside the cull's detached-mark
     // exemption set. Real ink dropped; real defect, gate stays at zero.
+    // Reconfirmed byte-identical in the Task 7 full calibration run (same
+    // per-fixture flag counts, no gate adjustment).
     for (const f of ['stray', 'filled', 'empty'] as const) {
       expect(lc.flags[f] ?? 0, `${f} flags`).toBe(0);
     }

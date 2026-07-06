@@ -171,3 +171,44 @@ rather than absorbed here.
   on the contact sheet and the two sample sheets.
 - **Engine cache**: any `public/assets` edit relies on the content-hash `?v=`
   cache-buster; never hardcode the token (standing rule).
+
+## Calibration record (2026-07-06, Task 7 full run)
+
+First-run measured values per fixture (from the `COLOR-CORPUS |` console lines,
+reproduced identically across the Task 4 baseline run and this task's full run,
+confirming no drift):
+
+| fixture | mode | glyphs | colrStatus | palette found (intended) | flags |
+|---|---|---|---|---|---|
+| flat-2color | flat | 73 | ok | 3 (2) | narrow:2, stray:2 |
+| flat-3color | flat | 73 | ok | 3 (3, passes) | narrow:2, stray:2 |
+| flat-light | flat | 73 | ok | 3 (2) | narrow:2, stray:2 |
+| flat-lowres | flat | 73 | ok | 3 (2) | narrow:1, stray:2 |
+| flat-outline | flat | 73 | ok | 3 (2) | stray:1 |
+| flat-shadow | flat | 73 | ok | 3 (2) | narrow:2, stray:2 |
+| gradient-basic | gradient | 73 | ok | n/a (no palette gate) | narrow:2, stray:2 |
+| gradient-shadow | gradient | 67 (min 70) | ok | n/a | empty:75, filled:6, narrow:3, stray:5 |
+
+No gate adjustments made. Every failure above is in the real-defect classes the
+binding protocol reserves for findings (AA-blend third palette entry, stray-flag
+punct-guess interplay, gradient-shadow charset undercoverage). Failures recorded
+as findings, not calibrated away. Result: 8 of 8 color fixtures fail on these
+documented gates, 1 of 1 (contact sheet) passes; this is the expected end state,
+not a regression.
+
+**GPOS gate addition (Task 5):** `flat-2color` and `gradient-basic` gained a
+hard `expect(tableSlice(otf, 'GPOS'), 'GPOS PairPos present').not.toBeNull()`
+assertion. `gradient-basic` clears it directly (no earlier assertion in its
+path throws first) and moves on to fail at the pre-existing stray-flags finding,
+confirming GPOS itself is clear. `flat-2color` still throws first on the
+pre-existing CPAL palette finding (upstream in file order), so the GPOS line is
+not reached inside the Playwright run for that fixture; a direct fontTools read
+of its saved OTF (this task's fresh run) confirms GPOS is present regardless
+(`True 2`, LookupType 2 / PairPos), matching the Task 5 pre/post comparison.
+
+**Strip-render-before-gates repair (Task 5):** the per-fixture strip screenshot
+(feeding the contact sheet) was moved to run immediately after the OTF
+download/build read, before any gating assertion, so a fixture that fails a
+gate still lands a strip on `test-results/corpus-color-contact.png`. Confirmed
+working this run: the contact sheet exists (`test-results/corpus-color-contact.png`,
+~244KB) with all 8 fixtures visible despite 8 of 8 failing their gates.
