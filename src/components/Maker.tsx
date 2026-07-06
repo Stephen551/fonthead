@@ -24,6 +24,7 @@ import {
   type ColorOpts,
   waitForColorEngine,
   buildColorFontFromImage,
+  colorBuildWarnings,
   editColorGlyph,
   editMonoRow,
   isScriptFace,
@@ -291,6 +292,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         setColrStatus(colr);
         warn = cres.rowWarning || (cres.glowWarning ? 'several letters look filled in (counters lost). Check the result, or raise the threshold.' : '');
         rep = cres.report || [];
+        const degrade = colorBuildWarnings(cres.colrStatus, !!cres.woff2Failed);
+        warn = [warn, ...degrade].filter(Boolean).join(' ');
         // color verification hook (harmless, mirrors __lastBuild): the corpus
         // gates colrStatus, row alignment, and the confidence-flag budget
         const flagCounts: Record<string, number> = {};
@@ -300,6 +303,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           rowWarning: cres.rowWarning || '',
           glowWarning: !!cres.glowWarning,
           flags: flagCounts,
+          warnings: degrade,
         };
       } else {
         await waitForEngine();

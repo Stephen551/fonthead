@@ -3818,7 +3818,24 @@ export interface ColorResult {
   charCount: number;
   rowWarning?: string;
   glowWarning?: boolean;
+  woff2Failed?: boolean;
   report?: GlyphReport[];
+}
+
+/** User-facing warnings for a color build's degrade states. Pure so it is
+ *  unit-testable; the Maker readout renders these verbatim. Copy approved by
+ *  the director before ship. */
+export function colorBuildWarnings(colrStatus: string, woff2Failed: boolean): string[] {
+  const out: string[] = [];
+  if (colrStatus === 'error') {
+    out.push('color layers failed to build, so this font is monochrome outlines only. Try fewer colors (K), or a cleaner sheet.');
+  } else if (colrStatus === 'skipped') {
+    out.push('only one ink color was found, so this built as a regular monochrome font.');
+  }
+  if (woff2Failed) {
+    out.push('woff2 packing failed. The otf download still works and installs everywhere.');
+  }
+  return out;
 }
 
 /** Resolve once the color engine + main-thread wawoff2 are present. */
@@ -3872,10 +3889,13 @@ export async function buildColorFontFromImage(
   // correct table checksums BEFORE wrapping woff2 (so the woff2 wraps valid otf)
   const otf = fixSfntChecksums(res.otf as Uint8Array);
   let woff2: Uint8Array | undefined;
+  let woff2Failed = false;
   try {
     woff2 = await w().wrapAsWoff2(otf);
   } catch {
-    /* woff2 is optional; the otf is the source of truth */
+    // woff2 is optional; the otf is the source of truth. But the failure is
+    // surfaced, not swallowed: the readout tells the user what shipped.
+    woff2Failed = true;
   }
   await assertValid(otf);
   return {
@@ -3886,6 +3906,7 @@ export async function buildColorFontFromImage(
     charCount: res.charCount ?? 0,
     rowWarning: res.rowWarning || '',
     glowWarning: !!res.glowWarning,
+    woff2Failed,
     report: res.report || [],
   };
 }
@@ -3905,10 +3926,13 @@ export async function editColorGlyph(action: EditAction, idx: number, params: Ed
   const res = await w().ColorMaker.editGlyph(action, idx, params);
   const otf = fixSfntChecksums(res.otf as Uint8Array);
   let woff2: Uint8Array | undefined;
+  let woff2Failed = false;
   try {
     woff2 = await w().wrapAsWoff2(otf);
   } catch {
-    /* woff2 optional */
+    // woff2 is optional; the otf is the source of truth. But the failure is
+    // surfaced, not swallowed: the readout tells the user what shipped.
+    woff2Failed = true;
   }
   await assertValid(otf);
   return {
@@ -3917,6 +3941,7 @@ export async function editColorGlyph(action: EditAction, idx: number, params: Ed
     mode: (res.mode as ColorMode) ?? 'gradient',
     colrStatus: res.colrStatus,
     charCount: res.charCount ?? 0,
+    woff2Failed,
     report: res.report || [],
   };
 }
