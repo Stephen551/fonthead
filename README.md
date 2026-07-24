@@ -4,7 +4,7 @@ A community font library and maker. People turn an alphabet sheet into a real
 font, publish it public or private, and browse, favorite, and upvote what
 everyone makes. Built under the A&C Meridian quality bar: made, not generated.
 
-**Live:** https://fonthead.stephenalatriste.workers.dev
+**Live:** https://fonthead.dev
 
 ## Stack
 
