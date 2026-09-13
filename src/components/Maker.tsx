@@ -27,7 +27,6 @@ import {
   colorBuildWarnings,
   editColorGlyph,
   editMonoRow,
-  isScriptFace,
   makeColorSampleSheet,
   type ColorMode,
   type FontResult,
@@ -148,10 +147,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // sheets) never find an advanced toggle; the toggle is the off switch.
   const [trimFlourishes, setTrimFlourishes] = useState(true);
   // connected cursive: place each letter by its connection plugs so the strokes
-  // join. Mono only. Auto-enabled for a detected script face (unless the user has
-  // touched the toggle); replaces flourish overhang, spacing, and italic when on.
+  // join. Mono only, off until explicitly enabled; replaces flourish overhang,
+  // spacing, and italic when on.
   const [connect, setConnect] = useState(false);
-  const [connectTouched, setConnectTouched] = useState(false);
   // seam joins (ADR 0048, PARKED): the warp-based alternates failed the judge
   // panel twice (eyelets/pigtails lowering through the entry; needle whiskers
   // and cracks truncating at the seam), so the feature has NO user surface and
@@ -322,17 +320,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         warn = trace.rowWarning;
         rep = trace.report;
         setMonoRows(trace.rows);
-        // auto-enable connect for a script face on the first build; once the user
-        // touches the toggle, their choice sticks. The corpus harness sets
-        // fh-test-no-autoconnect so each fixture is built in a deterministic,
-        // intended mode (it drives the toggle explicitly) rather than relying on
-        // auto-detect.
-        const noAuto = typeof localStorage !== 'undefined' && localStorage.getItem('fh-test-no-autoconnect') === '1';
-        // A script face auto-connects until the user touches the toggle. Natural
-        // variation now COMPOSES with connect (a cursive hand joins AND cycles), so
-        // it no longer forces connect off.
-        const useConnect = connectTouched ? connect : noAuto ? false : isScriptFace(trace.glyphs);
-        if (!connectTouched && useConnect !== connect) setConnect(useConnect);
+        const useConnect = connect;
         // natural variation: trace each extra sheet against the SAME charset and
         // merge into one glyph list (bases + .cv01/.cv02) before building, so a
         // repeated letter cycles through its variants. Driven by whether variation
@@ -617,9 +605,6 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const onFile = async (file: File | undefined, source: 'file' | 'camera' = 'file') => {
     if (!file) return;
     track('sheet_drop', source);
-    // A new sheet re-evaluates connect auto-detect: the prior sheet's toggle
-    // choice should not silently carry over to an unrelated upload.
-    setConnectTouched(false);
     try {
       if (isColor) await waitForColorEngine();
       else await waitForEngine();
@@ -942,9 +927,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </p>
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="connected cursive" on={connect} onChange={(v) => { setConnect(v); setConnectTouched(true); }} />
+                    <ToggleRow label="connected cursive" on={connect} onChange={setConnect} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
-                      joins the letters into a connected script. Auto for cursive sheets. Turns off flourish overhang, spacing, and italic while on.
+                      joins the letters into a connected script. Off by default. Turns off flourish overhang, spacing, and italic while on.
                     </p>
                   </div>
                 )}

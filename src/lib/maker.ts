@@ -8,6 +8,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { fixSfntChecksums } from './sfnt';
+import { alignGlyphBaselines, type BaselineBounds } from './baseline';
 
 const w = () => window as any;
 
@@ -1038,6 +1039,9 @@ export interface BuildOpts {
   style?: string;
   upm?: number;
   formats?: Array<'otf' | 'ttf' | 'woff' | 'woff2'>;
+  /** Auto-level separate letters by default. Connected cursive uses its own
+   *  placement pass. False preserves the source row baselines. */
+  autoBaseline?: boolean;
   /** Letter spacing. 0/unset keeps the sheet's drawn pitch (cell-width
    *  advance, the historical default); 1-12 switches to tight advance with
    *  that percent of UPM as the side bearing, which evens out a loosely or
@@ -3395,10 +3399,37 @@ function rawWorkerBuild(payload: unknown, onProgress?: Progress): Promise<FontRe
   });
 }
 
+function measureBaselineBounds(g: Glyph): BaselineBounds | null {
+  if (!g.paths.length) return null;
+  // estimateBBox includes Bezier control points, which can extend past the
+  // actual ink. Alignment needs the curve extrema from the engine's Path.
+  const path = w().svgPathToOpentypePath(g.paths.join(' '), (x: number, y: number) => [x, y], false);
+  if (!path.commands.length) return null;
+  const bb = path.getBoundingBox();
+  if (!(bb.y2 > bb.y1)) return null;
+  const prof = glyphColumnAreas(g);
+  let bodyTop = bb.y1;
+  if (prof) {
+    const need = (bb.x2 - bb.x1) * 0.5;
+    for (let y = 0; y < prof.rowLeft.length; y++) {
+      if (prof.rowRight[y] - prof.rowLeft[y] + 1 >= need) {
+        bodyTop = Math.max(bb.y1, Math.min(bb.y2 - 0.01, y + 0.5));
+        break;
+      }
+    }
+  }
+  return { top: bb.y1, bottom: bb.y2, bodyTop };
+}
+
 /** Build font files from traced glyphs via the worker, then correct table
  *  checksums (the worker's woff2 wrapped the uncorrected otf, so re-wrap from
  *  the fixed otf) and validate. Throws if the font fails validation. */
 export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: Progress): Promise<FontResult> {
+  const aligned = !opts.connect && opts.autoBaseline !== false
+    ? alignGlyphBaselines(glyphs, measureBaselineBounds)
+    : { glyphs, adjustments: [] };
+  glyphs = aligned.glyphs;
+  (globalThis as unknown as { __lastBaseline?: object }).__lastBaseline = { adjustments: aligned.adjustments };
   const flags = spacingToBuildFlags(opts.spacingPct);
   let glyphsIn = glyphs;
   let spaceAdvance: number | undefined;

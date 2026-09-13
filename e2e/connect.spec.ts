@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { verifySfntChecksums } from '../src/lib/sfnt';
 import { isOtf } from '../src/lib/fontsig';
 
-// Connected-cursive mode end to end: a cursive sheet auto-builds a VALID,
+// Connected-cursive mode end to end: explicitly enabling it builds a VALID,
 // Windows-openable connected font, and toggling connect off falls back to the
 // trim/overhang path. Mirrors maker.spec's trust gate (signature + checksums).
 
@@ -114,22 +114,29 @@ async function medianJoinGap(page: Page, otf: Uint8Array): Promise<number> {
 }
 
 test.describe('connected-cursive mode', () => {
-  test('a cursive sheet auto-builds a valid connected font', async ({ page }) => {
+  test('a cursive sheet stays unconnected until explicitly enabled', async ({ page }) => {
     await page.goto('/make');
+    await page.getByRole('button', { name: 'advanced' }).click();
+    const toggle = page.getByRole('button', { name: /connected cursive/ });
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
     await page.locator('#sheet-file').setInputFiles(SHEET);
+    await buildDone(page);
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(await lastConnect(page), 'upload did not enable connect').toBeFalsy();
+    await toggle.click();
+    await page.getByRole('button', { name: 'rebuild with these settings' }).click();
     await buildDone(page);
 
     const lb = await lastBuild(page);
     expect(lb.kind).toBe('mono');
     expect(lb.woff2).toBeGreaterThan(0);
 
-    // auto-detect should have built in connect mode (the sheet reads as script)
+    // The explicit choice builds in connect mode.
     const lc = await lastConnect(page);
     expect(lc, 'connect mode ran').toBeTruthy();
     expect(lc!.joined, 'most lowercase joined').toBeGreaterThanOrEqual(20);
 
-    // the connect toggle reflects the auto-decision
-    await page.getByRole('button', { name: 'advanced' }).click();
+    // The toggle preserves the user's choice after building.
     expect(await page.getByRole('button', { name: /connected cursive/ }).getAttribute('aria-pressed')).toBe('true');
 
     const otf = await captureOtf(page);
@@ -144,10 +151,11 @@ test.describe('connected-cursive mode', () => {
 
   test('toggling connect off falls back to the overhang path', async ({ page }) => {
     await page.goto('/make');
+    await page.getByRole('button', { name: 'advanced' }).click();
+    await page.getByRole('button', { name: /connected cursive/ }).click();
     await page.locator('#sheet-file').setInputFiles(SHEET);
     await buildDone(page);
 
-    await page.getByRole('button', { name: 'advanced' }).click();
     await page.getByRole('button', { name: /connected cursive/ }).click(); // turn it off
     await page.getByRole('button', { name: 'rebuild with these settings' }).click();
     await buildDone(page);

@@ -20,9 +20,6 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
       localStorage.setItem('fh-maker-tour-seen', '1');
-      // No fh-test-no-autoconnect: the copperplate SHOULD auto-connect, so this
-      // exercises the real path — connected cursive AND natural variation together
-      // (the letters join AND a repeated letter cycles).
     } catch {
       /* private mode */
     }
@@ -77,6 +74,7 @@ test.describe('natural variation mode', () => {
 
     // enable natural variation (advanced panel) and reveal the variation slots
     await page.getByRole('button', { name: 'advanced' }).click();
+    await page.getByRole('button', { name: /connected cursive/ }).click();
     await page.getByRole('button', { name: /natural variation/ }).click();
 
     // base sheet builds a plain font first (no variants loaded yet)
@@ -120,6 +118,8 @@ test.describe('natural variation mode', () => {
   test('a long-entry palette builds classic and every variant seam meets', async ({ page }) => {
     test.setTimeout(220_000);
     await page.goto('/make');
+    await page.getByRole('button', { name: 'advanced' }).click();
+    await page.getByRole('button', { name: /connected cursive/ }).click();
 
     await page.locator('#sheet-file').setInputFiles([
       'e2e/fixtures/corpus/connected-cursive-nano.png',
@@ -168,6 +168,7 @@ test.describe('natural variation mode', () => {
   test('choosing all three sheets at once builds the cycling palette in one action', async ({ page }) => {
     test.setTimeout(220_000);
     await page.goto('/make');
+    await expect(page.locator('#maker-skeleton')).toBeHidden();
 
     // No advanced panel, no toggle, no variation slots: selecting all three
     // same-hand sheets at once on the MAIN input loads the first as the base and

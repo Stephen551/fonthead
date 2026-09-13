@@ -19,8 +19,6 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
       localStorage.setItem('fh-maker-tour-seen', '1');
-      // No fh-test-no-autoconnect: the script face SHOULD auto-connect; seam
-      // alternates ride the real path.
     } catch {
       /* private mode */
     }
@@ -65,6 +63,8 @@ test.describe('seam alternates (banked behind the test hook)', () => {
       }
     });
     await page.goto('/make');
+    await page.getByRole('button', { name: 'advanced' }).click();
+    await page.getByRole('button', { name: /connected cursive/ }).click();
     await page.locator('#sheet-file').setInputFiles(SHEET);
     await buildDone(page);
 
@@ -159,6 +159,8 @@ test.describe('seam alternates (banked behind the test hook)', () => {
   test('the production default builds plain (parked: no user surface, no alternates)', async ({ page }) => {
     test.setTimeout(220_000);
     await page.goto('/make');
+    await page.getByRole('button', { name: 'advanced' }).click();
+    await page.getByRole('button', { name: /connected cursive/ }).click();
     await page.locator('#sheet-file').setInputFiles(SHEET);
     await buildDone(page);
 
