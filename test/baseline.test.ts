@@ -59,7 +59,7 @@ describe('automatic glyph baselines', () => {
     }
   });
 
-  it('moves j with its dot, preserves f/Q descents and places R on the line', () => {
+  it('moves j with its dot, preserves f/Q descents and uses R bottom without a stem measurement', () => {
     const gs = [...refs(), glyph('i', 55, 200), glyph('j', 75, 270),
       glyph('f', 60, 250), glyph('Q', 65, 255), glyph('R', 65, 235)];
     const result = align(gs);
@@ -71,6 +71,23 @@ describe('automatic glyph baselines', () => {
 
   it('levels an upright f that sits too low', () => {
     expect(get(align([...refs(), glyph('f', 45, 217)]).glyphs, 'f').baselineYInCell).toBe(217);
+  });
+
+  it('anchors R on its stem and preserves a descending leg without resizing', () => {
+    const r = glyph('R', 65, 235);
+    r.bounds.stemBottom = 215;
+    const result = align([...refs(), r]);
+    expect(get(result.glyphs, 'R').baselineYInCell).toBe(215);
+    expect(get(result.glyphs, 'R').paths).toBe(r.paths);
+    expect(align(result.glyphs as MeasuredGlyph[]).adjustments).toEqual([]);
+  });
+
+  it('keeps an ordinary R on the line and rejects unreliable stem measurements', () => {
+    for (const stemBottom of [235, 234, 110, NaN]) {
+      const r = glyph('R', 65, 235);
+      r.bounds.stemBottom = stemBottom;
+      expect(get(align([...refs(), r]).glyphs, 'R').baselineYInCell).toBe(235);
+    }
   });
 
   it('snaps an upright J while retaining a descending J tail', () => {

@@ -16,6 +16,7 @@ export async function auditAlphabet(page: Page, font: any) {
     const S = 0.5, yTop = 1000, H = 750, pad = 4;
     const profiles = new Map<string, { left: number[]; right: number[] }>();
     const bodyTops: Record<string, number> = {};
+    const stemBottoms: Record<string, number> = {};
     for (const g of glyphs) {
       const W = Math.ceil((g.bbox.maxX - g.bbox.minX) * S) + pad * 2;
       const cv = new OffscreenCanvas(W, H), ctx = cv.getContext('2d')!;
@@ -28,6 +29,7 @@ export async function auditAlphabet(page: Page, font: any) {
         for (let x = 0; x < W; x++) if (data[(y * W + x) * 4 + 3] > 128) {
           if (left[y] === undefined) left[y] = (x - pad) / S + g.bbox.minX;
           right[y] = (x + 1 - pad) / S + g.bbox.minX;
+          if (g.c === 'R' && x < pad + (g.bbox.maxX - g.bbox.minX) * S * 0.45) stemBottoms[g.c] = yTop - (y + 1) / S;
         }
         if (bodyTops[g.c] === undefined && right[y] - left[y] >= (g.bbox.maxX - g.bbox.minX) * 0.5) bodyTops[g.c] = yTop - (y + 0.5) / S;
       }
@@ -42,6 +44,6 @@ export async function auditAlphabet(page: Page, font: any) {
       }
       return { pair: p.pair, clearance };
     });
-    return { letters: glyphs.map(g => ({ char: g.c, bottom: g.bbox.minY, top: g.bbox.maxY, advance: g.advance })), bodyTops, pairs: measured };
+    return { letters: glyphs.map(g => ({ char: g.c, bottom: g.bbox.minY, top: g.bbox.maxY, advance: g.advance })), bodyTops, stemBottoms, pairs: measured };
   }, { glyphs, pairs });
 }

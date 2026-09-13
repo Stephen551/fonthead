@@ -3435,7 +3435,28 @@ function measureBaselineBounds(g: Glyph): BaselineBounds | null {
       }
     }
   }
-  return { top: bb.y1, bottom: bb.y2, bodyTop };
+  let stemBottom: number | undefined;
+  if (g.char === 'R') {
+    // Use complete curve segments inside the left stem region. Keeping their
+    // real extrema avoids raster rounding and excludes the descending leg.
+    const stem = new (w().opentype.Path)();
+    const cutoff = bb.x1 + (bb.x2 - bb.x1) * 0.45;
+    let x = 0, y = 0, startX = 0, startY = 0;
+    for (const command of path.commands) {
+      if (command.type === 'M') {
+        x = startX = command.x; y = startY = command.y;
+        continue;
+      }
+      const c = command.type === 'Z' ? { type: 'L', x: startX, y: startY } : command;
+      if ([x, c.x, c.x1 ?? c.x, c.x2 ?? c.x].every(v => Number.isFinite(v) && v <= cutoff)) {
+        stem.moveTo(x, y);
+        stem.commands.push(c);
+      }
+      x = c.x; y = c.y;
+    }
+    if (stem.commands.length) stemBottom = stem.getBoundingBox().y2;
+  }
+  return { top: bb.y1, bottom: bb.y2, bodyTop, stemBottom };
 }
 
 /** Build font files from traced glyphs via the worker, then correct table

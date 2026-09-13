@@ -5,6 +5,8 @@ export interface BaselineBounds {
   bottom: number;
   /** Top of the wide body, excluding narrow ears (g) and flourishes. */
   bodyTop: number;
+  /** Bottom of R's left stem, excluding its potentially descending leg. */
+  stemBottom?: number;
 }
 
 export interface BaselineAdjustment {
@@ -94,6 +96,14 @@ export function alignGlyphBaselines(
         // may descend, so align that form's top with the other ascenders.
         if (!ascHeight) continue;
         baseline = height(b) <= ascHeight * 1.15 ? b.bottom : b.top + ascHeight;
+      } else if (g.char === 'R' && capHeight && Number.isFinite(b.stemBottom)
+        && b.stemBottom! - b.top >= capHeight * 0.8
+        && b.stemBottom! - b.top <= capHeight * 1.15
+        && b.bottom - b.stemBottom! > scale * 0.02
+        && b.bottom - b.stemBottom! < capHeight * 0.4) {
+        // A descending leg is part of the design. The stem's actual foot is
+        // a stronger baseline anchor than either the tail or the cap top.
+        baseline = b.stemBottom!;
       } else if (g.char === 'J' && capHeight && height(b) <= capHeight * 1.15) {
         baseline = b.bottom;
       } else if ('JQ'.includes(g.char) || (/[A-Z]/.test(g.char) && capHeight && height(b) > capHeight * 1.15)) {

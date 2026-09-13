@@ -37,10 +37,10 @@ test('auto-levels the uneven serif sheet in the exported font', async ({ page })
   for (const c of 'Handmade') expect(Math.abs(metrics.boxes[c].y1), `${c} exact baseline`).toBeLessThan(1);
   // The original sheet puts v/w ~75 units below the baseline and 8 ~87
   // units below. All non-descending lowercase and digits should now sit.
-  for (const c of 'ABCDEFGHIJKLMNOPRSTUVWXYZabcdefhiklmnorstuvwxz0123456789') {
+  for (const c of 'ABCDEFGHIJKLMNOPSTUVWXYZabcdefhiklmnorstuvwxz0123456789') {
     expect(Math.abs(metrics.boxes[c].y1), `${c} bottom`).toBeLessThan(1);
   }
-  for (const c of 'gjpqyQ') expect(metrics.boxes[c].y1, `${c} descent`).toBeLessThan(-xh * 0.15);
+  for (const c of 'gjpqyQR') expect(metrics.boxes[c].y1, `${c} descent`).toBeLessThan(-xh * 0.15);
   expect(metrics.alignment.adjustments.some((a: any) => a.shift > 1)).toBe(true);
   expect(metrics.alignment.adjustments.some((a: any) => a.shift < -1)).toBe(true);
 
@@ -64,8 +64,10 @@ test('auto-levels the uneven serif sheet in the exported font', async ({ page })
   expect(audit.pairs).toHaveLength(2704);
   for (const g of audit.letters) {
     expect(g.advance, `${g.char} positive advance`).toBeGreaterThan(0);
-    if (!'Qgjpqy'.includes(g.char)) expect(Math.abs(g.bottom), `${g.char} baseline`).toBeLessThan(1);
+    if (!'QRgjpqy'.includes(g.char)) expect(Math.abs(g.bottom), `${g.char} baseline`).toBeLessThan(1);
   }
+  // R's left stem sits on the baseline; its right leg deliberately descends.
+  expect(Math.abs(audit.stemBottoms.R), 'R stem baseline').toBeLessThanOrEqual(2);
   for (const c of 'pqy') expect(Math.abs(metrics.boxes[c].y2 - xh), `${c} body on x-height`).toBeLessThan(xh * 0.06);
   expect(Math.abs(audit.bodyTops.g - audit.bodyTops.o), 'g bowl on lowercase body line').toBeLessThan(xh * 0.08);
   expect(Math.abs(metrics.boxes.j.y2 - metrics.boxes.i.y2), 'j dot aligns with i').toBeLessThan(xh * 0.06);
