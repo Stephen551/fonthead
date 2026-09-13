@@ -33,13 +33,21 @@ describe('automatic glyph baselines', () => {
     }
   });
 
-  it('retains small optical overshoot and is stable when rebuilt', () => {
+  it('puts rounded bottoms on the same baseline and is stable when rebuilt', () => {
     const gs = [...refs(), glyph('o', 98, 202), glyph('s', 98, 202), glyph('e', 98, 202)];
-    expect(align(gs).glyphs).toBe(gs);
+    for (const c of 'ose') expect(get(align(gs).glyphs, c).baselineYInCell).toBe(202);
     const shifted = [...gs, glyph('c', 118, 222)];
     const first = align(shifted);
-    expect(get(first.glyphs, 'c').baselineYInCell).toBe(220);
+    expect(get(first.glyphs, 'c').baselineYInCell).toBe(222);
     expect(align(first.glyphs as MeasuredGlyph[]).adjustments).toEqual([]);
+  });
+
+  it('corrects fractional-pixel drift that remains visible after scaling to font units', () => {
+    const gs = [...refs().filter(g => !'dm'.includes(g.char)), glyph('d', 39.3, 199.3), glyph('m', 100.8, 200.8)];
+    const result = align(gs);
+    expect(get(result.glyphs, 'd').baselineYInCell).toBe(199.3);
+    expect(get(result.glyphs, 'm').baselineYInCell).toBe(200.8);
+    expect(get(result.glyphs, 'd').paths).toBe(get(gs, 'd').paths);
   });
 
   it('aligns descender bodies, including g with an ear above the bowl', () => {

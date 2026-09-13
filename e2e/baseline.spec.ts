@@ -31,6 +31,9 @@ test('auto-levels the uneven serif sheet in the exported font', async ({ page })
   writeFileSync(test.info().outputPath('metrics.json'), JSON.stringify(metrics, null, 2));
   expect(metrics.glyphCount).toBeGreaterThanOrEqual(62);
   const xh = metrics.boxes.x.y2 - metrics.boxes.x.y1;
+  // A subpixel source-space dead zone still becomes a visible one-pixel
+  // step at the maker's 60px preview size (notably d beside a/n/m/e).
+  for (const c of 'Handmade') expect(Math.abs(metrics.boxes[c].y1), `${c} exact baseline`).toBeLessThan(1);
   // The original sheet puts v/w ~75 units below the baseline and 8 ~87
   // units below. All non-descending lowercase and digits should now sit.
   for (const c of 'ABCDEFGHIJKLMNOPSTUVWXYZabcdefhiklmnorstuvwxz0123456789') {

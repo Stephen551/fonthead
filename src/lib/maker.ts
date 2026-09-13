@@ -3618,6 +3618,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     family: opts.family,
     style: styleOut,
     upm: opts.upm ?? 1000,
+    quantizeY: !opts.connect && opts.autoBaseline !== false,
     ...flags,
     spaceAdvance,
     formats: opts.formats ?? ['otf', 'ttf', 'woff2'],

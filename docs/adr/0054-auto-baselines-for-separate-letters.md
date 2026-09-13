@@ -31,8 +31,8 @@ The pure alignment helper then:
 
 - Estimates cap, lowercase, and ascender heights from median outline heights,
   independent of the original row baseline.
-- Anchors ordinary letters and digits at their bottoms, retaining bounded
-  optical overshoot for rounded letters.
+- Anchors ordinary letters and digits exactly at their bottom ink. Optical
+  overshoot is accounted for only when estimating a descender's body line.
 - Aligns `p/q/y` by lowercase tops, and `g` by its body top when the ear
   exclusion is small enough to be reliable. `j` uses the corresponding `i`
   dot height. `J/Q/R` and unusually tall capital swashes use cap tops so
@@ -40,7 +40,7 @@ The pure alignment helper then:
   `f` forms retain their descenders.
 - Handles each variation sheet in its own source pixel scale.
 - Skips unsupported characters, missing references, invalid measurements,
-  subpixel drift, and corrections larger than half the reference height.
+  floating-point noise, and corrections larger than half the reference height.
 
 Only `baselineYInCell` changes. Outlines, counters, dots, and cell dimensions
 remain intact. This is vertical placement, not a rescaling pass; letters drawn
@@ -50,7 +50,7 @@ on `__lastBaseline.adjustments`, with signed shifts in source pixels.
 ## Verification
 
 `test/baseline.test.ts` covers both directions of drift, preserved outlines,
-optical overshoot, descenders and dots, missing references, invalid bounds,
+rounded bottoms, fractional-pixel drift, descenders and dots, missing references, invalid bounds,
 outliers, repeated alignment, and independent variation sheets.
 
 `e2e/baseline.spec.ts` uploads the actual field image, downloads the assembled
@@ -65,4 +65,22 @@ Connected-cursive browser tests verify that even a cursive sheet stays off
 until explicitly enabled and that turning it off restores the overhang path.
 Variation and seam tests now explicitly enable cursive when testing joins.
 
-No new dependencies or vendored engine changes.
+No new dependencies.
+
+## Follow-up: visible steps in “Handmade”
+
+The initial 2%-of-x-height dead zone left `d` at +6 font units while `H`
+sat at -8, and the round-letter overshoot left `a/e` below zero. These
+differences remain visible at the maker's 60px preview size. The correction
+now removes fractional-pixel source drift and puts non-descending bottom
+ink directly on the line. It does not resize letters. The export regression
+requires every letter in “Handmade” to land within one font unit of zero;
+it fails the initial implementation at `H` (8 units from the baseline).
+
+The CFF writer also rounds relative curve deltas independently, accumulating
+small vertical errors even after accurate source alignment. Aligned builds
+now quantize absolute Y coordinates to font units before serialization. This
+keeps delta rounding from moving the outline. The worker forwards this option
+to the builder only for non-connected builds with auto-baselines enabled;
+other modes retain their existing precision. A synthetic fractional-curve
+regression verifies both the old drift and the corrected serialized baseline.

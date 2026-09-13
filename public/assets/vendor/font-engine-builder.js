@@ -382,7 +382,10 @@
         const xSlanted = isItalic ? xFont + yFont * italicTan : xFont;
         return [
           Math.round(xSlanted * 100) / 100,
-          Math.round(yFont * 100) / 100,
+          /* CFF writes integer relative curve deltas. Rounding those deltas
+             independently accumulates drift across a contour. For aligned
+             builds, quantize absolute Y first so the writer preserves it. */
+          opts.quantizeY ? Math.round(yFont) : Math.round(yFont * 100) / 100,
         ];
       };
 

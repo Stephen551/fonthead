@@ -71,4 +71,19 @@ describe('builder variant glyphs', () => {
   it('a build with no variants is byte-identical to today (snapshot guard)', () => {
     expect(glyphSnapshot(eng.buildFontForStyle([A, B], OPTS))).toMatchSnapshot();
   });
+
+  it('keeps an aligned baseline through CFF serialization of fractional curves', () => {
+    const curves = Array.from({ length: 20 }, (_, i) => {
+      const x = i * 3, y = i * 0.12;
+      return `C${x + 1} ${y + 0.04} ${x + 2} ${y + 0.08} ${x + 3} ${y + 0.12}`;
+    }).join(' ');
+    const g = { ...A, paths: [`M0 0 ${curves} L80 100 L0 100 Z`], cellW: 100, cellH: 110, baselineYInCell: 100 };
+    const exportBottom = (quantizeY: boolean) => {
+      const font = eng.buildFontForStyle([g], { ...OPTS, quantizeY });
+      expect(font.charToGlyph('a').getBoundingBox().y1).toBeCloseTo(0, 6);
+      return eng.opentype.parse(font.toArrayBuffer()).charToGlyph('a').getBoundingBox().y1;
+    };
+    expect(Math.abs(exportBottom(false)), 'fixture exposes accumulated rounding drift').toBeGreaterThan(3);
+    expect(exportBottom(true)).toBe(0);
+  });
 });

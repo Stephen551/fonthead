@@ -16,7 +16,6 @@ export interface BaselineAdjustment {
 
 const FLAT_CAPS = new Set('BEFHIKLMNPTXYZ');
 const FLAT_LOWER = new Set('mnrxz');
-const ROUND = new Set('CGOSUaceosuvw0235689');
 const DESCENDERS = new Set('gpqy');
 
 function median(values: number[]): number | null {
@@ -65,9 +64,8 @@ export function alignGlyphBaselines(
     const ascSamples = samples(new Set('bdhkl'), height);
     const ascHeight = ascSamples.length >= 3 ? median(ascSamples) : null;
     const iHeight = median(samples(new Set('i'), height));
-    // Preserve small optical overshoots rather than flattening curved letters.
-    // The cap prevents a differently drawn/oversized round from setting a deep
-    // false baseline for every round letter in the face.
+    // Account for optical overshoot when inferring a descender's body baseline
+    // from its top. Ordinary letters below anchor directly on their bottom ink.
     const overshoot = (chars: string, flat: number | null) => {
       const roundHeight = median(samples(new Set(chars), height));
       return flat && roundHeight ? Math.max(0, Math.min(scale * 0.025, (roundHeight - flat) / 2)) : 0;
@@ -102,12 +100,13 @@ export function alignGlyphBaselines(
         if (!capHeight) continue;
         baseline = b.top + capHeight + (g.char === 'Q' ? capOver : 0);
       } else {
-        baseline = b.bottom - (ROUND.has(g.char) ? (/[A-Z0-9]/.test(g.char) ? capOver : lowerOver) : 0);
+        baseline = b.bottom;
       }
       const shift = baseline - g.baselineYInCell;
-      // Ignore subpixel/optical noise and implausibly large moves, which more
-      // likely mean a mis-cut cell or an intentionally decorated letter.
-      if (Math.abs(shift) <= Math.max(0.5, scale * 0.02) || Math.abs(shift) > scale * 0.5) continue;
+      // Even a fraction of a source pixel can become a visible step after font
+      // scaling. Only ignore floating-point noise; retain the outlier guard for
+      // mis-cut cells or intentionally decorated letters.
+      if (Math.abs(shift) <= 0.001 || Math.abs(shift) > scale * 0.5) continue;
       out[i] = { ...g, baselineYInCell: baseline };
       adjustments.push({ char: g.char, variantSuffix: g.variantSuffix, shift });
     }
