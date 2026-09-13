@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import * as fontkit from 'fontkit';
 import { verifySfntChecksums } from '../src/lib/sfnt';
+import { auditAlphabet } from './alphabet-audit';
 
 test('auto-levels the uneven serif sheet in the exported font', async ({ page }) => {
   await page.addInitScript(() => {
@@ -36,11 +37,10 @@ test('auto-levels the uneven serif sheet in the exported font', async ({ page })
   for (const c of 'Handmade') expect(Math.abs(metrics.boxes[c].y1), `${c} exact baseline`).toBeLessThan(1);
   // The original sheet puts v/w ~75 units below the baseline and 8 ~87
   // units below. All non-descending lowercase and digits should now sit.
-  for (const c of 'ABCDEFGHIJKLMNOPSTUVWXYZabcdefhiklmnorstuvwxz0123456789') {
-    expect(Math.abs(metrics.boxes[c].y1), `${c} bottom`).toBeLessThan(xh * 0.05);
+  for (const c of 'ABCDEFGHIJKLMNOPRSTUVWXYZabcdefhiklmnorstuvwxz0123456789') {
+    expect(Math.abs(metrics.boxes[c].y1), `${c} bottom`).toBeLessThan(1);
   }
   for (const c of 'gjpqyQ') expect(metrics.boxes[c].y1, `${c} descent`).toBeLessThan(-xh * 0.15);
-  expect(metrics.boxes.R.y1, 'R keeps its extended leg').toBeLessThan(-xh * 0.1);
   expect(metrics.alignment.adjustments.some((a: any) => a.shift > 1)).toBe(true);
   expect(metrics.alignment.adjustments.some((a: any) => a.shift < -1)).toBe(true);
 
@@ -57,5 +57,21 @@ test('auto-levels the uneven serif sheet in the exported font', async ({ page })
     const box = font.glyphForCodePoint(c.codePointAt(0)!).bbox;
     expect(box.minY, `${c} WOFF2 baseline`).toBeCloseTo(metrics.boxes[c].y1, 0);
     expect(box.maxY, `${c} WOFF2 top`).toBeCloseTo(metrics.boxes[c].y2, 0);
+  }
+  const audit = await auditAlphabet(page, font);
+  writeFileSync(test.info().outputPath('alphabet-audit.json'), JSON.stringify(audit, null, 2));
+  expect(audit.letters).toHaveLength(52);
+  expect(audit.pairs).toHaveLength(2704);
+  for (const g of audit.letters) {
+    expect(g.advance, `${g.char} positive advance`).toBeGreaterThan(0);
+    if (!'Qgjpqy'.includes(g.char)) expect(Math.abs(g.bottom), `${g.char} baseline`).toBeLessThan(1);
+  }
+  for (const c of 'pqy') expect(Math.abs(metrics.boxes[c].y2 - xh), `${c} body on x-height`).toBeLessThan(xh * 0.06);
+  expect(Math.abs(audit.bodyTops.g - audit.bodyTops.o), 'g bowl on lowercase body line').toBeLessThan(xh * 0.08);
+  expect(Math.abs(metrics.boxes.j.y2 - metrics.boxes.i.y2), 'j dot aligns with i').toBeLessThan(xh * 0.06);
+  expect(Math.abs(metrics.boxes.Q.y2 - metrics.boxes.H.y2), 'Q body on cap line').toBeLessThan(xh * 0.06);
+  for (const pair of audit.pairs) {
+    expect(pair.clearance, `${pair.pair} ink clearance`).toBeGreaterThan(0);
+    expect(pair.clearance, `${pair.pair} excessive gap`).toBeLessThan(xh * 0.4);
   }
 });

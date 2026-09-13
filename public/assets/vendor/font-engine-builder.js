@@ -476,7 +476,7 @@
       } else if (featureOpts.kerning && kernStrength > 0
           && glyphs && glyphs.length > 0
           && typeof analyzeAutoKern === 'function') {
-        computedKernPairs = analyzeAutoKern(glyphs, scale, kernStrength);
+        computedKernPairs = analyzeAutoKern(glyphs, scale, kernStrength, { allLetters: !!featureOpts.kernAllLetters });
       }
       compileFeatures(font, featureOpts, upm, scale, computedKernPairs);
     }

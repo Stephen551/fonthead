@@ -94,8 +94,10 @@ export function alignGlyphBaselines(
         // may descend, so align that form's top with the other ascenders.
         if (!ascHeight) continue;
         baseline = height(b) <= ascHeight * 1.15 ? b.bottom : b.top + ascHeight;
-      } else if ('JQR'.includes(g.char) || (/[A-Z]/.test(g.char) && capHeight && height(b) > capHeight * 1.15)) {
-        // Q's tail, R's extended leg and unusually tall capital swashes are
+      } else if (g.char === 'J' && capHeight && height(b) <= capHeight * 1.15) {
+        baseline = b.bottom;
+      } else if ('JQ'.includes(g.char) || (/[A-Z]/.test(g.char) && capHeight && height(b) > capHeight * 1.15)) {
+        // Q's tail and unusually tall capital swashes are
         // not baseline anchors. Keep the cap body at the shared height.
         if (!capHeight) continue;
         baseline = b.top + capHeight + (g.char === 'Q' ? capOver : 0);

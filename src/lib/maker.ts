@@ -9,6 +9,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { fixSfntChecksums } from './sfnt';
 import { alignGlyphBaselines, type BaselineBounds } from './baseline';
+import { hasStraightUprightStems } from './spacing';
 
 const w = () => window as any;
 
@@ -1604,7 +1605,7 @@ export function trimGlyphOverhangs(
   glyphs: Glyph[],
   padPx: number,
   opts: { padAll?: boolean; skipPairFeedback?: boolean } = {},
-): { glyphs: Glyph[]; trimmed: number; script: boolean } {
+): { glyphs: Glyph[]; trimmed: number; script: boolean; upright?: boolean } {
   // pass 1: profiles + conservative bounds, and let the sheet declare itself
   const profiles = glyphs.map((g) => glyphColumnAreas(g));
   const ink = profiles.map((prof) => {
@@ -1619,6 +1620,22 @@ export function trimGlyphOverhangs(
     }
     return first < 0 ? null : { first, last };
   });
+  const xIndex = glyphs.findIndex(g => g.char === 'x' && !g.variantSuffix);
+  const xHeight = xIndex >= 0 && profiles[xIndex]
+    ? glyphs[xIndex].baselineYInCell - profiles[xIndex]!.inkTopRow : 0;
+  const upright = hasStraightUprightStems(glyphs.flatMap((g, i) => {
+    const p = profiles[i];
+    return p && !g.variantSuffix ? [{ char: g.char, baseline: g.baselineYInCell, left: p.rowLeft, right: p.rowRight }] : [];
+  }), xHeight);
+  if (upright) {
+    // Keep the entire serif/diagonal inside the advance. Re-anchor every
+    // glyph so the source sheet's cell widths cannot leave uneven spacing.
+    return { script: false, upright: true, trimmed: 0, glyphs: glyphs.map((g, i) => {
+      const span = ink[i];
+      return span ? { ...g, paths: g.paths.map(p => translatePathX(p, padPx - span.first)),
+        cellW: span.last - span.first + 1 + padPx * 2 } : g;
+    }) };
+  }
   const conservative = profiles.map((prof, i) =>
     prof && ink[i] ? bodyBoundsFromColumns(prof.cols, {}, prof.spans) : null,
   );
@@ -3433,6 +3450,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   const flags = spacingToBuildFlags(opts.spacingPct);
   let glyphsIn = glyphs;
   let spaceAdvance: number | undefined;
+  let uprightSpacing = false;
   let styleOut = opts.style ?? 'Regular';
   // Set when connectGlyphs fires the entry-reach normalization: the placement
   // already carries the rhythm (even body gaps, deliberate connector bridges),
@@ -3598,6 +3616,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     onProgress?.('trim', 'flourish overhang · body advances');
     const fit = trimGlyphOverhangs(glyphs, bodyPadPx(glyphs, pct), { padAll: knob });
     glyphsIn = fit.glyphs;
+    uprightSpacing = !!fit.upright;
     // script overhangs sweep into the word space; widen it so word breaks
     // survive (the engine default is 0.28em)
     if (fit.script) spaceAdvance = 0.38;
@@ -3632,6 +3651,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // rather than fighting it.
     features: {
       kerning: true,
+      kernAllLetters: uprightSpacing,
       connectKern: opts.connect ? (connectBridged ? { bridgedPlacement: true } : {}) : undefined,
       naturalVariation: opts.naturalVariation ? true : undefined,
       joinAltRights: seamAltRights,

@@ -269,7 +269,7 @@
     return median * 2;
   }
 
-  function buildCandidatePairs(glyphs) {
+  function buildCandidatePairs(glyphs, allLetters) {
     const present = new Set(glyphs.map(g => g.char));
     const seen = new Set();
     const pairs = [];
@@ -291,6 +291,13 @@
     expand(CLASS_RIGHT.roundCap,  CLASS_LEFT.diagCap);
     expand(CLASS_RIGHT.openLow,   CLASS_LEFT.openLow);
     expand(CLASS_RIGHT.openLow,   CLASS_LEFT.roundLow);
+    /* Ordinary upright spacing needs the whole alphabet: a limited canon
+       misses visibly loose pairs such as f+i/f+g. The same full-height
+       collision floor below protects every added pair. Script stays opt-out. */
+    if (allLetters) {
+      const letters = Array.from(present).filter(c => /^[A-Za-z]$/.test(c));
+      for (const l of letters) for (const r of letters) add(l, r);
+    }
     return pairs;
   }
 
@@ -305,7 +312,7 @@
     return glyphs.filter(function (g) { return !(g.variantSuffix && g.variantSuffix.indexOf('.jn') === 0); });
   }
 
-  function analyzeAutoKern(glyphsIn, scale, strength) {
+  function analyzeAutoKern(glyphsIn, scale, strength, opts = {}) {
     const glyphs = withoutSeamAlts(glyphsIn);
     const byChar = new Map();
     for (const g of glyphs) byChar.set(g.char, g);
@@ -314,7 +321,7 @@
     if (!isFinite(targetGapPx) || targetGapPx <= 0) return [];
 
 
-    const pairs = buildCandidatePairs(glyphs);
+    const pairs = buildCandidatePairs(glyphs, opts.allLetters);
     const out = [];
     const MIN_VALUE = 4;        /* font units; smaller is invisible */
     const MAX_UNITS = 250;      /* cap any single pair's pull */

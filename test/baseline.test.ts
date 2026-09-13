@@ -59,18 +59,23 @@ describe('automatic glyph baselines', () => {
     }
   });
 
-  it('moves j with its dot, keeps f descent and preserves Q and R tails', () => {
+  it('moves j with its dot, preserves f/Q descents and places R on the line', () => {
     const gs = [...refs(), glyph('i', 55, 200), glyph('j', 75, 270),
       glyph('f', 60, 250), glyph('Q', 65, 255), glyph('R', 65, 235)];
     const result = align(gs);
     expect(get(result.glyphs, 'j').baselineYInCell).toBe(220);
     expect(get(result.glyphs, 'f').baselineYInCell).toBe(220);
     expect(get(result.glyphs, 'Q').baselineYInCell).toBe(215);
-    expect(get(result.glyphs, 'R').baselineYInCell).toBe(215);
+    expect(get(result.glyphs, 'R').baselineYInCell).toBe(235);
   });
 
   it('levels an upright f that sits too low', () => {
     expect(get(align([...refs(), glyph('f', 45, 217)]).glyphs, 'f').baselineYInCell).toBe(217);
+  });
+
+  it('snaps an upright J while retaining a descending J tail', () => {
+    expect(get(align([...refs(), glyph('J', 50, 200.5)]).glyphs, 'J').baselineYInCell).toBe(200.5);
+    expect(get(align([...refs(), glyph('J', 50, 240)]).glyphs, 'J').baselineYInCell).toBe(200);
   });
 
   it('preserves a capital swash and does not mistake a narrow g bowl for an ear', () => {
