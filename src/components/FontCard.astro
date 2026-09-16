@@ -1,5 +1,6 @@
 ---
 import Badge from './Badge.astro';
+import MakerCredit from './MakerCredit.astro';
 import { type Font, specClass, specTreat, familyOf, kb, specimenFontSize } from '../lib/fonts';
 
 interface Props {
@@ -37,7 +38,7 @@ const size = Math.min(m.size, 92);
   <div style="padding:13px 18px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
     <div style="min-width:0;">
       <a href={`/f/${f.id}`} style="text-decoration:none;color:inherit;font-size:15.5px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;min-height:24px;">{f.name}</a>
-      <a href={`/u/${f.maker_handle}`} class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);text-decoration:none;display:flex;align-items:center;min-height:24px;">by {f.maker_handle}</a>
+      <MakerCredit font={f} class="fh-mono" style="font-size:11.5px;color:var(--ink-faint);text-decoration:none;display:flex;align-items:center;min-height:24px;" />
     </div>
     <button class={`fh-fav${favorited ? ' on' : ''}`} data-fav data-font-id={f.id} aria-pressed={favorited} aria-label={`Favorite ${f.name}`}>
       <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>

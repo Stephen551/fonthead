@@ -1,0 +1,17 @@
+---
+import { makerProfileUrl, type Font } from '../lib/fonts';
+
+interface Props {
+  font: Font;
+  class?: string;
+  style?: string;
+}
+const { font, class: className, style } = Astro.props;
+const href = makerProfileUrl(font);
+---
+
+{href ? (
+  <a href={href} class={className} style={style}><slot>by {font.maker_handle}</slot></a>
+) : (
+  <span class={className} style={style}><slot>by {font.maker_handle}</slot></span>
+)}

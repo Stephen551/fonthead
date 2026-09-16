@@ -1,5 +1,6 @@
 ---
 import Badge from './Badge.astro';
+import MakerCredit from './MakerCredit.astro';
 import { type Font, specClass, specTreat, familyOf, kb, specimenFontSize } from '../lib/fonts';
 
 // The wall's lead, shown big and TYPE-INTO: the loudest expression of the
@@ -44,7 +45,7 @@ const m = f.meta;
   <div class="fh-feature-meta">
     <div>
       <a href={`/f/${f.id}`} class="fh-feature-name">{f.name}</a>
-      <a href={`/u/${f.maker_handle}`} class="fh-mono fh-feature-maker">by {f.maker_handle}</a>
+      <MakerCredit font={f} class="fh-mono fh-feature-maker" />
     </div>
     <div class="fh-mono fh-feature-stat">{f.glyph_count ?? '–'} glyphs · woff2 {kb(f.woff2_size)}</div>
     <div class="fh-mono fh-feature-stat" style="color:var(--ink-faint);">click the specimen to type</div>

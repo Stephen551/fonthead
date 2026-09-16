@@ -3,6 +3,7 @@
 // <lastmod> from the font's created_at, since the whole value of the site is
 // freshly published community fonts.
 import type { APIRoute } from 'astro';
+import { MAKER_EXISTS_SQL, makerProfileUrl } from '../lib/fonts';
 
 export const prerender = false;
 
@@ -23,15 +24,16 @@ export const GET: APIRoute = async ({ locals, url }) => {
   const env = locals.runtime.env;
   const origin = url.origin;
   const rows = await env.DB.prepare(
-    "SELECT id, maker_handle, created_at FROM fonts WHERE visibility = 'public' ORDER BY created_at DESC LIMIT 5000",
-  ).all<{ id: string; maker_handle: string; created_at: string }>();
+    `SELECT id, maker_handle, created_at, ${MAKER_EXISTS_SQL} AS maker_exists FROM fonts WHERE visibility = 'public' ORDER BY created_at DESC LIMIT 5000`,
+  ).all<{ id: string; maker_handle: string; created_at: string; maker_exists: number }>();
   const fonts = rows.results ?? [];
 
   // newest first, so the first time we see a handle is its most recent font
   const handleLastmod = new Map<string, string | null>();
   for (const f of fonts) {
-    if (!slugSafe(f.maker_handle) || handleLastmod.has(f.maker_handle)) continue;
-    handleLastmod.set(f.maker_handle, isoDate(f.created_at));
+    const profileUrl = makerProfileUrl({ makerExists: f.maker_exists === 1, maker_handle: f.maker_handle });
+    if (!profileUrl || !slugSafe(f.maker_handle) || handleLastmod.has(profileUrl)) continue;
+    handleLastmod.set(profileUrl, isoDate(f.created_at));
   }
 
   const newest = isoDate(fonts[0]?.created_at);
@@ -46,8 +48,8 @@ export const GET: APIRoute = async ({ locals, url }) => {
     { loc: `${origin}/privacy`, lastmod: null },
     { loc: `${origin}/support`, lastmod: null },
     ...fonts.map((f) => ({ loc: `${origin}/f/${f.id}`, lastmod: isoDate(f.created_at) })),
-    ...[...handleLastmod.entries()].map(([h, lastmod]) => ({
-      loc: `${origin}/u/${encodeURIComponent(h)}`,
+    ...[...handleLastmod.entries()].map(([profileUrl, lastmod]) => ({
+      loc: `${origin}${profileUrl}`,
       lastmod,
     })),
   ];

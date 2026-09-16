@@ -42,6 +42,21 @@ export interface FontRow {
 
 export interface Font extends Omit<FontRow, 'meta'> {
   meta: FontMeta;
+  makerExists: boolean;
+}
+
+type FontReadRow = FontRow & { maker_exists: number };
+
+// Resolve ownership as well as the handle: a reclaimed handle must not link
+// an orphaned font to an unrelated account. Reused by the sitemap.
+export const MAKER_EXISTS_SQL = `EXISTS (
+  SELECT 1 FROM "user" WHERE "user".id = fonts.owner_id AND "user".handle = fonts.maker_handle
+)`;
+const FONT_SELECT = `SELECT fonts.rowid, fonts.*, ${MAKER_EXISTS_SQL} AS maker_exists FROM fonts`;
+
+/** A profile link is only available while the credited owner still exists. */
+export function makerProfileUrl(maker: { makerExists: boolean; maker_handle: string }): string | null {
+  return maker.makerExists ? `/u/${encodeURIComponent(maker.maker_handle)}` : null;
 }
 
 const DEFAULT_META: FontMeta = {
@@ -54,14 +69,15 @@ const DEFAULT_META: FontMeta = {
   ofl: '',
 };
 
-function parse(row: FontRow): Font {
+function parse(row: FontReadRow): Font {
   let meta: FontMeta = DEFAULT_META;
   try {
     meta = { ...DEFAULT_META, ...(JSON.parse(row.meta) as Partial<FontMeta>) };
   } catch {
     /* keep defaults on malformed json */
   }
-  return { ...row, meta };
+  const { maker_exists, ...font } = row;
+  return { ...font, meta, makerExists: maker_exists === 1 };
 }
 
 /** Apply an owner edit (name, license) to a font's raw meta JSON string. The og
@@ -186,9 +202,9 @@ export async function listPublicFonts(db: D1Database, sort: Sort, opts: ListOpts
   const total = countRow?.n ?? 0;
 
   const { results } = await db
-    .prepare(`SELECT rowid, * FROM fonts WHERE ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
+    .prepare(`${FONT_SELECT} WHERE ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
     .bind(...filterBinds, limit, offset)
-    .all<FontRow>();
+    .all<FontReadRow>();
 
   return { items: (results ?? []).map(parse), total, limit, offset };
 }
@@ -210,9 +226,9 @@ export async function getFontsByIds(db: D1Database, ids: string[]): Promise<Font
   if (!ids.length) return [];
   const placeholders = ids.map(() => '?').join(',');
   const { results } = await db
-    .prepare(`SELECT rowid, * FROM fonts WHERE id IN (${placeholders}) AND visibility = 'public'`)
+    .prepare(`${FONT_SELECT} WHERE id IN (${placeholders}) AND visibility = 'public'`)
     .bind(...ids)
-    .all<FontRow>();
+    .all<FontReadRow>();
   const byId = new Map((results ?? []).map((r) => [r.id, parse(r)]));
   return ids.map((id) => byId.get(id)).filter((f): f is Font => Boolean(f));
 }
@@ -225,14 +241,14 @@ export async function listFontsByOwner(
 ): Promise<Font[]> {
   const visClause = includePrivate ? '' : "AND visibility = 'public'";
   const { results } = await db
-    .prepare(`SELECT rowid, * FROM fonts WHERE owner_id = ? ${visClause} ORDER BY created_at DESC, rowid DESC`)
+    .prepare(`${FONT_SELECT} WHERE owner_id = ? ${visClause} ORDER BY created_at DESC, rowid DESC`)
     .bind(ownerId)
-    .all<FontRow>();
+    .all<FontReadRow>();
   return (results ?? []).map(parse);
 }
 
 export async function getFont(db: D1Database, id: string): Promise<Font | null> {
-  const row = await db.prepare('SELECT * FROM fonts WHERE id = ?').bind(id).first<FontRow>();
+  const row = await db.prepare(`${FONT_SELECT} WHERE id = ?`).bind(id).first<FontReadRow>();
   return row ? parse(row) : null;
 }
 
