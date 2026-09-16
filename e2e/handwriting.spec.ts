@@ -19,7 +19,7 @@ test('the handwriting page serves the grid and routes to the maker', async ({ pa
   // the download affordance and the maker CTA
   await expect(page.getByRole('link', { name: 'download the grid' })).toHaveAttribute('href', '/grid.png');
   await page
-    .getByRole('link', { name: /make your handwriting font/ })
+    .getByRole('link', { name: /make your handwriting font/i })
     .click();
   await page.waitForURL('**/make');
 });
@@ -29,7 +29,7 @@ test('the handwriting page is discoverable from nav, hero, and maker', async ({ 
   await expect(page.locator('nav').getByRole('link', { name: 'handwriting' })).toHaveAttribute('href', '/handwriting');
   await expect(page.locator('#main').getByRole('link', { name: 'your own handwriting' })).toHaveAttribute('href', '/handwriting');
   await page.goto('/make');
-  await expect(page.getByRole('link', { name: 'Turn your handwriting into a font' })).toHaveAttribute('href', '/handwriting');
+  await expect(page.getByRole('link', { name: /turn your handwriting into a font/i })).toHaveAttribute('href', '/handwriting');
 });
 
 test('the maker offers the camera path', async ({ page }) => {

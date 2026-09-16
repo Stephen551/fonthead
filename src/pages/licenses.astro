@@ -7,46 +7,53 @@ export const prerender = false;
 // Kept in sync with the publish selector (Maker.tsx) and the font-page row.
 const licenses = [
   {
-    h: 'OFL (SIL Open Font License)',
+    h: 'OFL — SIL Open Font License',
     body: [
-      'The default, and the usual pick for a font you want shared. People can use your font anywhere, including commercial work and embedded in apps and documents. They can study it, change it, and pass it on.',
-      'The one catch: the font file cannot be sold on its own, and any changed version stays under the same license. Good when you want your font used widely and kept open.',
+      'The OFL is the default option for a font you want other people to be able to use and share.',
+      'People can use the font in personal or commercial work, embed it in apps and documents, study it, modify it, and redistribute it.',
+      'The font file itself cannot be sold on its own, and modified versions remain under the same license.',
+      'Choose OFL when you want your font to stay open and be usable by other people.',
     ],
   },
   {
-    h: 'CC0 (public domain)',
+    h: 'CC0 — Public domain',
     body: [
-      'The most open option. CC0 is the Creative Commons public-domain dedication. You give up your rights and place the font in the public domain. Anyone can use it for anything, with no conditions and no need to credit you.',
-      'Pick this if you want zero strings attached.',
+      'CC0 is the most open option.',
+      'It dedicates your work to the public domain so other people can use it without conditions or a requirement to credit you.',
+      'Choose CC0 when you want the font available with no strings attached.',
     ],
   },
   {
     h: 'Personal use only',
     body: [
-      'Free for people to use in their own personal, non-commercial projects. Using it commercially needs your say-so.',
-      'fonthead does not handle that arrangement. It is between you and whoever wants the commercial use. Pick this if you want to keep commercial rights.',
+      'This option allows people to use your font for personal, non-commercial projects.',
+      'Commercial use requires your permission.',
+      'Fonthead does not manage that agreement. Any commercial-use arrangement is between you and the person who wants to use the font.',
+      'Choose this option when you want to keep control of commercial use.',
     ],
   },
   {
     h: 'What you are responsible for',
     body: [
-      'You can only publish a font you have the right to publish. Trace your own lettering, or letters you have permission to use. Do not trace an existing commercial typeface and republish it as your own.',
-      'The license you pick covers your work. It does not hand you rights to anyone else. You are responsible for what you publish, and fonts that infringe get removed.',
+      'Only publish fonts you have the right to publish.',
+      'Use your own lettering or lettering you have permission to use. Do not trace an existing commercial typeface and republish it as your own.',
+      "The license you choose applies to your work. It does not give you rights to someone else's work.",
     ],
   },
 ];
 ---
 
 <Base
-  title="Licenses · fonthead.dev"
-  description="What each license (OFL, CC0, personal use) lets people do with a font you publish on fonthead.dev, and what you agree to when you publish."
+  title="Font Licensing: OFL, CC0 & Personal Use · fonthead.dev"
+  description="Understand the font licensing options on fonthead.dev, including the SIL Open Font License, CC0, and personal-use licensing."
   active="library"
 >
   <div style="background:var(--paper);min-height:100vh;">
     <header class="fh-pad" style="padding:48px 0 28px;border-bottom:1px solid var(--line);">
       <p class="fh-eyebrow">fonthead.dev</p>
-      <h1 class="fh-mono" style="font-size:34px;font-weight:700;letter-spacing:-.01em;margin:10px 0 6px;">Licenses</h1>
-      <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);max-width:60ch;">What each license lets people do with a font you publish, and what you agree to when you publish one. This explains the choices, it is not legal advice.</p>
+      <h1 class="fh-mono" style="font-size:clamp(26px,5vw,34px);font-weight:700;letter-spacing:-.01em;margin:10px 0 6px;">Font licensing on fonthead.dev</h1>
+      <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;max-width:62ch;">When you publish a font on fonthead.dev, the license tells other people what they can do with it.</p>
+      <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;max-width:62ch;">Fonthead currently supports three approaches: the SIL Open Font License, CC0, and personal use only.</p>
     </header>
 
     <div class="fh-pad" style="max-width:760px;padding:8px 0 48px;">
@@ -58,6 +65,10 @@ const licenses = [
           ))}
         </section>
       ))}
+      <section style="padding:30px 0 0;">
+        <h2 style="font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0 0 18px;">Ready to make something of your own?</h2>
+        <a href="/make" data-astro-reload class="fh-btn">Make a font</a>
+      </section>
     </div>
 
     <footer class="fh-pad" style="padding:26px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;">

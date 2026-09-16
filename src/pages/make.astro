@@ -19,8 +19,8 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
 ---
 
 <Base
-  title="Make a font · fonthead.dev"
-  description="Drop an alphabet sheet and trace it into a real, installable font in your browser. Monochrome or color, yours to download. Nothing leaves the page."
+  title="Font Maker — Create Your Own Font · fonthead.dev"
+  description="Use the fonthead font maker to turn an alphabet sheet into a real, installable font in your browser. Build, preview, and download your font."
   active="make"
 >
   <style slot="head" is:inline set:html={faceCss}></style>
@@ -58,14 +58,16 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
     <!-- title + steps -->
     <div class="fh-pad" style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:30px 0 24px;border-bottom:1px solid var(--line);">
       <div>
-        <h1 style="font-size:30px;font-weight:600;margin:0;letter-spacing:-.02em;">Make a font</h1>
-        <p style="margin:8px 0 0;font-size:14.5px;color:var(--ink-soft);">Drop an alphabet sheet, or generate one below. It traces into a real, installable font in your browser.</p>
+        <h1 style="font-size:30px;font-weight:600;margin:0;letter-spacing:-.02em;">Make your own font</h1>
+        <p style="margin:8px 0 0;font-size:14.5px;color:var(--ink-soft);">Turn your lettering into a real font.</p>
+        <p style="margin:8px 0 18px;font-size:14.5px;color:var(--ink-soft);max-width:65ch;line-height:1.55;">Drop in an alphabet sheet, or generate one below, and the font maker traces your characters into an installable font right in your browser.</p>
+        <a href="#font-maker" class="fh-btn">Start making your font</a>
       </div>
       <div style="display:flex;align-items:center;gap:18px;">
         <div class="fh-mono" style="display:flex;gap:18px;font-size:12px;">
-          <span style="color:var(--ink);"><b style="font-weight:700;">01</b> drop</span>
-          <span style="color:var(--signal);"><b style="font-weight:700;">02</b> build</span>
-          <span style="color:var(--ink-faint);"><b style="font-weight:700;">03</b> download</span>
+          <span style="color:var(--ink);"><b style="font-weight:700;">01</b> Drop</span>
+          <span style="color:var(--signal);"><b style="font-weight:700;">02</b> Build</span>
+          <span style="color:var(--ink-faint);"><b style="font-weight:700;">03</b> Download</span>
         </div>
         <button id="maker-tour-open" type="button" class="fh-btn fh-btn--ghost" style="font-size:12px;">tutorial</button>
       </div>
@@ -75,10 +77,13 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
          path), copy the prompt into an image generator, drop the result below -->
     <section class="fh-gen" aria-label="Generate a character sheet">
       <div class="fh-gen-intro">
-        <p class="fh-eyebrow">no sheet? generate one</p>
-        <p class="fh-gen-lead">Pick a sheet type, copy the prompt into an image generator like Gemini (Nano Banana) or ChatGPT, then drop the result into the maker below. Rather use a pen? <a href="/handwriting" style="color:inherit;text-decoration:underline;text-underline-offset:3px;">Turn your handwriting into a font</a>.</p>
+        <h2 style="font-size:20px;font-weight:600;margin:0 0 10px;letter-spacing:-.01em;">No alphabet sheet? Make one.</h2>
+        <p class="fh-gen-lead">Choose a starting style, copy the prompt into an image generator like Gemini or ChatGPT, then drop the finished alphabet sheet into the maker.</p>
+        <p class="fh-gen-lead">Start with a geometric sans, slab serif, marker hand, art deco, pixel style, or something completely your own.</p>
+        <p class="fh-gen-lead">Prefer pen and paper? You can also <a href="/handwriting" style="color:inherit;text-decoration:underline;text-underline-offset:3px;">turn your handwriting into a font</a>.</p>
       </div>
-      <div class="fh-gen-presets" role="group" aria-label="Sheet type">
+      <h3 id="sheet-style-heading" class="fh-mono" style="font-size:13px;font-weight:600;margin:20px 0 0;">Choose a sheet style</h3>
+      <div class="fh-gen-presets" role="group" aria-labelledby="sheet-style-heading">
         <button type="button" class="fh-chip fh-preset" data-preset="standard" aria-pressed="true">standard</button>
         <button type="button" class="fh-chip fh-preset" data-preset="script" aria-pressed="false">script</button>
         <button type="button" class="fh-chip fh-preset" data-preset="monoline" aria-pressed="false">monoline</button>
@@ -104,11 +109,14 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
         <label for="gen-extra" class="fh-mono fh-gen-label" id="gen-extra-label">YOUR STYLE</label>
         <input id="gen-extra" class="fh-input fh-gen-input" type="text" autocomplete="off" placeholder="type a style: brush script, bubbly, monospace tech, hand-cut stencil..." />
       </div>
+      <h3 class="fh-mono" style="font-size:13px;font-weight:600;margin:20px 0 0;">Generate your alphabet</h3>
       <div class="fh-gen-out">
         <pre id="gen-prompt" class="fh-gen-prompt" aria-live="polite"></pre>
-        <button id="gen-copy" type="button" class="fh-btn fh-gen-copy">copy prompt</button>
+        <button id="gen-copy" type="button" class="fh-btn fh-gen-copy">Copy the prompt</button>
       </div>
     </section>
+
+    <h2 id="font-maker" tabindex="-1" class="fh-pad" style="font-size:20px;font-weight:600;margin:0;padding:24px 0 0;letter-spacing:-.01em;">Drop it into the font maker</h2>
 
     <!-- static shell shown until the React maker hydrates, and for no-JS. The
          island hides #maker-skeleton on mount, so the maker is never a blank
@@ -462,7 +470,7 @@ Other requirements:
       try {
         await navigator.clipboard.writeText(promptEl?.textContent || '');
         copyBtn.textContent = 'copied';
-        setTimeout(() => (copyBtn.textContent = 'copy prompt'), 1500);
+        setTimeout(() => (copyBtn.textContent = 'Copy the prompt'), 1500);
       } catch {
         /* clipboard blocked; the prompt text stays selectable as a fallback */
       }

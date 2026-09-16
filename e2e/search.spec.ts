@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
 test('search by font name narrows the wall', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('searchbox', { name: /search fonts/i }).fill('fraunces');
-  await page.getByRole('button', { name: 'search', exact: true }).click();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
 
   await page.waitForURL('**/*q=fraunces*');
   // the match is shown, a non-match is gone
@@ -19,7 +19,7 @@ test('search by font name narrows the wall', async ({ page }) => {
 test('search by maker handle returns that maker\'s fonts', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('searchbox', { name: /search fonts/i }).fill('meridian');
-  await page.getByRole('button', { name: 'search', exact: true }).click();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
 
   await page.waitForURL('**/*q=meridian*');
   // every visible maker credit on the page is the searched maker
