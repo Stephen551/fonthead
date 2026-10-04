@@ -1,0 +1,736 @@
+---
+import Base from '../layouts/Base.astro';
+
+export const prerender = false;
+
+// The image-to-font landing page: the AI-sheet path into the maker, the
+// counterpart to /handwriting. Steps and FAQs render both as visible text and
+// inside the HowTo / FAQPage JSON-LD, from the same source (html carries the
+// visible links, text is the plain schema copy). The drawings are inline
+// CSS + SVG, drawn from the maker's real UI: the sheet presets and style chips,
+// the STANDARD prompt's opening lines, and the mono build stages.
+const steps = [
+  {
+    fig: 'style',
+    name: 'Pick a style',
+    text: 'Choose a sheet style (standard, script, monoline, flat color or gradient color) and a starting look: geometric sans, slab serif, marker hand, art deco, pixel, or a look of your own.',
+  },
+  {
+    fig: 'prompt',
+    name: 'Make the prompt yours',
+    text: 'Fonthead writes the prompt for you. Use it as is, edit it, or add your own style description before you generate.',
+  },
+  {
+    fig: 'generate',
+    name: 'Generate the image',
+    text: 'Paste the prompt into Gemini or ChatGPT and let it draw your alphabet sheet.',
+  },
+  {
+    fig: 'drop',
+    name: 'Drop it into the maker',
+    text: 'Drop the finished image into the font maker. Fonthead traces each character in your browser and builds OTF, TTF and WOFF2 files, and it can build color (COLR) fonts too.',
+    html: 'Drop the finished image into the <a href="/make" data-astro-reload>font maker</a>. Fonthead traces each character in your browser and builds OTF, TTF and WOFF2 files, and it can build color (COLR) fonts too.',
+  },
+] as const;
+
+const faqs: { q: string; a: string; html?: string }[] = [
+  {
+    q: 'What kind of image works?',
+    a: "An alphabet sheet made from the Fonthead prompt in Gemini or ChatGPT. A photo of a single word, logo or sign doesn't give the maker a full set of characters to build from.",
+  },
+  {
+    q: 'Which image generators can I use?',
+    a: 'Gemini or ChatGPT.',
+  },
+  {
+    q: 'Can I change the style?',
+    a: 'Yes. Edit the prompt or add your own style description, then generate a new sheet.',
+  },
+  {
+    q: 'Can Fonthead identify a font from a photo?',
+    a: "No. Fonthead makes new fonts from alphabet sheets. It doesn't identify existing fonts.",
+  },
+  {
+    q: 'Who chooses the license?',
+    a: 'You do. When you publish a font to the library, you choose the license other people receive. Read more about font licensing.',
+    html: 'You do. When you publish a font to the library, you choose the license other people receive. Read more about <a href="/licenses">font licensing</a>.',
+  },
+];
+
+const title = 'Image to Font — Make a Font From an Alphabet Image · fonthead.dev';
+const description =
+  'Generate an alphabet image in Gemini or ChatGPT from our editable prompt, drop it into Fonthead, and get OTF, TTF, WOFF2 or color font files.';
+
+const howToSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'HowTo',
+  name: 'Turn an image into a font',
+  description,
+  step: steps.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, name: s.name, text: s.text })),
+};
+const faqSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: faqs.map((f) => ({
+    '@type': 'Question',
+    name: f.q,
+    acceptedAnswer: { '@type': 'Answer', text: f.a },
+  })),
+};
+
+// ---- drawing data ----
+
+// The STANDARD prompt's seven rows, as the generated sheet lays them out.
+const sheetRows = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789', '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'].map((r) => [...r]);
+
+// The maker's sheet presets and standard-style chips, in the maker's order.
+const sheetStyles = ['standard', 'script', 'monoline', 'flat color', 'gradient color'];
+
+// A 7×7 bitmap "A" for the pixel look.
+const pixelA = ['..XXX..', '.XX.XX.', 'XX...XX', 'XX...XX', 'XXXXXXX', 'XX...XX', 'XX...XX'].flatMap((row, y) =>
+  [...row].flatMap((c, x) => (c === 'X' ? [{ x: 15 + x * 10, y: 15 + y * 10 }] : [])),
+);
+
+// The mono build stages, verbatim from the maker's readout.
+const stages = [
+  ['binarize', 'threshold · otsu adaptive'],
+  ['slice', 'rows · cells · baseline'],
+  ['trace', 'contours · vectorize'],
+  ['build', 'opentype · pack otf ttf woff2'],
+];
+
+// The traced "a" in the hero: a geometric single-storey a, as a tracer emits
+// it. One outer contour (stem + bowl, the bowl meeting the stem at x=78), one
+// counter, on-curve nodes at the extrema and bezier handles on the bowl.
+const K = 17.7; // 0.5523 × r32, the cubic circle handle length
+const outerNodes = [
+  [78, 36], [92, 36], [92, 100], [78, 100], [78, 89.2], [54, 100], [22, 68], [54, 36], [78, 46.8],
+  [54, 50], [72, 68], [54, 86], [36, 68],
+];
+const handles = [
+  [54 - K, 100, 54 + K, 100],
+  [22, 68 - K, 22, 68 + K],
+  [54 - K, 36, 54 + K, 36],
+];
+---
+
+<Base title={title} description={description} schema={[howToSchema, faqSchema]} active="make">
+  <div style="background:var(--paper);min-height:100vh;">
+    <header class="fh-pad itf-hero">
+      <div>
+        <p class="fh-eyebrow">fonthead.dev · image to font</p>
+        <h1 class="fh-mono" style="font-size:clamp(28px,5vw,42px);font-weight:700;letter-spacing:-.01em;margin:12px 0 10px;max-width:18ch;line-height:1.15;">
+          Turn an image into a font
+        </h1>
+        <p class="itf-lead">
+          Generate an alphabet image with AI, drop it into the <a href="/make" data-astro-reload>font maker</a>, and Fonthead traces it into a real, installable font right in your browser.
+        </p>
+        <p class="itf-lead">
+          It works from a full alphabet sheet, not a photo of a single word, logo or sign. The easiest way to get one is the prompt Fonthead gives you.
+        </p>
+        <a href="/make" data-astro-reload class="fh-btn">Open the font maker&nbsp;&nbsp;&rarr;</a>
+      </div>
+
+      <!-- the whole idea in one drawing: an alphabet image, one traced glyph, the font files -->
+      <figure class="itf-flow" role="img" aria-label="An alphabet image is traced into vector outlines and built into OTF, TTF and WOFF2 font files.">
+        <div class="itf-flow-cell">
+          <div class="itf-sheet itf-sheet--thumb">
+            {sheetRows.slice(0, 5).map((row) => (
+              <div class="itf-sheet-row">{row.map((c) => <span>{c}</span>)}</div>
+            ))}
+          </div>
+          <span class="itf-flow-label">alphabet.png</span>
+        </div>
+        <span class="itf-arrow"><span>trace</span></span>
+        <div class="itf-flow-cell">
+          <svg class="itf-glyph" viewBox="0 0 120 120" aria-hidden="true">
+            <path
+              class="itf-glyph-fill"
+              fill-rule="evenodd"
+              d="M78 36 H92 V100 H78 V89.2 A32 32 0 1 1 78 46.8 Z M54 50 A18 18 0 1 0 54 86 A18 18 0 1 0 54 50 Z"
+            />
+            {handles.map(([x1, y1, x2, y2]) => (
+              <g class="itf-handle">
+                <line x1={x1} y1={y1} x2={x2} y2={y2} />
+                <circle cx={x1} cy={y1} r="2.2" />
+                <circle cx={x2} cy={y2} r="2.2" />
+              </g>
+            ))}
+            {outerNodes.map(([x, y]) => <rect class="itf-node" x={x - 2.6} y={y - 2.6} width="5.2" height="5.2" />)}
+          </svg>
+          <span class="itf-flow-label">traced outline</span>
+        </div>
+        <span class="itf-arrow"><span>build</span></span>
+        <div class="itf-flow-cell">
+          <div class="itf-files itf-files--stack">
+            <span class="itf-file">.otf</span>
+            <span class="itf-file">.ttf</span>
+            <span class="itf-file">.woff2</span>
+          </div>
+          <span class="itf-flow-label">installable font</span>
+        </div>
+      </figure>
+    </header>
+
+    <div class="fh-pad itf-steps">
+      {steps.map((s, i) => (
+        <section class="itf-step">
+          <div class="fh-mono itf-step-num">0{i + 1}</div>
+          <div class="itf-step-copy">
+            <h2>{s.name}</h2>
+            {'html' in s ? <p set:html={s.html} /> : <p>{s.text}</p>}
+          </div>
+
+          {s.fig === 'style' && (
+            <figure class="itf-fig" role="img" aria-label="The maker's sheet styles, with standard selected, and six starting looks for the letter A.">
+              <figcaption class="itf-cap">choose a sheet style</figcaption>
+              <div class="itf-chips">
+                {sheetStyles.map((label, j) => (
+                  <span class:list={['itf-chip', { 'is-on': j === 0 }]}>{label}</span>
+                ))}
+              </div>
+              <div class="itf-looks">
+                <div class="itf-look">
+                  <svg viewBox="0 0 100 100" aria-hidden="true">
+                    <path d="M20 88 L50 14 L80 88 M31 63 H69" fill="none" stroke="currentColor" stroke-width="11" stroke-linejoin="miter" />
+                  </svg>
+                  <span>geometric sans</span>
+                </div>
+                <div class="itf-look">
+                  <svg viewBox="0 0 100 100" aria-hidden="true">
+                    <path d="M24 84 L50 16 L76 84 M34 61 H66" fill="none" stroke="currentColor" stroke-width="12" stroke-linejoin="bevel" />
+                    <path d="M10 86 H40 M60 86 H90" fill="none" stroke="currentColor" stroke-width="7" />
+                  </svg>
+                  <span>slab serif</span>
+                </div>
+                <div class="itf-look">
+                  <svg viewBox="0 0 100 100" aria-hidden="true">
+                    <path d="M22 85 Q33 52 48 16 Q64 50 79 86 M33 61 Q51 56 70 63" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                  <span>marker hand</span>
+                </div>
+                <div class="itf-look">
+                  <svg viewBox="0 0 100 100" aria-hidden="true">
+                    <path d="M37 90 L50 10" fill="none" stroke="currentColor" stroke-width="3" />
+                    <path d="M50 10 L64 90" fill="none" stroke="currentColor" stroke-width="12" />
+                    <path d="M41 70 H61 M40 75 H62" fill="none" stroke="currentColor" stroke-width="2" />
+                    <path d="M31 90 H44 M57 90 H70" fill="none" stroke="currentColor" stroke-width="3" />
+                  </svg>
+                  <span>art deco</span>
+                </div>
+                <div class="itf-look">
+                  <svg viewBox="0 0 100 100" shape-rendering="crispEdges" aria-hidden="true">
+                    {pixelA.map((p) => <rect x={p.x} y={p.y} width="10" height="10" fill="currentColor" />)}
+                  </svg>
+                  <span>pixel</span>
+                </div>
+                <div class="itf-look itf-look--own">
+                  <span class="itf-own-mark">+</span>
+                  <span>your own</span>
+                </div>
+              </div>
+            </figure>
+          )}
+
+          {s.fig === 'prompt' && (
+            <figure class="itf-fig" role="img" aria-label="The prompt Fonthead writes, with your style description filled into it.">
+              <figcaption class="itf-cap">the prompt, written for you</figcaption>
+              <div class="itf-field">
+                <span class="itf-field-label">YOUR STYLE</span>
+                <span class="itf-input">bold geometric sans-serif<span class="itf-caret" /></span>
+              </div>
+<pre class="itf-prompt">Hand-drawn alphabet sheet, 7 rows on white paper:
+Row 1: capitals A B C D E F G H I J K L M
+Row 2: capitals N O P Q R S T U V W X Y Z
+<span class="itf-dim">…</span>
+Requirements:
+- Pure BLACK ink on white background
+- Consistent letterform style throughout <mark>(bold geometric sans-serif)</mark>
+- Wide horizontal spacing between letters
+<span class="itf-dim">…</span></pre>
+              <span class="itf-fakebtn">Copy the prompt</span>
+            </figure>
+          )}
+
+          {s.fig === 'generate' && (
+            <figure class="itf-fig" role="img" aria-label="The prompt pasted into an image generator, which returns a seven-row alphabet sheet.">
+              <figcaption class="itf-cap">gemini or chatgpt</figcaption>
+              <div class="itf-chat">
+                <p class="itf-bubble">Hand-drawn alphabet sheet, 7 rows on white paper: Row 1: capitals A B C D E F G H I J K L M …</p>
+                <div class="itf-sheet">
+                  {sheetRows.map((row) => (
+                    <div class="itf-sheet-row">{row.map((c) => <span>{c}</span>)}</div>
+                  ))}
+                </div>
+              </div>
+            </figure>
+          )}
+
+          {s.fig === 'drop' && (
+            <figure class="itf-fig" role="img" aria-label="The alphabet sheet dropped into the maker, which binarizes, slices, traces and builds it into OTF, TTF, WOFF2 and color font files.">
+              <figcaption class="itf-cap">drop · build · download</figcaption>
+              <div class="itf-drop">
+                <div class="itf-sheet itf-sheet--drop">
+                  {sheetRows.slice(0, 5).map((row) => (
+                    <div class="itf-sheet-row">{row.map((c) => <span>{c}</span>)}</div>
+                  ))}
+                </div>
+                <span class="itf-drop-label">drop an alphabet sheet</span>
+              </div>
+              <div class="itf-term">
+                <span class="itf-term-head">build · fonthead maker</span>
+                {stages.map(([name, desc]) => (
+                  <div class="itf-term-row">
+                    <span class="itf-term-name">{name}</span>
+                    <span class="itf-term-desc">{desc}</span>
+                    <span class="itf-term-tick">✓</span>
+                  </div>
+                ))}
+              </div>
+              <div class="itf-files">
+                <span class="itf-file">otf</span>
+                <span class="itf-file">ttf</span>
+                <span class="itf-file">woff2</span>
+                <span class="itf-file itf-file--color"><b>Aa</b> color (COLR)</span>
+              </div>
+            </figure>
+          )}
+        </section>
+      ))}
+    </div>
+
+    <section class="fh-pad itf-hand">
+      <div>
+        <h2>Have a photo of your handwriting?</h2>
+        <p>
+          That has its own workflow. Print the grid, write your alphabet, photograph it, and <a href="/handwriting">turn your handwriting into a font</a>.
+        </p>
+      </div>
+      <!-- the handwriting grid: gray guides, a pen in each box -->
+      <div class="itf-grid" aria-hidden="true">
+        {[
+          // a pen, not a compass: open joins, exit flicks, and a little lean per box
+          { d: 'M63 57 Q56 49 46 51 Q32 55 33 69 Q35 82 47 81 Q58 79 63 66 M63 52 Q62 70 64 78 Q66 83 72 80', r: -5 },
+          { d: 'M38 22 Q36 52 37 81 M37 64 Q44 51 55 53 Q67 57 65 70 Q62 82 49 82 Q41 81 37 77', r: 3 },
+          { d: 'M65 56 Q58 49 48 51 Q35 55 35 68 Q36 81 49 82 Q58 82 66 76', r: -3 },
+          { d: 'M63 57 Q56 49 46 51 Q32 55 33 69 Q35 82 47 81 Q58 79 63 66 M62 22 Q63 52 64 78 Q66 83 72 80', r: 4 },
+        ].map((g) => (
+          <div class="itf-grid-box">
+            <svg viewBox="0 0 100 100">
+              <path d="M0 50 H100 M0 82 H100" class="itf-guide" />
+              <path d={g.d} class="itf-pen" transform={`rotate(${g.r} 50 66)`} />
+            </svg>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <div class="fh-pad" style="max-width:760px;padding:18px 0 28px;">
+      <h2 class="fh-eyebrow" style="margin-bottom:6px;">Questions</h2>
+      {faqs.map((f) => (
+        <section style="padding:22px 0;border-bottom:1px solid var(--line);">
+          <h3 style="font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0 0 7px;">{f.q}</h3>
+          {f.html ? <p class="itf-answer" set:html={f.html} /> : <p class="itf-answer">{f.a}</p>}
+        </section>
+      ))}
+      <div style="padding:30px 0 16px;">
+        <a href="/make" data-astro-reload class="fh-btn">Make your font&nbsp;&nbsp;&rarr;</a>
+      </div>
+    </div>
+
+    <footer class="fh-pad" style="padding:26px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <div class="fh-mono" style="font-size:11px;color:var(--ink-faint);display:flex;gap:14px;flex-wrap:wrap;">
+        <a href="/" style="color:inherit;text-decoration:none;">&larr; the library</a>
+        <a href="/handwriting" style="color:inherit;">handwriting</a>
+        <a href="/faq" style="color:inherit;">faq</a>
+        <a href="/licenses" style="color:inherit;">licenses</a>
+        <a href="/support" style="color:inherit;">support</a>
+      </div>
+    </footer>
+  </div>
+</Base>
+
+<style>
+  /* inline prose links: the site's quiet underline */
+  .itf-lead a,
+  .itf-step-copy a,
+  .itf-hand a,
+  .itf-answer :global(a),
+  .itf-step-copy :global(a) {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  /* ---- hero: copy left, the one-drawing summary right ---- */
+  .itf-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+    gap: 32px 48px;
+    align-items: center;
+    padding: 56px 0 40px;
+    border-bottom: 1px solid var(--line);
+  }
+  .itf-lead {
+    font-size: 15.5px;
+    color: var(--ink-soft);
+    line-height: 1.55;
+    margin: 0 0 18px;
+    max-width: 54ch;
+  }
+  .itf-lead:last-of-type { margin-bottom: 24px; }
+
+  .itf-flow {
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 22px 18px 18px;
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+  .itf-flow-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .itf-flow-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-faint);
+    letter-spacing: .02em;
+    white-space: nowrap;
+  }
+  .itf-arrow {
+    position: relative;
+    width: 34px;
+    height: 1px;
+    background: var(--line-3);
+    margin-bottom: 22px;
+  }
+  .itf-arrow::after {
+    content: '';
+    position: absolute;
+    right: -1px;
+    top: -3px;
+    border: 3.5px solid transparent;
+    border-left: 5px solid var(--line-3);
+    border-right: 0;
+  }
+  .itf-arrow span {
+    position: absolute;
+    left: 50%;
+    bottom: 6px;
+    transform: translateX(-50%);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--ink-faint);
+  }
+  .itf-glyph {
+    width: 100%;
+    max-width: 118px;
+    aspect-ratio: 1;
+    display: block;
+  }
+  .itf-glyph-fill {
+    fill: var(--paper-3);
+    stroke: var(--ink);
+    stroke-width: 1.4;
+  }
+  .itf-handle line { stroke: var(--line-3); stroke-width: 1; }
+  .itf-handle circle { fill: var(--paper); stroke: var(--ink-faint); stroke-width: 1; }
+  .itf-node { fill: var(--paper); stroke: var(--ink); stroke-width: 1.2; }
+
+  /* ---- the alphabet sheet: paper keeps its light identity in both themes,
+     like the maker's sheet canvases ---- */
+  .itf-sheet {
+    background: #fff;
+    color: #15140f;
+    border: 1px solid #ddd9cf;
+    border-radius: 2px;
+    box-shadow: 0 1px 0 rgba(21, 20, 15, .04), 0 6px 18px rgba(21, 20, 15, .07);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .itf-sheet-row {
+    display: flex;
+    justify-content: space-between;
+  }
+  .itf-sheet-row span { flex: none; text-align: center; min-width: .55em; }
+  .itf-sheet--thumb {
+    width: 100%;
+    max-width: 118px;
+    aspect-ratio: 1;
+    justify-content: center;
+    padding: 8px 9px;
+    gap: 5px;
+    font-size: 6.5px;
+  }
+  .itf-sheet--drop {
+    width: 46%;
+    max-width: 150px;
+    padding: 9px 10px;
+    gap: 5px;
+    font-size: 7px;
+    transform: rotate(-3deg);
+  }
+
+  /* ---- steps: number · copy · drawing ---- */
+  .itf-steps { max-width: 1080px; padding: 8px 0 10px; }
+  .itf-step {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) minmax(0, 420px);
+    gap: 18px 32px;
+    align-items: start;
+    padding: 34px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .itf-step-num { font-size: 13px; color: var(--ink-faint); padding-top: 2px; }
+  .itf-step-copy h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 8px; }
+  .itf-step-copy p { font-size: 14px; color: var(--ink-soft); line-height: 1.6; margin: 0; max-width: 52ch; }
+
+  .itf-fig {
+    margin: 0;
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 16px 18px 18px;
+    min-width: 0;
+  }
+  .itf-cap {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 14px;
+  }
+
+  /* 01 · sheet style chips + starting looks */
+  .itf-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .itf-chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+    background: var(--paper);
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    padding: 4px 10px;
+  }
+  .itf-chip.is-on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .itf-looks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .itf-look {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 6px 9px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    color: var(--ink);
+  }
+  .itf-look svg { width: 46px; height: 46px; display: block; }
+  .itf-look span {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .itf-look--own { border-style: dashed; border-color: var(--line-3); background: transparent; justify-content: center; }
+  .itf-look .itf-own-mark {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 400;
+    color: var(--ink-soft);
+  }
+
+  /* 02 · the prompt */
+  .itf-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .itf-field-label { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; color: var(--ink-faint); }
+  .itf-input {
+    font-family: var(--sans);
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    border-radius: 2px;
+    padding: 7px 10px;
+    display: flex;
+    align-items: center;
+  }
+  /* the type-into cursor: one of the signal color's sanctioned places */
+  .itf-caret {
+    display: inline-block;
+    width: 1.5px;
+    height: 15px;
+    margin-left: 2px;
+    background: var(--signal);
+    animation: itf-blink 1.1s steps(1) infinite;
+  }
+  @keyframes itf-blink { 50% { opacity: 0; } }
+  .itf-prompt {
+    margin: 0 0 12px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    background: var(--paper);
+    border: 1px solid var(--line-2);
+    border-radius: 3px;
+    padding: 10px 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .itf-prompt mark {
+    background: var(--paper-3);
+    color: var(--ink);
+    border-bottom: 1px dashed var(--ink-faint);
+    padding: 0 1px;
+  }
+  .itf-dim { color: var(--line-3); }
+  .itf-fakebtn {
+    display: inline-flex;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .04em;
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 2px;
+    padding: 6px 11px;
+  }
+
+  /* 03 · generate */
+  .itf-chat { display: flex; flex-direction: column; gap: 12px; }
+  .itf-bubble {
+    align-self: flex-end;
+    max-width: 82%;
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    background: var(--paper);
+    border: 1px solid var(--line-2);
+    border-radius: 10px 10px 2px 10px;
+    padding: 8px 11px;
+  }
+  .itf-chat .itf-sheet { align-self: flex-start; width: 92%; font-size: 11px; gap: 9px; padding: 14px 16px; }
+
+  /* 04 · drop, build, download */
+  .itf-drop {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border: 1px dashed var(--line-3);
+    border-radius: 3px;
+    background: var(--paper-3);
+    padding: 14px 16px;
+  }
+  .itf-drop-label { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+  .itf-term {
+    margin-top: 10px;
+    background: var(--term);
+    border-radius: 3px;
+    padding: 11px 13px 9px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+  }
+  .itf-term-head {
+    display: block;
+    font-size: 9.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, .62);
+    margin-bottom: 8px;
+  }
+  .itf-term-row { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; gap: 8px; padding: 2px 0; }
+  .itf-term-name { color: #fff; }
+  .itf-term-desc { color: rgba(255, 255, 255, .55); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .itf-term-tick { color: rgba(255, 255, 255, .7); }
+
+  .itf-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .itf-files--stack { flex-direction: column; margin: 0; width: 100%; max-width: 96px; }
+  .itf-file {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line-2);
+    border-radius: 2px;
+    padding: 5px 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .itf-files--stack .itf-file { justify-content: center; }
+  /* a colour font is the one place a drawing earns colour: the fonts are the color */
+  .itf-file--color b {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 13px;
+    background: linear-gradient(120deg, #ff5a36, #6b5bd2);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* ---- the handwriting detour ---- */
+  .itf-hand {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 20px 40px;
+    align-items: center;
+    max-width: 1080px;
+    padding: 34px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .itf-hand h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 8px; }
+  .itf-hand p { font-size: 14px; color: var(--ink-soft); line-height: 1.6; margin: 0; max-width: 56ch; }
+  .itf-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 54px);
+    background: #fff;
+    border: 1px solid #ddd9cf;
+    border-radius: 2px;
+  }
+  .itf-grid-box { aspect-ratio: 1; border-left: 1px solid #e3dfd5; }
+  .itf-grid-box:first-child { border-left: 0; }
+  .itf-grid-box svg { width: 100%; height: 100%; display: block; }
+  .itf-guide { stroke: #c9c4b8; stroke-width: 1.5; stroke-dasharray: 3 3; fill: none; }
+  .itf-pen { stroke: #15140f; stroke-width: 5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+  .itf-answer { font-size: 14px; color: var(--ink-soft); line-height: 1.6; margin: 0; max-width: 62ch; }
+
+  /* ---- narrower screens: drawings drop under their copy ---- */
+  @media (max-width: 900px) {
+    .itf-hero { grid-template-columns: minmax(0, 1fr); }
+    .itf-flow { max-width: 460px; }
+    .itf-step { grid-template-columns: 34px minmax(0, 1fr); }
+    .itf-fig { grid-column: 2; max-width: 460px; }
+  }
+  @media (max-width: 560px) {
+    .itf-hero { padding-top: 40px; }
+    .itf-fig { grid-column: 1 / -1; }
+    .itf-flow { padding: 18px 12px 14px; gap: 4px; }
+    .itf-arrow { width: 18px; }
+    .itf-arrow span { display: none; }
+    .itf-hand { grid-template-columns: minmax(0, 1fr); }
+    .itf-grid { grid-template-columns: repeat(4, 48px); }
+    .itf-term-row { grid-template-columns: 56px minmax(0, 1fr) auto; }
+  }
+</style>
