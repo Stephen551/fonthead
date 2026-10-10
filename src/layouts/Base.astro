@@ -89,6 +89,23 @@ try {
 // made or downloaded.
 const COFFEE_URL = 'https://buymeacoffee.com/fonthead';
 const coffeeOn = COFFEE_URL.startsWith('https://');
+
+// Google Analytics 4 via the standard Google tag (gtag.js). The measurement ID is
+// public configuration (it ships in every page's HTML), not a secret. The tag
+// renders only off localhost, the same production test middleware.ts applies to
+// the HTTPS upgrade, so astro dev, the e2e dev server, and wrangler dev --local
+// never report page views. middleware.ts allows the Google hosts in the CSP; the
+// decision and the exact allowlist are recorded in ADR 0058.
+const GA_MEASUREMENT_ID = 'G-JR40KDFN2W';
+const gaOn = Astro.url.hostname !== 'localhost' && Astro.url.hostname !== '127.0.0.1';
+// Google's published snippet, verbatim, with the ID filled in once. Built here
+// (not inline in the template) so the measurement ID has a single source.
+const gaSnippet = [
+  'window.dataLayer = window.dataLayer || [];',
+  'function gtag(){dataLayer.push(arguments);}',
+  "gtag('js', new Date());",
+  `gtag('config', '${GA_MEASUREMENT_ID}');`,
+].join('\n');
 ---
 
 <!doctype html>
@@ -126,6 +143,16 @@ const coffeeOn = COFFEE_URL.startsWith('https://');
         });
       })();
     </script>
+    {/* Google tag (gtag.js), once per document. Every page renders through this
+        layout with the identical pair of scripts, and ClientRouter keeps matching
+        <head> scripts in place across client-side navigations rather than
+        re-running them, so config fires exactly once per full page load. */}
+    {gaOn && (
+      <Fragment>
+        <script is:inline async src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}></script>
+        <script is:inline set:html={gaSnippet} />
+      </Fragment>
+    )}
     <meta name="description" content={description} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="canonical" href={canonical} />

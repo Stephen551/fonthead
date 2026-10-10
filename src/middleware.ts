@@ -27,14 +27,20 @@ const CSP = [
   "default-src 'self'",
   // static.cloudflareinsights.com serves the Cloudflare Web Analytics beacon
   // (auto-injected on the zone); it reports back to cloudflareinsights.com below.
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
+  // www.googletagmanager.com serves gtag.js for Google Analytics 4 (Base.astro).
+  // The Google hosts here, in img-src and in connect-src are exactly Google's
+  // documented CSP set for Analytics without Ads features (ADR 0058): no
+  // advertising, remarketing, or Google Signals hosts are allowed.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com https://www.googletagmanager.com",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  "img-src 'self' data: blob: https://www.googletagmanager.com https://*.google-analytics.com",
   "font-src 'self' data: blob:",
   "worker-src 'self' blob:",
   // the wawoff2 module fetches its WASM binary from an inline data: URL; the
-  // Cloudflare Web Analytics beacon posts to cloudflareinsights.com
-  "connect-src 'self' data: https://cloudflareinsights.com",
+  // Cloudflare Web Analytics beacon posts to cloudflareinsights.com; gtag.js
+  // posts GA4 hits to *.google-analytics.com and *.analytics.google.com (the
+  // latter is covered by *.google.com, the host Google documents)
+  "connect-src 'self' data: https://cloudflareinsights.com https://www.googletagmanager.com https://*.google-analytics.com https://*.google.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
