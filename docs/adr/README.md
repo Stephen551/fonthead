@@ -28,7 +28,7 @@ left out — they live in CLAUDE.md, not here.
 | [0013](0013-r2-then-d1-rollback-publish.md) | Publish writes R2-first then D1 with rollback; deletes are explicit ordered, not FK cascade | Accepted |
 | [0014](0014-denormalized-counters-in-atomic-batch.md) | Denormalized counters read and updated inside the atomic D1 batch | Accepted |
 | [0015](0015-kv-rate-limiter-and-signature-upload-gate.md) | KV fixed-window rate limiting plus binary-signature upload validation on mutations | Accepted |
-| [0016](0016-csp-relaxations-output-escaping-xss.md) | Defence-in-depth XSS via output escaping; deliberate CSP relaxations documented and not tightened | Accepted |
+| [0016](0016-csp-relaxations-output-escaping-xss.md) | Defence-in-depth XSS via output escaping; deliberate CSP relaxations documented and not tightened | Accepted (Google Analytics hosts added by 0058) |
 | [0017](0017-transactional-email-via-resend-https.md) | Outbound email via the Resend HTTPS API (Workers cannot do SMTP); inbound via Email Routing | Accepted |
 | [0018](0018-custom-d1-moderation-soft-ban.md) | Custom D1 moderation (no CMS); soft read-only bans enforced at requireUser; code-managed banlist | Accepted |
 | [0019](0019-admin-authz-via-env-allowlist.md) | Admin authz via an ADMIN_EMAILS env allowlist | Accepted |
@@ -65,6 +65,7 @@ left out — they live in CLAUDE.md, not here.
 | [0050](0050-connector-reconstruction-executed-gates.md) | The reconstruction's executed gates: connector-weight attach, entry-side backtrack alternates, the dive gate | Accepted (milestone closed + deployed 2026-07-03) |
 | [0051](0051-assembled-pair-seam-sensor-corpus-rollout.md) | The assembled-pair seam sensor: the corpus builds connect faces on the hook and reads every fired seam | Accepted (milestone closed + deployed 2026-07-03) |
 | [0052](0052-assembled-seam-feedback-pass-losers-park-themselves.md) | The assembled seam feedback pass: a probe build senses every fired exit seam and a losing alternate parks itself | Accepted (director accepted; milestone closed + deployed 2026-07-03, hook opt-in) |
+| [0058](0058-google-analytics-4-gtag-csp-allowlist.md) | Google Analytics 4 via the standard Google tag in the Base layout, gated off localhost; the CSP allows Google's documented Analytics-only hosts (amends 0016) | Accepted |
 
 ## Format
 
