@@ -640,14 +640,14 @@ export function detectGeometry(
   let bands =
     forceRows >= 2
       ? evenBands(bin.data, bin.w, bin.h, forceRows)
-      : (TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
+      : mergeSliverBands(TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
   // Shadow-robust row pass for the mono probe (mirrors traceSheet): a soft
   // generator shadow bridges row gaps at the standard cutoff and the charset
   // guess then maps a 7-row sheet onto 4 lines. The dark-core read wins
   // whenever it separates more rows.
   if (!isColor && forceRows < 2) {
     const strict = TC.binarizeFull(img, iw, ih, SHADOW_ROW_THRESHOLD, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
-    const strictBands = TC.detectRowsInBinary(strict.data, strict.w, strict.h) as number[][];
+    const strictBands = mergeSliverBands(TC.detectRowsInBinary(strict.data, strict.w, strict.h) as number[][]);
     if (strictBands.length > bands.length) bands = strictBands;
     bands = splitBandsAtValleys(inkRowProfile(strict.data, strict.w, strict.h), bands);
   }
@@ -831,6 +831,44 @@ export function splitBandsAtValleys(inkRows: number[], bands: number[][]): numbe
   return out;
 }
 
+// Sliver merge: a light pen (a ballpoint scan whose ink sits mostly at
+// luminance 60-130) loses whole scanlines at the dark-core cutoff, so one drawn
+// row reads as a stack of thin bands split by 1-3px seams (field scan
+// 2026-10-18: 6 rows read as 21 with a 7px median band, and the "more rows
+// wins" pick took the broken read). A real row is never a sliver and a real
+// row gap is never a seam, so a band far shorter than the sheet's rows that
+// nearly touches a neighbour belongs to that neighbour.
+const SLIVER_FRAC = 0.25; // ·typical row height — a band shorter than this is a fragment
+const SLIVER_GAP_FRAC = 0.05; // ·typical row height — a seam this thin sits inside a row
+
+/** Pure: fold sliver bands into the neighbour they nearly touch. Bands are
+ *  detectRowsInBinary's [y0, y1) runs; an isolated sliver is left alone. */
+export function mergeSliverBands(bands: number[][]): number[][] {
+  const out = bands.map((b) => b.slice());
+  if (out.length < 2) return out;
+  const hs = out.map(([a, b]) => b - a);
+  const maxH = Math.max(...hs);
+  const tall = hs.filter((h) => h >= maxH * 0.35).sort((a, b) => a - b);
+  const typical = tall[tall.length >> 1];
+  const sliverH = typical * SLIVER_FRAC;
+  const maxGap = Math.max(2, typical * SLIVER_GAP_FRAC);
+  const gapAbove = (i: number) => (i > 0 ? out[i][0] - out[i - 1][1] : Infinity);
+  const gapBelow = (i: number) => (i < out.length - 1 ? out[i + 1][0] - out[i][1] : Infinity);
+  for (;;) {
+    // the shortest mergeable sliver goes first, so fragments chain into their row
+    let pick = -1;
+    for (let i = 0; i < out.length; i++) {
+      const h = out[i][1] - out[i][0];
+      if (h >= sliverH || Math.min(gapAbove(i), gapBelow(i)) > maxGap) continue;
+      if (pick < 0 || h < out[pick][1] - out[pick][0]) pick = i;
+    }
+    if (pick < 0) return out;
+    const into = gapAbove(pick) <= gapBelow(pick) ? pick - 1 : pick + 1;
+    const lo = Math.min(pick, into);
+    out.splice(lo, 2, [out[lo][0], out[lo + 1][1]]);
+  }
+}
+
 /** Per-scanline ink counts from a binarized RGBA raster (0 = ink). */
 function inkRowProfile(data: Uint8ClampedArray | Uint8Array, w: number, h: number): number[] {
   const rows = new Array<number>(h).fill(0);
@@ -896,7 +934,7 @@ export async function traceSheet(
   onProgress?.('binarize', 'threshold · otsu adaptive');
   let bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, opts.weight);
   onProgress?.('slice', 'detecting rows + cells');
-  let bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+  let bands = mergeSliverBands(TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
   // Shadow-robust row detection (the mono twin of detectColorGeometry's
   // shadow-awareness): a generator's soft emboss shadow binarizes as ink at the
   // standard cutoff and bridges the row gaps (a Nano Banana sheet merged 7 rows
@@ -904,10 +942,11 @@ export async function traceSheet(
   // (strict cutoff) cannot be shadow-bridged, and shadow merging only ever
   // REDUCES the row count, so the pass that finds more rows is the true read.
   // Cells still slice on the standard binarize (the fringe hugs strokes and the
-  // inter-letter gaps stay white).
+  // inter-letter gaps stay white). Both reads fold their slivers first: a light
+  // pen fragments at the dark-core cutoff, and fragments are not rows.
   if (!opts.invert && opts.threshold > SHADOW_ROW_THRESHOLD) {
     const strict = TC.binarizeFull(img, iw, ih, SHADOW_ROW_THRESHOLD, opts.invert, opts.weight);
-    const strictBands = TC.detectRowsInBinary(strict.data, strict.w, strict.h) as number[][];
+    const strictBands = mergeSliverBands(TC.detectRowsInBinary(strict.data, strict.w, strict.h) as number[][]);
     if (strictBands.length > bands.length) bands = strictBands;
     // and split any still-fused bands at profile valleys (tight leading leaves
     // no empty scanline between rows; the dark-core profile keeps the valleys
@@ -928,7 +967,7 @@ export async function traceSheet(
   const wFloor = strokeWeightFloor(bin.data, bin.w, bin.h, bands, opts.weight);
   if (wFloor > opts.weight) {
     bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, wFloor);
-    bands = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
+    bands = mergeSliverBands(TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
   }
   const lines = rowChars.filter((r) => r.length > 0);
   const rowWarning =

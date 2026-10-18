@@ -66,6 +66,7 @@ left out — they live in CLAUDE.md, not here.
 | [0051](0051-assembled-pair-seam-sensor-corpus-rollout.md) | The assembled-pair seam sensor: the corpus builds connect faces on the hook and reads every fired seam | Accepted (milestone closed + deployed 2026-07-03) |
 | [0052](0052-assembled-seam-feedback-pass-losers-park-themselves.md) | The assembled seam feedback pass: a probe build senses every fired exit seam and a losing alternate parks itself | Accepted (director accepted; milestone closed + deployed 2026-07-03, hook opt-in) |
 | [0058](0058-google-analytics-4-gtag-csp-allowlist.md) | Google Analytics 4 via the standard Google tag in the Base layout, gated off localhost; the CSP allows Google's documented Analytics-only hosts (amends 0016) | Accepted |
+| [0059](0059-light-ink-rows-fold-slivers.md) | Sliver row bands fold into the row they nearly touch before the two row reads are compared, so a light pen no longer fragments into phantom rows | Accepted |
 
 ## Format
 
