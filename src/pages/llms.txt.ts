@@ -15,6 +15,7 @@ export const GET: APIRoute = ({ url }) => {
 - [Maker](${o}/make): trace an alphabet sheet into an OTF, TTF, or WOFF2 font, monochrome or color
 - [Handwriting](${o}/handwriting): turn your handwriting into a font, print the grid, write, photograph, build
 - [Image to font](${o}/image-to-font): turn an AI-generated alphabet image into a font, pick a style, generate the sheet in Gemini or ChatGPT, build
+- [AI font generator](${o}/ai-font-generator): make a free font with AI, ChatGPT or Gemini draws the alphabet from Fonthead's prompt, Fonthead builds the OTF, TTF, or WOFF2 font
 - [Sign in](${o}/sign-in): an account holds your fonts, favorites, and what you publish
 - [Licenses](${o}/licenses): what OFL, CC0, and personal-use mean for a published font
 - [Terms](${o}/terms): acceptable use, what you agree to when you publish, moderation

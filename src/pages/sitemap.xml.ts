@@ -43,6 +43,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
     { loc: `${origin}/make`, lastmod: null },
     { loc: `${origin}/handwriting`, lastmod: null },
     { loc: `${origin}/image-to-font`, lastmod: null },
+    { loc: `${origin}/ai-font-generator`, lastmod: null },
     { loc: `${origin}/faq`, lastmod: null },
     { loc: `${origin}/licenses`, lastmod: null },
     { loc: `${origin}/terms`, lastmod: null },
