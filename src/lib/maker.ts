@@ -840,6 +840,11 @@ export function splitBandsAtValleys(inkRows: number[], bands: number[][]): numbe
 // nearly touches a neighbour belongs to that neighbour.
 const SLIVER_FRAC = 0.25; // ·typical row height — a band shorter than this is a fragment
 const SLIVER_GAP_FRAC = 0.05; // ·typical row height — a seam this thin sits inside a row
+// ·tallest band — bands this tall or taller set the typical row height. Low on
+// purpose: a tightly-leaded generator sheet reads rows 1-4 as ONE fused band
+// (nano-v3: 708px over real 128-140px rows), and a 0.35 cut let that band pose
+// as the typical row, so real rows read as slivers and merged (join gap 49->68).
+const SLIVER_TALL_FRAC = 0.1;
 
 /** Pure: fold sliver bands into the neighbour they nearly touch. Bands are
  *  detectRowsInBinary's [y0, y1) runs; an isolated sliver is left alone. */
@@ -848,7 +853,7 @@ export function mergeSliverBands(bands: number[][]): number[][] {
   if (out.length < 2) return out;
   const hs = out.map(([a, b]) => b - a);
   const maxH = Math.max(...hs);
-  const tall = hs.filter((h) => h >= maxH * 0.35).sort((a, b) => a - b);
+  const tall = hs.filter((h) => h >= maxH * SLIVER_TALL_FRAC).sort((a, b) => a - b);
   const typical = tall[tall.length >> 1];
   const sliverH = typical * SLIVER_FRAC;
   const maxGap = Math.max(2, typical * SLIVER_GAP_FRAC);

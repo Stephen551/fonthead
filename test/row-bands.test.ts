@@ -23,6 +23,15 @@ describe('mergeSliverBands (a light pen fragments into slivers; fragments are no
     expect(mergeSliverBands(STANDARD_READ)).toEqual(parse('4-199 235-470 532-732 843-983 1084-1250 1300-1495'));
   });
 
+  it('leaves a tightly-leaded generator sheet alone, fused band and all (nano-v3)', () => {
+    // Rows 1-4 read as one 708px band; the real rows below are 128-140px. The
+    // fused band must not set the typical height, or those rows read as slivers.
+    const std = parse('64-772 796-924 945-1085');
+    const strict = parse('65-226 227-771 796-924 946-1085');
+    expect(mergeSliverBands(std)).toEqual(std);
+    expect(mergeSliverBands(strict)).toEqual(strict);
+  });
+
   it('never merges two real rows, however tight the gap', () => {
     // tall rows 2px apart stay apart: only slivers fold
     const tight = [[0, 100], [102, 200], [202, 300]];
