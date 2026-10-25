@@ -75,6 +75,7 @@ left out — they live in CLAUDE.md, not here.
 | [0063](0063-variation-build-and-row-edit-lifecycle.md) | Keep natural variation in automatic builds and row edits | Accepted |
 | [0064](0064-row-editing-for-every-variation-sheet.md) | Show independent row controls for every variation sheet | Accepted |
 | [0065](0065-sliced-letter-previews-and-palette-progress.md) | Preview every sliced letter and report tracing across the full palette | Accepted |
+| [0066](0066-published-specimen-contextual-alternates.md) | Preserve natural variation in published font samples | Accepted |
 
 ## Format
 

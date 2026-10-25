@@ -272,7 +272,10 @@ body {
   outline: 2px solid var(--signal); outline-offset: 6px; border-radius: 2px; }
 
 /* ---- specimen treatments (the only real color) ---- */
-.spec { line-height: .92; display: inline-block; letter-spacing: -.01em; }
+/* Nonzero letter spacing can suppress automatic contextual alternates. Enable
+   calt explicitly for published fonts and keep the UI's ss01 out of specimens. */
+.spec { line-height: .92; display: inline-block; letter-spacing: -.01em;
+  font-feature-settings: "calt" 1; }
 .spec--gradient { -webkit-background-clip: text; background-clip: text;
   color: transparent; -webkit-text-fill-color: transparent; }
 .spec--flat { color: var(--specflat, #ff5a36); }
