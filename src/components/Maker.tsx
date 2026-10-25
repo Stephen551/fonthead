@@ -151,6 +151,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // join. Mono only, off until explicitly enabled; replaces flourish overhang,
   // spacing, and italic when on.
   const [connect, setConnect] = useState(false);
+  const [smoothJoins, setSmoothJoins] = useState(false);
   // seam joins (ADR 0048, PARKED): the warp-based alternates failed the judge
   // panel twice (eyelets/pigtails lowering through the entry; needle whiskers
   // and cracks truncating at the seam), so the feature has NO user surface and
@@ -400,6 +401,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             spacingPct: spacing,
             trimFlourishes: useConnect ? false : trimFlourishes,
             connect: useConnect,
+            smoothJoins: useConnect && smoothJoins,
             naturalVariation: useVariation,
             seamAlternates: typeof localStorage !== 'undefined' && localStorage.getItem('fh-test-seam-alts') === '1',
           },
@@ -598,7 +600,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setRowBusy(rowIndex);
     setRowErr('');
     try {
-      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, connect ? false : trimFlourishes, connect);
+      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, connect ? false : trimFlourishes, connect, undefined, undefined, connect && smoothJoins);
       setResult(r.result);
       setReport(r.report);
       setGlyphCount(r.glyphCount);
@@ -982,6 +984,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       joins the letters into a connected script. Off by default. Turns off flourish overhang, spacing, and italic while on.
                     </p>
+                    {connect && (
+                      <div style={{ marginTop: 11 }}>
+                        <ToggleRow label="smooth joins" on={smoothJoins} onChange={setSmoothJoins} disabled={naturalVariation || variationNames.some(Boolean)} />
+                        <p className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 7, lineHeight: 1.5 }}>
+                          smooths the connecting strokes in thin, even-pen scripts. Keeps the original word endings. Use one alphabet sheet with natural variation off.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
                 {!isColor && (
@@ -1002,7 +1012,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="natural variation" on={naturalVariation} onChange={setNaturalVariation} />
+                    <ToggleRow label="natural variation" on={naturalVariation} onChange={setNaturalVariation} disabled={connect && smoothJoins} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       cycles a repeated letter through a few versions of the same hand, so the type reads handwritten instead of typeset. Drop two more sheets of the same alphabet below. Works alongside connected cursive.
                     </p>

@@ -69,6 +69,8 @@ left out — they live in CLAUDE.md, not here.
 | [0059](0059-light-ink-rows-fold-slivers.md) | Sliver row bands fold into the row they nearly touch before the two row reads are compared, so a light pen no longer fragments into phantom rows | Accepted |
 | [0060](0060-in-maker-bug-report.md) | In-maker bug report: the maker's context rides along automatically, the sheet only by opt-in, stored for an admin queue before the best-effort email | Accepted |
 
+| [0061](0061-smooth-terminal-joins.md) | Opt-in smooth joins reconstruct measured terminal strokes with shared endpoints, tangents and widths | Accepted |
+
 ## Format
 
 Each ADR records Context (the problem), Decision (what was chosen), Alternatives

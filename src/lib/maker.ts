@@ -1017,6 +1017,7 @@ export async function editMonoRow(
   connect?: boolean,
   connectOverlapPct?: number,
   onProgress?: Progress,
+  smoothJoins?: boolean,
 ): Promise<{ result: FontResult; glyphCount: number; report: GlyphReport[]; rows: MonoRowInfo[] }> {
   const s = _monoSession;
   if (!s) throw new Error('no mono build session — build a font first');
@@ -1035,7 +1036,7 @@ export async function editMonoRow(
     if (!glyphs.length) throw new Error('no glyphs left after re-slicing this row');
     const result = await buildFont(
       glyphs,
-      { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes, connect, connectOverlapPct },
+      { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes, connect, connectOverlapPct, smoothJoins },
       onProgress,
     );
     return { result, glyphCount: glyphs.length, report: reportForGlyphs(glyphs), rows: s.rowInfo.slice() };
@@ -1102,6 +1103,9 @@ export interface BuildOpts {
    *  forces an upright Regular style (the worker slants on the style name, and a
    *  slant voids the joins). */
   connect?: boolean;
+  /** Reconstruct measured terminal strokes with shared endpoints and tangents.
+   *  Opt-in for thin scripts; requires connect and a single alphabet sheet. */
+  smoothJoins?: boolean;
   /** Seamless overlap as a fraction of x-height. 0 (default) is the consistent
    *  touch floor; a small positive value merges the strokes. */
   connectOverlapPct?: number;
@@ -3528,7 +3532,33 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   let connectBridged = false;
   let seamAltRights: string[] | undefined;
   let seamAltLefts: string[] | undefined;
-  if (opts.connect) {
+  const smoothJoins = !!opts.connect && !!opts.smoothJoins;
+  (globalThis as unknown as { __lastSmooth?: object | null }).__lastSmooth = null;
+  if (smoothJoins) {
+    if (opts.naturalVariation) throw new Error('smooth joins needs one alphabet sheet. Turn off natural variation.');
+    onProgress?.('connect', 'smooth joins · measuring and rebuilding connecting strokes');
+    const { smoothCursiveGlyphs } = await import('./cursive-terminals');
+    const fit = await smoothCursiveGlyphs(glyphs, {
+      xhPx: faceMetrics(glyphs).xhPx,
+      fallback: connectGlyphs(glyphs).glyphs,
+      translatePathX,
+      synthesizeConnector,
+    });
+    glyphsIn = fit.glyphs;
+    seamAltRights = fit.rights;
+    seamAltLefts = fit.lefts;
+    flags.useCellWidth = true;
+    flags.tightAdvance = false;
+    spaceAdvance = 0.35;
+    styleOut = 'Regular';
+    (globalThis as unknown as { __lastSmooth?: object }).__lastSmooth = {
+      joined: fit.rights.length, width: fit.width, joinFrac: fit.joinFrac,
+    };
+    (globalThis as unknown as { __lastConnect?: object }).__lastConnect = {
+      joined: fit.lefts.length, broke: glyphs.length - fit.lefts.length, entryNorm: false,
+    };
+    (globalThis as unknown as { __lastSeamAlts?: object | null }).__lastSeamAlts = null;
+  } else if (opts.connect) {
     // Connected cursive. COMPOSES with natural variation: connectGlyphs runs on
     // the MERGED palette (it preserves variantSuffix), so the .cv01/.cv02 variant
     // glyphs get the same per-glyph connection advances as their bases and join
@@ -3715,9 +3745,9 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // and breaks descender-loop collisions, refining the body-edge placement
     // rather than fighting it.
     features: {
-      kerning: true,
+      kerning: !smoothJoins,
       kernAllLetters: uprightSpacing,
-      connectKern: opts.connect ? (connectBridged ? { bridgedPlacement: true } : {}) : undefined,
+      connectKern: opts.connect && !smoothJoins ? (connectBridged ? { bridgedPlacement: true } : {}) : undefined,
       naturalVariation: opts.naturalVariation ? true : undefined,
       joinAltRights: seamAltRights,
       joinAltLefts: seamAltLefts,
