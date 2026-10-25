@@ -85,7 +85,7 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
     // download that measured a build older than the deployed engine. Content-hashed
     // static assets and the cdn/R2 routes carry their own caching and aren't
     // text/html, so they keep it; only the page documents get no-cache.
-    if ((res.headers.get('content-type') || '').includes('text/html')) {
+    if ((res.headers.get('content-type') || '').includes('text/html') && !res.headers.get('cache-control')?.includes('no-store')) {
       res.headers.set('cache-control', 'no-cache');
     }
   } catch {

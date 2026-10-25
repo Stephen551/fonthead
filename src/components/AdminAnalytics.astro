@@ -1,0 +1,170 @@
+---
+import { ANALYTICS_EVENTS, ANALYTICS_LABELS, analyticsWindow, summarizeFunnel, summarizeMembers, countChange, type FunnelRow } from '../lib/analytics';
+
+// Rendered only inside the authenticated admin page, after its allowlist check.
+const env = Astro.locals.runtime.env;
+const range = analyticsWindow(Astro.url.searchParams.get('days'));
+type Member = { id: string; name: string; handle: string | null; last_day: string; builds: number; failures: number; downloads: number; sample_builds: number; first_build: string | null; last_build: string | null };
+const [funnel, members, started, totals, topFonts, reviews] = await Promise.all([
+  env.DB.prepare('SELECT day, event, meta, count FROM funnel WHERE day BETWEEN ? AND ?').bind(range.previousStart, range.end).all<FunnelRow>(),
+  env.DB.prepare(`SELECT u.id, u.name, u.handle, MAX(a.day) AS last_day,
+    SUM(CASE WHEN a.event = 'build_ok' AND a.source = 'upload' THEN a.count ELSE 0 END) AS builds,
+    SUM(CASE WHEN a.event = 'build_fail' AND a.source = 'upload' THEN a.count ELSE 0 END) AS failures,
+    SUM(CASE WHEN a.event = 'download' AND a.source = 'upload' THEN a.count ELSE 0 END) AS downloads,
+    SUM(CASE WHEN a.event = 'build_ok' AND a.source = 'sample' THEN a.count ELSE 0 END) AS sample_builds,
+    MAX(CASE WHEN a.event = 'build_ok' AND a.source = 'upload' THEN a.day END) AS last_build,
+    (SELECT MIN(p.day) FROM member_activity p WHERE p.user_id = u.id AND p.event = 'build_ok' AND p.source = 'upload') AS first_build
+    FROM member_activity a JOIN "user" u ON u.id = a.user_id
+    WHERE a.day BETWEEN ? AND ? GROUP BY u.id ORDER BY last_day DESC, u.id`).bind(range.start, range.end).all<Member>(),
+  env.DB.prepare('SELECT feature, day FROM analytics_start').all<{ feature: string; day: string }>(),
+  env.DB.prepare(`SELECT
+    (SELECT COUNT(*) FROM "user") AS members,
+    (SELECT COUNT(*) FROM "user" WHERE date("createdAt") BETWEEN ? AND ?) AS signups,
+    (SELECT COUNT(*) FROM fonts WHERE visibility = 'public') AS public_fonts,
+    (SELECT COUNT(*) FROM fonts WHERE visibility = 'public' AND date(created_at) BETWEEN ? AND ?) AS published,
+    (SELECT COALESCE(SUM(downloads_count), 0) FROM fonts WHERE visibility = 'public') AS library_total`).bind(range.start, range.end, range.start, range.end).first<{ members: number; signups: number; public_fonts: number; published: number; library_total: number }>(),
+  env.DB.prepare("SELECT id, name, downloads_count FROM fonts WHERE visibility = 'public' AND downloads_count > 0 ORDER BY downloads_count DESC, id LIMIT 5").all<{ id: string; name: string; downloads_count: number }>(),
+  env.DB.prepare('SELECT COUNT(*) AS count, AVG(rating) AS rating FROM maker_reviews WHERE date(created_at) BETWEEN ? AND ?').bind(range.start, range.end).first<{ count: number; rating: number | null }>(),
+]);
+const stats = summarizeFunnel(funnel.results, range);
+const activity = members.results;
+const start = new Map(started.results.map(r => [r.feature, r.day]));
+const { builders, downloaders, returning } = summarizeMembers(activity);
+const metrics = ['make_view', 'build_ok', 'download', 'library_download'];
+const maxDaily = Math.max(1, ...stats.daily.map(d => (d.counts.build_ok ?? 0) + (d.counts.build_fail ?? 0)));
+const detail = (event: string) => [...(stats.breakdowns.get(event) ?? [])].sort((a, b) => b[1] - a[1]);
+---
+
+<section class="analytics fh-pad" aria-labelledby="analytics-title">
+  <div class="analytics-heading">
+    <div>
+      <h2 id="analytics-title">Is the maker working for people?</h2>
+      <p>{range.start} – {range.end} · UTC · today is still in progress</p>
+    </div>
+    <nav aria-label="Analytics period" class="periods fh-mono">
+      {[7, 30, 90].map(days => <a href={`?days=${days}`} aria-current={range.days === days ? 'page' : undefined}>{days} days</a>)}
+    </nav>
+  </div>
+
+  <div class="metrics">
+    {metrics.map(event => <article class="metric">
+      <h3>{ANALYTICS_LABELS[event]}</h3>
+      <strong class="fh-mono">{(stats.current[event] ?? 0).toLocaleString()}</strong>
+      <p>{event === 'library_download' && (start.get(event) ?? '') > range.previousStart
+        ? `Tracking since ${start.get(event)}`
+        : countChange(stats.current[event] ?? 0, stats.previous[event] ?? 0)}</p>
+    </article>)}
+  </div>
+  <p class="note">These are event counts, not unique people or conversion rates. Maker totals include samples, rebuilds, and admin testing. Downloads count clicks, not successful installs. Library downloads are counted once per IP and font per hour.</p>
+
+  <div class="analytics-columns">
+    <article class="panel">
+      <h3>Build reliability</h3>
+      <p class="headline fh-mono">{stats.successRate === null ? 'No completed builds' : `${stats.successRate}% succeeded`}</p>
+      <p>{stats.current.build_ok ?? 0} successful · {stats.current.build_fail ?? 0} failed</p>
+      <p class="note">Success means the build and preview finished. Quality issues and abandoned builds are not measured. Row re-slices are not counted as full builds.</p>
+      <div class="chart" role="img" aria-label={`Daily completed builds from ${range.start} to ${range.end}. Exact counts are in the daily events table below.`}>
+        {stats.daily.map(d => <div class="chart-day" title={`${d.day}: ${d.counts.build_ok ?? 0} successful, ${d.counts.build_fail ?? 0} failed`}>
+          <span class="failed" style={`height:${100 * (d.counts.build_fail ?? 0) / maxDaily}%`}></span>
+          <span class="successful" style={`height:${100 * (d.counts.build_ok ?? 0) / maxDaily}%`}></span>
+        </div>)}
+      </div>
+      <p class="chart-caption"><span>{range.start}</span><span>Solid: successful · striped: failed</span><span>{range.end}</span></p>
+    </article>
+    <article class="panel">
+      <h3>Community</h3>
+      <dl class="numbers">
+        <div><dt>New accounts</dt><dd>{totals?.signups ?? 0}</dd></div>
+        <div><dt>New fonts currently public</dt><dd>{totals?.published ?? 0}</dd></div>
+        <div><dt>Maker reviews</dt><dd>{reviews?.count ?? 0}{reviews?.rating != null ? ` · ${reviews.rating.toFixed(1)}/5` : ''}</dd></div>
+      </dl>
+      <p class="note">All time: {totals?.members ?? 0} accounts · {totals?.public_fonts ?? 0} public fonts · {totals?.library_total ?? 0} downloads of currently public fonts. Deleted accounts and fonts are excluded.</p>
+      <h3 class="subheading">Most downloaded public fonts · all time</h3>
+      {topFonts.results.length ? <ol class="ranked">{topFonts.results.map(f => <li><a href={`/f/${f.id}`}>{f.name}</a><span class="fh-mono">{f.downloads_count}</span></li>)}</ol> : <p>No public font downloads yet.</p>}
+    </article>
+  </div>
+
+  <article class="panel member-panel">
+    <h3>Member adoption</h3>
+    <p>Did members build, download, and come back?</p>
+    <div class="member-metrics">
+      <p><strong class="fh-mono">{activity.length}</strong> visited or used the maker</p>
+      <p><strong class="fh-mono">{builders}</strong> built from their own sheets</p>
+      <p><strong class="fh-mono">{downloaders}</strong> downloaded their own builds</p>
+      <p><strong class="fh-mono">{returning}</strong> built again on a later day</p>
+    </div>
+    <p class="note">Distinct signed-in members; admin accounts excluded at collection. Recorded since {start.get('member_activity')}. Earlier activity cannot be recovered. Returning means a successful upload build in this period and an earlier successful upload build on another UTC day. Anonymous use stays in the event totals above.</p>
+    {activity.length ? <div class="table-scroll" tabindex="0" role="region" aria-label="Member activity table">
+      <table>
+        <thead><tr><th scope="col">Member</th><th scope="col">Last activity</th><th scope="col">Upload builds</th><th scope="col">Upload failures</th><th scope="col">Upload downloads</th><th scope="col">Sample builds</th></tr></thead>
+        <tbody>{activity.slice(0, 100).map(m => <tr><th scope="row">{m.handle ? `@${m.handle}` : m.name}</th><td>{m.last_day}</td><td>{m.builds}</td><td>{m.failures}</td><td>{m.downloads}</td><td>{m.sample_builds}</td></tr>)}</tbody>
+      </table>
+      {activity.length > 100 && <p>Showing the 100 most recently active members. Totals include all members.</p>}
+    </div> : <p class="empty">No signed-in member activity recorded in this period yet.</p>}
+    <p class="note">Only counts are shown. Unpublished sheets, font files, names, and preview text are never sent with these events. Multiple formats or repeat clicks count as multiple downloads.</p>
+  </article>
+
+  <div class="analytics-columns breakdowns">
+    {[['build_fail', 'Where builds fail'], ['build_ok', 'Build types'], ['download', 'Maker download formats']].map(([event, label]) => <article class="panel">
+      <h3>{label}</h3>
+      {detail(event).length ? <dl class="numbers">{detail(event).map(([name, count]) => <div><dt>{name}</dt><dd>{count}</dd></div>)}</dl> : <p>No recorded {event === 'build_fail' ? 'failures' : 'events'} in this period.</p>}
+    </article>)}
+  </div>
+
+  <details class="panel daily-events">
+    <summary>Daily events · {range.days} days</summary>
+    <p class="note">Zeros are included. Library downloads before {start.get('library_download')} were not tracked by day.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Daily analytics table">
+      <table>
+        <thead><tr><th scope="col">Day (UTC)</th>{ANALYTICS_EVENTS.map(event => <th scope="col">{ANALYTICS_LABELS[event]}</th>)}</tr></thead>
+        <tbody>{[...stats.daily].reverse().map(d => <tr><th scope="row">{d.day}</th>{ANALYTICS_EVENTS.map(event => <td>{event === 'library_download' && d.day < (start.get(event) ?? '') ? '—' : d.counts[event] ?? 0}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<style>
+  .analytics { padding-top:28px; padding-bottom:32px; border-bottom:1px solid var(--line); }
+  .analytics h2 { margin:0; font-size:23px; letter-spacing:-.02em; }
+  .analytics h3 { margin:0 0 12px; font-size:14px; font-weight:600; }
+  .analytics p { font-size:13px; color:var(--ink-soft); line-height:1.6; margin:8px 0; }
+  .analytics .note { font-size:12px; }
+  .analytics-heading { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; margin-bottom:22px; }
+  .periods { display:flex; gap:4px; }
+  .periods a { padding:8px 12px; color:var(--ink); font-size:12px; border:1px solid var(--line-2); border-radius:3px; text-decoration:none; }
+  .periods a[aria-current] { background:var(--ink); color:var(--paper); }
+  .analytics :is(a,summary,[tabindex]):focus-visible { outline:2px solid var(--ink); outline-offset:4px; }
+  .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+  .metric, .panel { border:1px solid var(--line-2); border-radius:4px; padding:20px; min-width:0; }
+  .metric strong { display:block; font-size:30px; font-weight:500; }
+  .metric p { font-size:11px; }
+  .analytics-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:22px 0; }
+  .analytics .headline { font-size:24px; color:var(--ink); }
+  .numbers { margin:0; font-size:13px; }
+  .numbers div { display:flex; justify-content:space-between; gap:16px; padding:9px 0; border-bottom:1px solid var(--line); }
+  .numbers dt { overflow-wrap:anywhere; }
+  .numbers dd { margin:0; font-variant-numeric:tabular-nums; flex-shrink:0; }
+  .analytics .subheading { margin-top:24px; }
+  .ranked { padding:0; margin:0; list-style:none; }
+  .ranked li { display:flex; justify-content:space-between; gap:16px; font-size:13px; padding:7px 0; }
+  .ranked a { color:var(--ink); overflow-wrap:anywhere; }
+  .chart { height:110px; display:flex; align-items:flex-end; gap:3px; margin-top:20px; border-bottom:1px solid var(--line-2); }
+  .chart-day { height:100%; flex:1; display:flex; flex-direction:column; justify-content:flex-end; min-width:0; }
+  .chart-day span { display:block; }
+  .successful { background:var(--ink); }
+  .failed { background:repeating-linear-gradient(45deg,var(--signal) 0 2px,var(--paper) 2px 4px); }
+  .analytics .chart-caption { display:flex; justify-content:space-between; gap:8px; font-size:10px; flex-wrap:wrap; }
+  .member-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin:18px 0; }
+  .member-metrics strong { display:block; color:var(--ink); font-size:28px; }
+  .table-scroll { overflow:auto; margin-top:16px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; text-align:left; }
+  th,td { padding:10px 14px 10px 0; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { font-weight:500; }
+  td { font-variant-numeric:tabular-nums; }
+  thead { color:var(--ink-soft); }
+  .breakdowns { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  summary { cursor:pointer; font-size:14px; font-weight:600; }
+  .empty { padding:16px 0; }
+  @media (max-width:900px) { .metrics,.member-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .analytics-columns { grid-template-columns:1fr; } }
+  @media (max-width:480px) { .metric,.panel { padding:14px; } .metrics { gap:8px; } .analytics h2 { font-size:21px; } }
+</style>

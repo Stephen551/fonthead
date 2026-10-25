@@ -92,18 +92,20 @@ function ToggleRow({ label, on, onChange, disabled }: { label: string; on: boole
   );
 }
 
-// Funnel instrument: anonymous day-bucketed counters (see trackFunnel).
+// Day-bucketed usage counts; signed-in activity uses the existing account session.
 // Fire-and-forget; a lost count never costs the user anything.
 function track(
   event: 'make_view' | 'sheet_drop' | 'sample_try' | 'grid_print' | 'build_ok' | 'build_fail' | 'download' | 'publish_ok',
   meta?: string,
+  source: 'upload' | 'sample' | 'unknown' = 'unknown',
 ) {
-  actions.trackFunnel({ event, meta }).catch(() => {});
+  actions.trackFunnel({ event, meta, source }).catch(() => {});
 }
 
 export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const buildBusyRef = useRef(false);
+  const buildSourceRef = useRef<'upload' | 'sample' | 'unknown'>('unknown');
   const [family, setFamily] = useState('Handmade');
   const [specimenWord, setSpecimenWord] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
@@ -303,6 +305,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     charLinesOverride?: string[],
   ) {
     buildBusyRef.current = true;
+    const buildSource = buildSourceRef.current;
     setPhase('working');
     // on a phone the result column stacks below the whole input column, so the
     // live readout is off-screen exactly when it updates: pull it into view.
@@ -455,12 +458,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       }
       setPhase('done');
       const fitScript = !isColor && !!(window as unknown as { __lastTrim?: { script?: boolean } }).__lastTrim?.script;
-      track('build_ok', `${kind}${fitScript ? '+script' : ''}`);
+      track('build_ok', `${kind}${fitScript ? '+script' : ''}`, buildSource);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
       setPhase('error');
-      track('build_fail', classifyBuildError(msg));
+      track('build_fail', classifyBuildError(msg), buildSource);
     } finally {
       buildBusyRef.current = false;
     }
@@ -657,6 +660,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
 
   const onSample = () => {
     if (buildBusyRef.current) return;
+    buildSourceRef.current = 'sample';
     track('sample_try');
     setEditIdx(null);
     setCharsetText(SAMPLE_CHAR_LINES.join('\n')); // the sample is exactly these 3 rows
@@ -716,6 +720,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       const charLines =
         armed && (isColor || armed.length === cellsPerRow.length) ? armed : guessCharsetFromRows(cellsPerRow);
       setCharsetText(charLines.join('\n'));
+      buildSourceRef.current = 'upload';
       await run(() => Promise.resolve(img), charLines);
       setDetectedRows(geom.rows.length);
     } catch (e) {
@@ -1379,7 +1384,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                       className="fh-btn"
                       disabled={rowBusy !== null}
                       onClick={() => {
-                        track('download', fmt);
+                        track('download', fmt, buildSourceRef.current);
                         downloadFont(result[fmt] as Uint8Array, family.trim() || 'Handmade', fmt);
                         setDownloads(n => n + 1);
                       }}

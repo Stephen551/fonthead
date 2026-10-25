@@ -114,11 +114,14 @@ export const server = {
       const ip = ctx.request.headers.get('cf-connecting-ip') || 'anon';
       const fresh = await rateLimit(env.SESSION, `dl:${ip}:${fontId}`, 1, 3600);
       if (fresh) {
-        await env.DB.prepare(
-          "UPDATE fonts SET downloads_count = downloads_count + 1 WHERE id = ? AND visibility = 'public'",
-        )
-          .bind(fontId)
-          .run();
+        await env.DB.batch([
+          env.DB.prepare(
+            `INSERT INTO funnel (day, event, meta, count)
+             SELECT date('now'), 'library_download', '', 1 FROM fonts WHERE id = ? AND visibility = 'public'
+             ON CONFLICT(day, event, meta) DO UPDATE SET count = count + 1`,
+          ).bind(fontId),
+          env.DB.prepare("UPDATE fonts SET downloads_count = downloads_count + 1 WHERE id = ? AND visibility = 'public'").bind(fontId),
+        ]);
       }
       return { ok: true };
     },
@@ -259,19 +262,20 @@ export const server = {
   }),
 
   // The maker funnel counter. Public (the funnel starts before any account),
-  // best-effort (never blocks or breaks the maker), and structurally
-  // anonymous: it can only increment a (day, event, meta) counter. A generous
+  // best-effort (never blocks or breaks the maker), and
+  // day-bucketed. Signed-in members also have a bounded activity counter. A generous
   // per-IP rate limit keeps junk from skewing the counts.
   trackFunnel: defineAction({
     input: z.object({
       event: z.enum(['make_view', 'sheet_drop', 'sample_try', 'grid_print', 'build_ok', 'build_fail', 'download', 'publish_ok']),
+      source: z.enum(['upload', 'sample', 'unknown']).default('unknown'),
       meta: z
         .string()
         .max(40)
         .regex(/^[\w+.-]*$/)
         .optional(),
     }),
-    handler: async ({ event, meta }, ctx) => {
+    handler: async ({ event, meta, source }, ctx) => {
       try {
         const env = ctx.locals.runtime.env;
         const ip = ctx.request.headers.get('cf-connecting-ip') || 'anon';
@@ -283,6 +287,16 @@ export const server = {
         )
           .bind(day, event, meta || '')
           .run();
+        if (['make_view', 'build_ok', 'build_fail', 'download'].includes(event)) {
+          const session = await createAuth(env).api.getSession({ headers: ctx.request.headers });
+          // Keep the owner's testing out of member adoption and retention counts.
+          if (session && !isAdminEmail(env.ADMIN_EMAILS, session.user.email)) {
+            await env.DB.prepare(
+              `INSERT INTO member_activity (user_id, day, event, source, count) VALUES (?, ?, ?, ?, 1)
+               ON CONFLICT(user_id, day, event, source) DO UPDATE SET count = count + 1`,
+            ).bind(session.user.id, day, event, source).run();
+          }
+        }
       } catch {
         /* a lost count must never cost a user anything */
       }
@@ -863,6 +877,7 @@ export const server = {
       await env.DB.prepare('UPDATE reports SET reporter_id = NULL WHERE reporter_id = ?').bind(userId).run();
       await env.DB.prepare('DELETE FROM bug_reports WHERE user_id = ?').bind(userId).run();
       await env.DB.prepare('DELETE FROM maker_reviews WHERE user_id = ?').bind(userId).run();
+      await env.DB.prepare('DELETE FROM member_activity WHERE user_id = ?').bind(userId).run();
 
       // auth records last, then the account itself
       await env.DB.prepare('DELETE FROM session WHERE "userId" = ?').bind(userId).run();
