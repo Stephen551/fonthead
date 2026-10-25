@@ -102,6 +102,7 @@ function track(
 
 export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [phase, setPhase] = useState<Phase>('idle');
+  const buildBusyRef = useRef(false);
   const [family, setFamily] = useState('Handmade');
   const [specimenWord, setSpecimenWord] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
@@ -113,6 +114,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [log, setLog] = useState<string>('');
   const [result, setResult] = useState<FontResult | null>(null);
   const [glyphCount, setGlyphCount] = useState(0);
+  const [builtVariantCount, setBuiltVariantCount] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState('');
   const [previewFam, setPreviewFam] = useState('');
@@ -297,6 +299,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     getImage: () => Promise<HTMLImageElement | ImageBitmap>,
     charLinesOverride?: string[],
   ) {
+    buildBusyRef.current = true;
     setPhase('working');
     // on a phone the result column stacks below the whole input column, so the
     // live readout is off-screen exactly when it updates: pull it into view.
@@ -384,7 +387,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           const variantSheets: Glyph[][] = [];
           for (const vimg of variationImgsRef.current) {
             if (!vimg) continue;
-            const vtrace = await traceSheet(vimg, rows, effTraceOpts);
+            const vtrace = await traceSheet(vimg, rows, effTraceOpts, undefined, 'variation');
             if (vtrace.glyphs.length) variantSheets.push(vtrace.glyphs);
           }
           if (variantSheets.length) {
@@ -411,6 +414,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       if (warn) setWarning(warn);
       setReport(rep);
       setGlyphCount(count);
+      setBuiltVariantCount(variantSheetCount);
       setStageIdx(stages.length);
       setResult(res);
       setElapsed((performance.now() - t0) / 1000);
@@ -439,10 +443,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       setError(msg);
       setPhase('error');
       track('build_fail', classifyBuildError(msg));
+    } finally {
+      buildBusyRef.current = false;
     }
   }
 
   async function publish() {
+    if (buildBusyRef.current) return;
     if (!result?.otf || !result?.woff2) return;
     setPublishing(true);
     setPublishErr('');
@@ -597,13 +604,16 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
 
   // mono: re-slice one row with a chosen slicer and rebuild the font
   async function applyRowEdit(rowIndex: number, slicer: SlicerKind) {
+    if (buildBusyRef.current) return;
+    buildBusyRef.current = true;
     setRowBusy(rowIndex);
     setRowErr('');
     try {
-      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, connect ? false : trimFlourishes, connect, undefined, undefined, connect && smoothJoins);
+      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, connect ? false : trimFlourishes, connect, undefined, undefined, connect && smoothJoins, italic && !connect ? 'Italic' : 'Regular');
       setResult(r.result);
       setReport(r.report);
       setGlyphCount(r.glyphCount);
+      setBuiltVariantCount(r.variants);
       setMonoRows(r.rows);
       const bytes = r.result.woff2 || r.result.otf;
       if (bytes) setPreviewFam(await loadPreviewFont(bytes as Uint8Array));
@@ -614,16 +624,19 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         otf: r.result.otf?.length ?? 0,
         ttf: r.result.ttf?.length ?? 0,
         woff2: r.result.woff2?.length ?? 0,
+        variants: r.variants,
       };
     } catch (e) {
       // the row rolled back; keep the prior font and say why
       setRowErr(e instanceof Error ? e.message : 're-slice failed');
     } finally {
+      buildBusyRef.current = false;
       setRowBusy(null);
     }
   }
 
   const onSample = () => {
+    if (buildBusyRef.current) return;
     track('sample_try');
     setEditIdx(null);
     setCharsetText(SAMPLE_CHAR_LINES.join('\n')); // the sample is exactly these 3 rows
@@ -638,6 +651,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   };
 
   function rebuild() {
+    if (buildBusyRef.current) return;
     const img = lastImgRef.current;
     if (img) run(() => Promise.resolve(img));
   }
@@ -698,8 +712,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // a color build falls back to the single-sheet path.
   const onFiles = async (files: FileList | null | undefined, source: 'file' | 'camera' = 'file') => {
     const list = files ? Array.from(files) : [];
+    if (!list.length || buildBusyRef.current) return;
+    buildBusyRef.current = true;
+    setPhase('working');
+    setResult(null);
     if (list.length <= 1 || isColor) {
       await onFile(list[0], source);
+      buildBusyRef.current = false;
       return;
     }
     setNaturalVariation(true);
@@ -715,26 +734,26 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not read those images');
       setPhase('error');
+      buildBusyRef.current = false;
       return;
     }
     // run() merges the loaded variation sheets via its ref-driven useVariation,
     // so the base build cycles even before the toggle state propagates.
     await onFile(list[0], source);
+    buildBusyRef.current = false;
   };
 
   // Natural variation: a 2nd/3rd sheet of the SAME hand. Stored off React state
   // (variationImgsRef) so run() reads the latest without a render dependency.
   // Adding one rebuilds from the base sheet so the cycling shows immediately.
   const onVariationFile = async (slot: number, file: File | undefined) => {
-    if (!file) {
-      variationImgsRef.current[slot] = null;
-      setVariationNames((n) => {
-        const c = [...n];
-        c[slot] = null;
-        return c;
-      });
-      return;
-    }
+    if (!file || buildBusyRef.current) return;
+    buildBusyRef.current = true;
+    // Invalidate the old export before decoding, so a loaded sheet can never
+    // appear alongside a downloadable font built from the previous palette.
+    setPhase('working');
+    setResult(null);
+    setPreviewFam('');
     try {
       await waitForEngine();
       variationImgsRef.current[slot] = await fileToImage(file);
@@ -743,11 +762,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         c[slot] = file.name;
         return c;
       });
-      // Don't auto-build per drop (that re-traces the base for each sheet). The
-      // user loads the palette, then hits rebuild once for the merged build.
+      const img = lastImgRef.current;
+      if (img) await run(() => Promise.resolve(img));
+      else setPhase('idle');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not read that image');
       setPhase('error');
+    } finally {
+      buildBusyRef.current = false;
     }
   };
 
@@ -827,6 +849,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
               <input
                 id="sheet-file"
                 type="file"
+                disabled={phase === 'working' || rowBusy !== null}
                 accept="image/*"
                 multiple
                 style={{ display: 'none' }}
@@ -841,15 +864,16 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 type="file"
                 accept="image/*"
                 capture="environment"
+                disabled={phase === 'working' || rowBusy !== null}
                 style={{ display: 'none' }}
-                onChange={(e) => onFile(e.target.files?.[0] ?? undefined, 'camera')}
+                onChange={(e) => onFiles(e.target.files, 'camera')}
               />
             </label>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
-          <button className="fh-btn fh-btn--ghost" onClick={onSample} disabled={phase === 'working'}>
+          <button className="fh-btn fh-btn--ghost" onClick={onSample} disabled={phase === 'working' || rowBusy !== null}>
             try a sample sheet
           </button>
           <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
@@ -1039,7 +1063,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                             <span style={{ color: variationNames[slot] ? 'var(--ink)' : 'var(--ink-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '58%' }}>
                               {variationNames[slot] ?? 'choose a sheet'}
                             </span>
-                            <input id={`variation-file-${slot}`} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => onVariationFile(slot, e.target.files?.[0] ?? undefined)} />
+                            <input id={`variation-file-${slot}`} type="file" accept="image/*" disabled={phase === 'working' || rowBusy !== null} style={{ display: 'none' }} onChange={(e) => onVariationFile(slot, e.target.files?.[0] ?? undefined)} />
                           </label>
                         ))}
                       </div>
@@ -1048,7 +1072,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
               </div>
               {lastImgRef.current && (
-                <button className="fh-btn fh-btn--ghost" disabled={phase === 'working'} onClick={rebuild} style={{ marginTop: 12 }}>
+                <button className="fh-btn fh-btn--ghost" disabled={phase === 'working' || rowBusy !== null} onClick={rebuild} style={{ marginTop: 12 }}>
                   rebuild with these settings
                 </button>
               )}
@@ -1163,6 +1187,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
               />
               <div className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '10px 0 14px' }}>
                 {glyphCount} glyphs · {isColor ? `color ${colrStatus === 'ok' ? 'COLR/CPAL ✓' : colrStatus || 'mono fallback'}` : 'traced'} · built in your browser
+                {builtVariantCount > 0 && ` · natural variation: ${builtVariantCount + 1} sheets`}
               </div>
 
               {/* glyph inspection grid: every glyph rendered in the built font + health badge */}
@@ -1275,7 +1300,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                               </span>
                               <select
                                 value={sel}
-                                disabled={busy}
+                                disabled={rowBusy !== null}
                                 aria-label={`Slicer for row ${r.index + 1}`}
                                 onChange={(e) => setRowSlicerSel((m) => ({ ...m, [r.index]: e.target.value as SlicerKind }))}
                                 className="fh-mono"
@@ -1287,7 +1312,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                                 <option value="components">components</option>
                                 <option value="ownership">ownership</option>
                               </select>
-                              <button className="fh-btn fh-btn--ghost" disabled={busy} onClick={() => applyRowEdit(r.index, sel)}>
+                              <button className="fh-btn fh-btn--ghost" disabled={rowBusy !== null} onClick={() => applyRowEdit(r.index, sel)}>
                                 {busy ? 'slicing…' : 're-slice'}
                               </button>
                             </div>
@@ -1311,6 +1336,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                     <button
                       key={fmt}
                       className="fh-btn"
+                      disabled={rowBusy !== null}
                       onClick={() => {
                         track('download', fmt);
                         downloadFont(result[fmt] as Uint8Array, family.trim() || 'Handmade', fmt);
@@ -1384,7 +1410,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                         ))}
                       </div>
                       <a href="/licenses" target="_blank" rel="noopener" className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', textDecoration: 'underline', textUnderlineOffset: 3 }}>what these mean</a>
-                      <button className="fh-btn" onClick={publish} disabled={publishing} style={{ marginLeft: 'auto' }}>
+                      <button className="fh-btn" onClick={publish} disabled={publishing || rowBusy !== null} style={{ marginLeft: 'auto' }}>
                         {publishing ? 'publishing…' : 'publish  →'}
                       </button>
                     </div>

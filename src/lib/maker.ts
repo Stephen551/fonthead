@@ -796,6 +796,7 @@ interface MonoSession {
   rowGlyphs: Glyph[][]; // traced glyphs, per row
   rowInfo: MonoRowInfo[];
   sourceImg: HTMLImageElement | ImageBitmap; // kept for fine-detail re-slices
+  variantSheets: Glyph[][];
 }
 let _monoSession: MonoSession | null = null;
 
@@ -969,7 +970,9 @@ export async function traceSheet(
   rowChars: string[],
   opts: TraceOpts,
   onProgress?: Progress,
+  sessionRole: 'base' | 'variation' = 'base',
 ): Promise<TraceResult> {
+  if (sessionRole === 'variation' && !_monoSession) throw new Error('trace the base sheet before its variations');
   const TC = w().TracerCore;
   const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
   const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
@@ -1037,7 +1040,13 @@ export async function traceSheet(
     ? `row ${fusedRows.join(', ')} ${fusedRows.length > 1 ? 'look' : 'looks'} drawn as one joined line (the letters run together, so they cannot be told apart). Cursive letters need a small gap between them — the maker joins them back up on its own. Redraw or regenerate that row with the letters apart.`
     : '';
   const report = reportForGlyphs(glyphs);
-  _monoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo, sourceImg: img };
+  // Variations belong to the base session. Replacing it here would make a row
+  // edit silently switch to the last sheet and rebuild without the alternates.
+  if (sessionRole === 'variation') {
+    if (glyphs.length) _monoSession!.variantSheets.push(glyphs);
+  } else {
+    _monoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo, sourceImg: img, variantSheets: [] };
+  }
   return { glyphs, rowWarning: connectedWarning || rowWarning, detectedRows: bands.length, report, rows: rowInfo };
 }
 
@@ -1055,7 +1064,8 @@ export async function editMonoRow(
   connectOverlapPct?: number,
   onProgress?: Progress,
   smoothJoins?: boolean,
-): Promise<{ result: FontResult; glyphCount: number; report: GlyphReport[]; rows: MonoRowInfo[] }> {
+  style?: string,
+): Promise<{ result: FontResult; glyphCount: number; report: GlyphReport[]; rows: MonoRowInfo[]; variants: number }> {
   const s = _monoSession;
   if (!s) throw new Error('no mono build session — build a font first');
   if (rowIndex < 0 || rowIndex >= s.rowGlyphs.length) throw new Error('bad row index ' + rowIndex);
@@ -1072,11 +1082,11 @@ export async function editMonoRow(
     const glyphs = s.rowGlyphs.flat();
     if (!glyphs.length) throw new Error('no glyphs left after re-slicing this row');
     const result = await buildFont(
-      glyphs,
-      { family: family.trim() || 'Handmade', formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes, connect, connectOverlapPct, smoothJoins },
+      mergeVariantSheets([glyphs, ...s.variantSheets]),
+      { family: family.trim() || 'Handmade', style, formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes, connect, connectOverlapPct, smoothJoins, naturalVariation: s.variantSheets.length > 0 },
       onProgress,
     );
-    return { result, glyphCount: glyphs.length, report: reportForGlyphs(glyphs), rows: s.rowInfo.slice() };
+    return { result, glyphCount: glyphs.length, report: reportForGlyphs(glyphs), rows: s.rowInfo.slice(), variants: s.variantSheets.length };
   } catch (e) {
     s.rowGlyphs[rowIndex] = prevGlyphs;
     s.rowInfo[rowIndex] = prevInfo;

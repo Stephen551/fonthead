@@ -82,11 +82,14 @@ test.describe('natural variation mode', () => {
     await buildDone(page);
     expect((await lastBuild(page)).variants, 'base build has no variants yet').toBe(0);
 
-    // load the two extra same-hand sheets, then rebuild once -> merged palette
+    // Each extra sheet rebuilds automatically; the second picker is available
+    // again when the first build finishes.
     await page.locator('#variation-file-0').setInputFiles(VAR2);
+    await expect.poll(async () => (await lastBuild(page)).variants, { timeout: 150_000 }).toBe(1);
+    await buildDone(page);
     await page.locator('#variation-file-1').setInputFiles(VAR3);
-    await page.getByRole('button', { name: 'rebuild with these settings' }).click();
     await expect.poll(async () => (await lastBuild(page)).variants, { timeout: 150_000 }).toBe(2);
+    await buildDone(page);
 
     const lb = await lastBuild(page);
     expect(lb.kind).toBe('mono');
