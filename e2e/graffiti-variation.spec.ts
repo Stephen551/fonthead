@@ -83,6 +83,8 @@ test('every variation sheet has independent row controls', async ({ page }) => {
   await page.locator('#sheet-file').setInputFiles([1, 2, 3].map(n => `e2e/fixtures/graffiti-variation-${n}.png`));
   await expect(page.getByRole('button', { name: 'download woff2', exact: true })).toBeVisible({ timeout: 180_000 });
   let before = await exportedFont(page);
+  const previewPaths = (sheet: number) => page.getByRole('group', { name: `Sheet ${sheet} · variation`, exact: true })
+    .getByRole('list', { name: 'Row 1 sliced letters', exact: true }).locator('path').evaluateAll(nodes => nodes.map(node => node.getAttribute('d')));
   // A different contour preset makes the edited row observably different even
   // when both slicers happen to find the same whitespace cuts.
   await page.getByRole('button', { name: 'advanced' }).click();
@@ -92,12 +94,14 @@ test('every variation sheet has independent row controls', async ({ page }) => {
     await expect(group).toBeVisible();
     await expect(group.getByRole('combobox')).toHaveCount(7);
     const select = group.getByRole('combobox').first();
+    const beforePreview = await previewPaths(sheet);
     await select.selectOption('anchored');
     await group.getByRole('button', { name: 're-slice', exact: true }).first().click();
     await expect(group.getByRole('button', { name: 'slicing…', exact: true })).toBeVisible();
     await expect(group.getByRole('button', { name: 'slicing…', exact: true })).toHaveCount(0, { timeout: 120_000 });
     expect(await page.getByRole('alert').allTextContents()).toEqual([]);
     await expect(select).toHaveValue('anchored');
+    expect(await previewPaths(sheet)).not.toEqual(beforePreview);
     await select.focus();
     await page.keyboard.press('Tab');
     await expect(group.getByRole('button', { name: 're-slice', exact: true }).first()).toBeFocused();
@@ -139,6 +143,58 @@ test('every variation sheet has independent row controls', async ({ page }) => {
     })), `sheet controls fit at ${width}px`).toBe(true);
   }
   expect(errors).toEqual([]);
+});
+
+test('sliced previews and tracing progress cover every sheet', async ({ page }) => {
+  await page.goto('/make');
+  await page.evaluate(() => {
+    (window as any).__traceMessages = [];
+    const seen = new Set<string>();
+    new MutationObserver(() => {
+      document.querySelectorAll('.fh-build-desc').forEach(el => {
+        const text = el.textContent || '';
+        if (!seen.has(text)) { seen.add(text); (window as any).__traceMessages.push(text); }
+      });
+    }).observe(document.body, { childList: true, characterData: true, subtree: true });
+  });
+  await page.locator('#sheet-file').setInputFiles([1, 2, 3].map(n => `e2e/fixtures/graffiti-variation-${n}.png`));
+  await expect(page.getByRole('button', { name: 'download woff2', exact: true })).toBeVisible({ timeout: 180_000 });
+  const drawings: string[][] = [];
+  for (const sheet of [1, 2, 3]) {
+    const group = page.getByRole('group', { name: sheet === 1 ? 'Sheet 1 · base alphabet' : `Sheet ${sheet} · variation`, exact: true });
+    await expect(group.getByRole('list')).toHaveCount(7);
+    await expect(group.getByRole('listitem')).toHaveCount(92);
+    await expect(group.getByRole('img')).toHaveCount(92);
+    drawings.push(await group.getByRole('list', { name: 'Row 1 sliced letters', exact: true }).locator('path').evaluateAll(nodes => nodes.map(node => node.getAttribute('d') || '')));
+  }
+  expect(drawings[0]).not.toEqual(drawings[1]);
+  expect(drawings[1]).not.toEqual(drawings[2]);
+  const messages: string[] = await page.evaluate(() => (window as any).__traceMessages);
+  for (const sheet of [1, 2, 3]) expect(messages.some(text => text.includes(`sheet ${sheet}/3 · row`)), `progress for sheet ${sheet}`).toBe(true);
+  await expect(page.getByText('21 rows · 276 drawings · 3 sheets', { exact: true })).toBeVisible();
+  await page.getByRole('group', { name: 'Sheet 2 · variation', exact: true }).screenshot({ path: test.info().outputPath('sheet-2-previews.png') });
+});
+
+test('an empty trace keeps its preview slot and character label', async ({ page }) => {
+  await page.goto('/make');
+  await page.waitForFunction(() => typeof (window as any).TracerCore?.traceCellBitmap === 'function');
+  await page.evaluate(() => {
+    const tracer = (window as any).TracerCore;
+    const trace = tracer.traceCellBitmap;
+    let first = true;
+    tracer.traceCellBitmap = function (...args: unknown[]) {
+      // Model the real engine returning no contours for the first cell.
+      if (first) { first = false; return Promise.resolve('<svg></svg>'); }
+      return trace.apply(this, args);
+    };
+  });
+  await page.locator('#sheet-file').setInputFiles('e2e/fixtures/graffiti-variation-1.png');
+  await expect(page.getByRole('button', { name: 'download woff2', exact: true })).toBeVisible({ timeout: 120_000 });
+  const row = page.getByRole('list', { name: 'Row 1 sliced letters', exact: true });
+  await expect(row.getByRole('listitem')).toHaveCount(13);
+  await expect(row.getByRole('listitem').nth(0).getByRole('img', { name: 'A not traced', exact: true })).toBeVisible();
+  await expect(row.getByRole('listitem').nth(1).getByRole('img', { name: 'B sliced letter', exact: true })).toBeVisible();
+  await expect(page.getByText('7 rows · 91 drawings · 1 sheet', { exact: true })).toBeVisible();
 });
 
 test('decorated seven-row sheets build a complete three-drawing variation font', async ({ page }) => {

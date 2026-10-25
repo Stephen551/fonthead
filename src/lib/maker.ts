@@ -426,7 +426,7 @@ async function rowToGlyphs(
   opts: TraceOpts,
   override: SlicerKind = 'auto',
   sourceImg?: HTMLImageElement | ImageBitmap | null,
-): Promise<{ glyphs: Glyph[]; slicer: PickedSlicer; forced: boolean; cellCount: number; naturalCount: number }> {
+): Promise<{ glyphs: Glyph[]; cells: (Glyph | null)[]; slicer: PickedSlicer; forced: boolean; cellCount: number; naturalCount: number }> {
   const TC = w().TracerCore;
   const expected = chars.length;
   const { ranges, ownerFn, slicer, forced, naturalCount } = pickRanges(data, W, y0, y1, expected, chars, override);
@@ -439,6 +439,8 @@ async function rowToGlyphs(
   while (use.length < expected) use.push([0, 0]);
 
   const glyphs: Glyph[] = [];
+  // Keep empty slots so a failed trace cannot shift the preview's labels.
+  const cells: (Glyph | null)[] = Array(expected).fill(null);
   for (let i = 0; i < expected; i++) {
     const ch = chars[i];
     const [x0, x1] = use[i];
@@ -483,16 +485,18 @@ async function rowToGlyphs(
     let keep = filterFilledGlyphPaths(paths, rowH, map.baselineYInCell);
     keep = cullForeignTopTails(keep, cy1 - cy0);
     if (keep.length === 0) continue;
-    glyphs.push({
+    const glyph: Glyph = {
       char: ch,
       italic: false,
       paths: keep.map((p) => p.d),
       cellW: map.cellW,
       cellH: map.cellH,
       baselineYInCell: map.baselineYInCell,
-    });
+    };
+    glyphs.push(glyph);
+    cells[i] = glyph;
   }
-  return { glyphs, slicer, forced, cellCount, naturalCount };
+  return { glyphs, cells, slicer, forced, cellCount, naturalCount };
 }
 
 export interface GlyphReport {
@@ -511,6 +515,7 @@ export interface MonoRowInfo {
   cellCount: number; // cells the slicer found
   expected: number; // characters the charset row expects
   glyphCount: number; // glyphs that survived tracing
+  cells: (Glyph | null)[]; // raw traced outlines in charset order, before font fitting
 }
 
 export interface TraceResult {
@@ -1027,7 +1032,7 @@ export async function traceSheet(
     onProgress?.('trace', `row ${i + 1}/${n} · contours`);
     const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], opts, 'auto', img);
     rowGlyphs.push(r.glyphs);
-    rowInfo.push({ index: i, chars: lines[i], slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: lines[i].length, glyphCount: r.glyphs.length });
+    rowInfo.push({ index: i, chars: lines[i], slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: lines[i].length, glyphCount: r.glyphs.length, cells: r.cells });
     // Connected-letters guard: a row whose letters run together (a cursive drawn
     // as one unbroken line) has no whitespace for the slicer to cut on, so the
     // NATURAL count collapses far below the charset even though the forced cut
@@ -1082,7 +1087,7 @@ export async function editMonoRow(
     const r = await rowToGlyphs(s.data, s.W, s.H, band[0], band[1], chars, opts, slicer, s.sourceImg);
     s.rowGlyphs[rowIndex] = r.glyphs;
     s.opts = opts;
-    s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: chars.length, glyphCount: r.glyphs.length };
+    s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: chars.length, glyphCount: r.glyphs.length, cells: r.cells };
     if (!s.rowGlyphs.flat().length) throw new Error('no glyphs left after re-slicing this row');
     const glyphs = base.rowGlyphs.flat();
     const result = await buildFont(

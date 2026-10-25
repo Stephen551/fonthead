@@ -74,6 +74,7 @@ left out — they live in CLAUDE.md, not here.
 | [0062](0062-decorated-row-valleys-and-foreign-fragments.md) | Recover decorated rows, retain the standard symbol mapping, and exclude connected neighboring fragments from digit cuts | Accepted |
 | [0063](0063-variation-build-and-row-edit-lifecycle.md) | Keep natural variation in automatic builds and row edits | Accepted |
 | [0064](0064-row-editing-for-every-variation-sheet.md) | Show independent row controls for every variation sheet | Accepted |
+| [0065](0065-sliced-letter-previews-and-palette-progress.md) | Preview every sliced letter and report tracing across the full palette | Accepted |
 
 ## Format
 

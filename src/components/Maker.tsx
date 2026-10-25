@@ -112,6 +112,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [publishErr, setPublishErr] = useState('');
   const [stageIdx, setStageIdx] = useState(-1);
   const [log, setLog] = useState<string>('');
+  const [traceSummary, setTraceSummary] = useState('');
   const [result, setResult] = useState<FontResult | null>(null);
   const [glyphCount, setGlyphCount] = useState(0);
   const [builtVariantCount, setBuiltVariantCount] = useState(0);
@@ -318,6 +319,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setReport([]);
     setEditIdx(null);
     setMonoSheets([]);
+    setTraceSummary('');
     setRowSlicerSel({});
     setRowErr('');
     const rows = charLinesOverride ?? parseCharset(charsetText);
@@ -367,8 +369,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         // the auto decision from the drop (ref, current for this build) unless
         // the user has taken the toggle over
         const effTraceOpts = { ...traceOpts, fineDetail: fineTouched ? traceOpts.fineDetail : traceOpts.fineDetail || fineAutoRef.current };
+        const sheetCount = 1 + variationImgsRef.current.filter(Boolean).length;
         const trace = await traceSheet(img, rows, effTraceOpts, (step, message) =>
-          setStage(STEP_STAGE[step] ?? 2, message),
+          setStage(STEP_STAGE[step] ?? 2, `sheet 1/${sheetCount} · ${message}`),
         );
         setDetectedRows(trace.detectedRows);
         if (!trace.glyphs.length) throw new Error('no glyphs traced. Try a cleaner sheet (dark letters on white).');
@@ -376,6 +379,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         warn = trace.rowWarning;
         rep = trace.report;
         const sheetRows = [{ label: 'Sheet 1 · base alphabet', rows: trace.rows }];
+        let tracedRows = trace.rows.length;
+        let tracedDrawings = trace.glyphs.length;
         const useConnect = connect;
         // natural variation: trace each extra sheet against the SAME charset and
         // merge into one glyph list (bases + .cv01/.cv02) before building, so a
@@ -386,9 +391,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         let glyphsForBuild = trace.glyphs;
         if (useVariation) {
           const variantSheets: Glyph[][] = [];
+          let tracingSheet = 1;
           for (const [slot, vimg] of variationImgsRef.current.entries()) {
             if (!vimg) continue;
-            const vtrace = await traceSheet(vimg, rows, effTraceOpts, undefined, 'variation');
+            tracingSheet++;
+            const vtrace = await traceSheet(vimg, rows, effTraceOpts, (_step, message) =>
+              setStage(2, `sheet ${tracingSheet}/${sheetCount} · ${message}`), 'variation');
+            tracedRows += vtrace.rows.length;
+            tracedDrawings += vtrace.glyphs.length;
             if (vtrace.glyphs.length) {
               variantSheets.push(vtrace.glyphs);
               sheetRows.push({ label: `Sheet ${slot + 2} · variation`, rows: vtrace.rows });
@@ -400,6 +410,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           }
         }
         setMonoSheets(sheetRows);
+        setTraceSummary(`${tracedRows} rows · ${tracedDrawings} drawings · ${sheetCount} ${sheetCount === 1 ? 'sheet' : 'sheets'}`);
         res = await buildFont(
           glyphsForBuild,
           {
@@ -619,7 +630,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       setReport(r.report);
       setGlyphCount(r.glyphCount);
       setBuiltVariantCount(r.variants);
-      setMonoSheets(sheets => sheets.map((sheet, i) => i === sheetIndex ? { ...sheet, rows: r.rows } : sheet));
+      const updatedSheets = monoSheets.map((sheet, i) => i === sheetIndex ? { ...sheet, rows: r.rows } : sheet);
+      setMonoSheets(updatedSheets);
+      setTraceSummary(`${updatedSheets.reduce((n, sheet) => n + sheet.rows.length, 0)} rows · ${updatedSheets.reduce((n, sheet) => n + sheet.rows.reduce((count, row) => count + row.glyphCount, 0), 0)} drawings · ${updatedSheets.length} ${updatedSheets.length === 1 ? 'sheet' : 'sheets'}`);
       const bytes = r.result.woff2 || r.result.otf;
       if (bytes) setPreviewFam(await loadPreviewFont(bytes as Uint8Array));
       (window as any).__lastBuild = {
@@ -1111,8 +1124,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                   {st === 'done' ? '✓' : st === 'active' ? '●' : '·'}
                 </span>
                 <span style={{ width: 74, color: '#fff' }}>{s.label}</span>
-                <span className="fh-build-desc" style={{ flex: 1, minWidth: 0, color: 'rgba(255,255,255,.66)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {st === 'active' && log ? log : s.desc}
+                <span className="fh-build-desc" style={{ flex: 1, minWidth: 0, color: 'rgba(255,255,255,.66)', lineHeight: 1.5, overflowWrap: 'anywhere' }}>
+                  {st === 'active' && log ? log : s.key === 'trace' && traceSummary ? traceSummary : s.desc}
                 </span>
                 <span className="fh-build-tick" style={{ color: 'rgba(255,255,255,.62)', width: 30, textAlign: 'right' }}>
                   {st === 'done' ? '✓' : st === 'active' ? '···' : '–'}
@@ -1291,6 +1304,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                       <div className="fh-mono" style={{ fontSize: 10.5, letterSpacing: '.06em', marginBottom: 8, color: 'var(--ink-faint)' }}>
                         ROWS · re-slice any that came out wrong
                       </div>
+                      <p className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.5, margin: '0 0 12px' }}>Each tile shows the letter cut from that sheet, with its assigned character below. Check for clipped, mixed-up, or empty letters before re-slicing.</p>
                       {monoSheets.map((sheet, sheetIndex) => (
                         <div key={sheetIndex} role="group" aria-label={sheet.label} style={{ marginTop: 14 }}>
                           <h3 className="fh-mono" style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '0 0 8px' }}>{sheet.label}</h3>
@@ -1324,6 +1338,20 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                                   <button className="fh-btn fh-btn--ghost" disabled={rowBusy !== null} onClick={() => applyRowEdit(sheetIndex, r.index, sel)}>
                                     {busy ? 'slicing…' : 're-slice'}
                                   </button>
+                                  <div role="list" aria-label={`Row ${r.index + 1} sliced letters`} style={{ width: '100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(48px, 1fr))', gap: 5 }}>
+                                    {r.cells.map((glyph, cellIndex) => (
+                                      <div key={cellIndex} role="listitem" aria-label={r.chars[cellIndex]} style={{ minWidth: 0, padding: '5px 3px', border: `1px ${glyph ? 'solid' : 'dashed'} ${glyph ? 'var(--line)' : 'var(--flag-line)'}`, borderRadius: 2, textAlign: 'center', color: 'var(--ink)' }}>
+                                        {glyph ? (
+                                          <svg role="img" aria-label={`${r.chars[cellIndex]} sliced letter`} viewBox={`0 0 ${glyph.cellW} ${glyph.cellH}`} style={{ display: 'block', width: '100%', height: 56 }}>
+                                            {glyph.paths.map((d, pathIndex) => <path key={pathIndex} d={d} fill="currentColor" />)}
+                                          </svg>
+                                        ) : (
+                                          <span role="img" aria-label={`${r.chars[cellIndex]} not traced`} className="fh-mono" style={{ display: 'grid', placeItems: 'center', height: 56, fontSize: 10, color: 'var(--flag-ink)' }}>empty</span>
+                                        )}
+                                        <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{r.chars[cellIndex]}</span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
                               );
                             })}
