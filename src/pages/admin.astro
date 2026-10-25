@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro';
 import { createAuth } from '../lib/auth';
 import { isAdminEmail } from '../lib/util';
+import { parseBugContext, formatBugContext } from '../lib/bugreport';
 
 export const prerender = false;
 
@@ -40,6 +41,35 @@ const { results: reports } = await env.DB.prepare(
     ORDER BY r.created_at DESC
     LIMIT 200`,
 ).all<ReportRow>();
+
+// Bug reports from the maker (ADR 0060), newest first, with their context
+// formatted the same way the email shows it.
+type BugRow = {
+  id: string;
+  message: string;
+  reply_email: string | null;
+  context: string;
+  sheet_key: string | null;
+  created_at: string;
+  reporter_handle: string | null;
+};
+// Deploys do not apply migrations, so until 0007 runs the table is missing; the
+// rest of the admin page must keep working and say what is needed.
+let bugRows: BugRow[] = [];
+let bugsMissing = false;
+try {
+  ({ results: bugRows } = await env.DB.prepare(
+    `SELECT b.id, b.message, b.reply_email, b.context, b.sheet_key, b.created_at, u.handle AS reporter_handle
+       FROM bug_reports b
+       LEFT JOIN "user" u ON u.id = b.user_id
+      WHERE b.status = 'open'
+      ORDER BY b.created_at DESC
+      LIMIT 200`,
+  ).all<BugRow>());
+} catch {
+  bugsMissing = true;
+}
+const bugs = (bugRows ?? []).map((b) => ({ ...b, contextText: formatBugContext(parseBugContext(b.context)) }));
 
 type UserRow = {
   id: string;
@@ -128,6 +158,37 @@ const td = 'font-size:12.5px;color:var(--ink);padding:9px 12px 9px 0;border-top:
       )}
     </section>
 
+    <section class="fh-pad" style="padding:28px 0;border-bottom:1px solid var(--line);">
+      <div class="fh-eyebrow" style="margin-bottom:14px;">Bug reports · {bugs.length} open</div>
+      {bugs.length > 0 ? (
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          {bugs.map((b) => (
+            <div data-bug-row style="border:1px solid var(--line);border-radius:3px;padding:14px 16px;display:flex;gap:16px;flex-wrap:wrap;">
+              {b.sheet_key && (
+                <a href={`/cdn/${b.sheet_key}`} target="_blank" rel="noopener" title="open the full sheet">
+                  <img src={`/cdn/${b.sheet_key}`} alt="attached sheet" loading="lazy" style="width:180px;max-height:180px;object-fit:contain;border:1px solid var(--line);background:#fff;" />
+                </a>
+              )}
+              <div style="flex:1;min-width:260px;">
+                <p class="fh-mono" style="font-size:11px;color:var(--ink-faint);margin:0 0 6px;">
+                  {day(b.created_at)} · {b.reporter_handle ? `@${b.reporter_handle}` : 'anonymous'}
+                  {b.reply_email ? ` · reply to ${b.reply_email}` : ''}
+                </p>
+                <p style="font-size:13px;color:var(--ink);margin:0 0 10px;white-space:pre-wrap;">{b.message || '(no note)'}</p>
+                <pre class="fh-mono" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;white-space:pre-wrap;line-height:1.5;">{b.contextText || '(no context)'}</pre>
+                <button class="fh-btn fh-btn--ghost" data-admin="resolve-bug" data-bug-id={b.id} data-confirm={b.sheet_key ? 'Close this report? The attached sheet is deleted.' : undefined} style="font-size:11px;padding:5px 9px;">
+                  {b.sheet_key ? 'close (deletes sheet)' : 'close'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p class="fh-mono" style="font-size:12.5px;color:var(--ink-faint);">
+          {bugsMissing ? 'The bug_reports table is missing. Run npm run db:apply:remote.' : 'No open bug reports.'}
+        </p>
+      )}
+    </section>
     <section class="fh-pad" style="padding:28px 0;border-bottom:1px solid var(--line);">
       <div class="fh-eyebrow" style="margin-bottom:14px;">Reports · {reports?.length ?? 0} open</div>
       {reports && reports.length > 0 ? (
@@ -252,6 +313,7 @@ const td = 'font-size:12.5px;color:var(--ink);padding:9px 12px 9px 0;border-top:
       if (kind === 'ban') ({ error } = await actions.banUser({ userId: b.dataset.userId! }));
       else if (kind === 'unban') ({ error } = await actions.unbanUser({ userId: b.dataset.userId! }));
       else if (kind === 'resolve') ({ error } = await actions.resolveReport({ reportId: b.dataset.reportId! }));
+      else if (kind === 'resolve-bug') ({ error } = await actions.resolveBugReport({ reportId: b.dataset.bugId! }));
       else if (kind === 'remove-font') ({ error } = await actions.removeFont({ fontId: b.dataset.fontId! }));
       else {
         b.disabled = false;

@@ -4,11 +4,12 @@ import { createAuth } from '../lib/auth';
 import { ensureHandle, uniqueFontId, isAdminEmail, normalizeHandle, isValidHandle, RESERVED_HANDLES } from '../lib/util';
 import { verifySfntChecksums } from '../lib/sfnt';
 import { isOtf, isTtf, isWoff2 } from '../lib/fontsig';
-import { imageExt, isPng, MIN_AVATAR_BYTES, MAX_AVATAR_BYTES, AVATAR_CONTENT_TYPE } from '../lib/imagesig';
+import { imageExt, isPng, isJpeg, MIN_AVATAR_BYTES, MAX_AVATAR_BYTES, AVATAR_CONTENT_TYPE } from '../lib/imagesig';
 import { rateLimit } from '../lib/ratelimit';
 import { editedFontMeta } from '../lib/fonts';
 import { containsBannedWord } from '../lib/banned-words';
 import { sendFeedbackEmail } from '../lib/email';
+import { parseBugContext, formatBugContext, hasBugSubstance, MIN_BUG_SHEET_BYTES, MAX_BUG_SHEET_BYTES } from '../lib/bugreport';
 
 // Soft ban: a suspended account can still sign in and browse, but every mutation
 // runs through here, so this one check makes the whole account read-only.
@@ -156,6 +157,99 @@ export const server = {
         message: input.message.trim(),
         replyTo,
         page: input.page?.trim() || undefined,
+        account,
+      });
+      return { ok: true };
+    },
+  }),
+
+  // The in-maker bug report (ADR 0060). Like /support it needs no account, but it
+  // carries the maker's own context (sanitized to a fixed set of bounded keys)
+  // and, only when the person ticks the box, a downscaled copy of their sheet.
+  // The report is stored for the admin queue first; the email is best-effort.
+  submitBugReport: defineAction({
+    accept: 'form',
+    input: z.object({
+      message: z.string().max(2000).optional(),
+      email: z.string().max(200).optional(),
+      context: z.string().max(8000).optional(),
+      sheet: z.instanceof(File).optional(),
+      // honeypot: a hidden field a real user never fills, but a bot will
+      website: z.string().max(200).optional(),
+    }),
+    handler: async (input, ctx) => {
+      if (input.website && input.website.trim()) return { ok: true };
+      const env = ctx.locals.runtime.env;
+      const ip = ctx.request.headers.get('cf-connecting-ip') || 'anon';
+      await limit(env, ip, 'bugreport', 5, 3600);
+
+      const message = (input.message || '').trim();
+      const context = parseBugContext(input.context);
+
+      // the sheet is validated by magic bytes and size, never by the declared type
+      let sheet: { bytes: Uint8Array; ext: 'jpg' | 'png' } | null = null;
+      if (input.sheet && input.sheet.size > 0) {
+        const bytes = new Uint8Array(await input.sheet.arrayBuffer());
+        if (bytes.length < MIN_BUG_SHEET_BYTES || bytes.length > MAX_BUG_SHEET_BYTES) {
+          throw new ActionError({ code: 'BAD_REQUEST', message: 'That sheet could not be attached. Send the report without it.' });
+        }
+        const ext = isJpeg(bytes) ? 'jpg' : isPng(bytes) ? 'png' : null;
+        if (!ext) {
+          throw new ActionError({ code: 'BAD_REQUEST', message: 'That sheet could not be attached. Send the report without it.' });
+        }
+        sheet = { bytes, ext };
+      }
+
+      if (!hasBugSubstance(message, context, !!sheet)) {
+        throw new ActionError({ code: 'BAD_REQUEST', message: 'Add a note about what went wrong.' });
+      }
+
+      // account context if signed in (never required)
+      let userId: string | null = null;
+      let account: string | undefined;
+      try {
+        const auth = createAuth(env);
+        const session = await auth.api.getSession({ headers: ctx.request.headers });
+        if (session) {
+          userId = session.user.id;
+          account = session.user.email;
+        }
+      } catch {
+        /* stay anonymous on any auth error */
+      }
+
+      const id = crypto.randomUUID();
+      const replyTo = input.email && input.email.includes('@') ? input.email.trim() : undefined;
+      let sheetKey: string | null = null;
+      if (sheet) {
+        sheetKey = `bugs/${id}.${sheet.ext}`;
+        await env.FONTS.put(sheetKey, sheet.bytes, {
+          httpMetadata: { contentType: sheet.ext === 'png' ? 'image/png' : 'image/jpeg' },
+        });
+      }
+      try {
+        await env.DB.prepare(
+          'INSERT INTO bug_reports (id, message, reply_email, user_id, context, sheet_key) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+          .bind(id, message, replyTo ?? null, userId, JSON.stringify(context), sheetKey)
+          .run();
+      } catch (e) {
+        // never leave an orphaned sheet behind a report that was not stored
+        if (sheetKey) await env.FONTS.delete(sheetKey).catch(() => {});
+        throw e;
+      }
+
+      await sendFeedbackEmail(env, {
+        kind: 'bug',
+        message: [
+          message || '(no note)',
+          '',
+          '--- maker context ---',
+          formatBugContext(context) || '(none)',
+          sheetKey ? '\nSheet attached: open the admin page to view it.' : '',
+        ].join('\n'),
+        replyTo,
+        page: 'maker',
         account,
       });
       return { ok: true };
@@ -532,6 +626,25 @@ export const server = {
     },
   }),
 
+  // Admin: close a bug report. The attached sheet is someone's handwriting, sent
+  // only so a bug could be fixed, so closing the report deletes it from R2.
+  resolveBugReport: defineAction({
+    input: z.object({ reportId: z.string().min(1) }),
+    handler: async ({ reportId }, ctx) => {
+      const { env, email } = await requireUser(ctx);
+      if (!isAdmin(env, email)) throw new ActionError({ code: 'FORBIDDEN', message: 'Not allowed.' });
+      const row = await env.DB.prepare('SELECT sheet_key FROM bug_reports WHERE id = ?')
+        .bind(reportId)
+        .first<{ sheet_key: string | null }>();
+      if (!row) throw new ActionError({ code: 'NOT_FOUND', message: 'No such report.' });
+      if (row.sheet_key) await env.FONTS.delete(row.sheet_key);
+      await env.DB.prepare("UPDATE bug_reports SET status = 'resolved', sheet_key = NULL WHERE id = ?")
+        .bind(reportId)
+        .run();
+      return { ok: true };
+    },
+  }),
+
   // Live availability for the handle picker. Read-only: returns the normalized
   // form and whether it is free, taken, or not a valid handle.
   checkHandle: defineAction({
@@ -709,6 +822,13 @@ export const server = {
         .bind(userId)
         .first<{ image: string | null }>();
       if (urow?.image) r2keys.push(urow.image);
+      // sheets the user attached to bug reports (ADR 0060)
+      const { results: myBugs } = await env.DB.prepare(
+        'SELECT sheet_key FROM bug_reports WHERE user_id = ? AND sheet_key IS NOT NULL',
+      )
+        .bind(userId)
+        .all<{ sheet_key: string }>();
+      for (const b of myBugs ?? []) r2keys.push(b.sheet_key);
 
       // purge R2 first, best-effort: a stray object is harmless, a kept account is not
       await Promise.allSettled(r2keys.map((k) => env.FONTS.delete(k)));
@@ -739,6 +859,7 @@ export const server = {
       await env.DB.prepare('DELETE FROM favorites WHERE user_id = ?').bind(userId).run();
       await env.DB.prepare('DELETE FROM reports WHERE reported_user_id = ?').bind(userId).run();
       await env.DB.prepare('UPDATE reports SET reporter_id = NULL WHERE reporter_id = ?').bind(userId).run();
+      await env.DB.prepare('DELETE FROM bug_reports WHERE user_id = ?').bind(userId).run();
 
       // auth records last, then the account itself
       await env.DB.prepare('DELETE FROM session WHERE "userId" = ?').bind(userId).run();

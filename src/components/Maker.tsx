@@ -37,6 +37,7 @@ import {
   type SlicerKind,
   type Glyph,
 } from '../lib/maker';
+import BugReport from './BugReport';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
 type StageState = 'queued' | 'active' | 'done';
@@ -208,6 +209,56 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [editIdx]);
+
+  // What the bug report sends along (ADR 0060): the maker's own state, so the
+  // person never has to explain their settings. Keys must match bugreport.ts.
+  function bugContext(): Record<string, unknown> {
+    return {
+      where: 'maker',
+      phase,
+      stage: stages[stageIdx]?.key,
+      kind,
+      error: error || undefined,
+      errorClass: error ? classifyBuildError(error) : undefined,
+      warning: warning || undefined,
+      preset,
+      fineDetail,
+      spacing,
+      trimFlourishes,
+      connect,
+      italic,
+      naturalVariation,
+      charsetLines: charsetText.split('\n').filter((l) => l.trim()).length,
+      detectedRows: detectedRows ?? undefined,
+      glyphCount,
+      flaggedCount,
+      sheetW: sheet?.w,
+      sheetH: sheet?.h,
+      userAgent: navigator.userAgent,
+      viewport: `${window.innerWidth}x${window.innerHeight}`,
+      dpr: window.devicePixelRatio,
+    };
+  }
+
+  // The sheet for a bug report, only when the person opts in: the source image
+  // flattened onto white (JPEG has no alpha) and capped at 2400px on the long
+  // side, which keeps enough detail to reproduce a bad trace at a modest size.
+  async function bugSheet(): Promise<Blob | null> {
+    const img = sheetImgRef.current;
+    if (!img) return null;
+    const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
+    const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
+    const scale = Math.min(1, 2400 / Math.max(iw, ih));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(iw * scale));
+    c.height = Math.max(1, Math.round(ih * scale));
+    const cx = c.getContext('2d');
+    if (!cx) return null;
+    cx.fillStyle = '#fff';
+    cx.fillRect(0, 0, c.width, c.height);
+    cx.drawImage(img as CanvasImageSource, 0, 0, c.width, c.height);
+    return new Promise((resolve) => c.toBlob((b) => resolve(b), 'image/jpeg', 0.9));
+  }
 
   const setStage = (i: number, msg: string) => {
     setStageIdx((cur) => (i > cur ? i : cur));
@@ -1345,6 +1396,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             <p className="fh-mono" style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{log || 'working…'}</p>
           )}
         </div>
+
+        <BugReport failed={phase === 'error'} hasSheet={!!sheet} getContext={bugContext} getSheet={bugSheet} />
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { createAuth } from '../../lib/auth';
+import { isAdminEmail } from '../../lib/util';
 
 export const prerender = false;
 
@@ -77,6 +78,26 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
         'access-control-allow-origin': '*',
       }),
     );
+  }
+
+  // Sheets attached to bug reports (ADR 0060): admin-only, never cached. Anyone
+  // else gets the same 404 as a missing object, so the route reveals nothing.
+  if (key && /^bugs\/[0-9a-f-]{36}\.(jpg|png)$/.test(key)) {
+    const auth = createAuth(env);
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session || !isAdminEmail(env.ADMIN_EMAILS, session.user.email)) {
+      return new Response('Not found', { status: 404 });
+    }
+    const object = await env.FONTS.get(key);
+    if (!object) return new Response('Not found', { status: 404 });
+    return new Response(object.body, {
+      headers: {
+        'content-type': key.endsWith('.png') ? 'image/png' : 'image/jpeg',
+        'x-content-type-options': 'nosniff',
+        'x-frame-options': 'DENY',
+        'cache-control': 'private, no-store',
+      },
+    });
   }
 
   if (!key || !/^fonts\/[\w.-]+\.(otf|ttf|woff2)$/.test(key)) {
