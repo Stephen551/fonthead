@@ -67,6 +67,7 @@ left out — they live in CLAUDE.md, not here.
 | [0052](0052-assembled-seam-feedback-pass-losers-park-themselves.md) | The assembled seam feedback pass: a probe build senses every fired exit seam and a losing alternate parks itself | Accepted (director accepted; milestone closed + deployed 2026-07-03, hook opt-in) |
 | [0058](0058-google-analytics-4-gtag-csp-allowlist.md) | Google Analytics 4 via the standard Google tag in the Base layout, gated off localhost; the CSP allows Google's documented Analytics-only hosts (amends 0016) | Accepted |
 | [0059](0059-light-ink-rows-fold-slivers.md) | Sliver row bands fold into the row they nearly touch before the two row reads are compared, so a light pen no longer fragments into phantom rows | Accepted |
+| [0060](0060-in-maker-bug-report.md) | In-maker bug report: the maker's context rides along automatically, the sheet only by opt-in, stored for an admin queue before the best-effort email | Accepted |
 
 ## Format
 
