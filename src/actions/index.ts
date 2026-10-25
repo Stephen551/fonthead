@@ -10,6 +10,7 @@ import { editedFontMeta } from '../lib/fonts';
 import { containsBannedWord } from '../lib/banned-words';
 import { sendFeedbackEmail } from '../lib/email';
 import { parseBugContext, formatBugContext, hasBugSubstance, MIN_BUG_SHEET_BYTES, MAX_BUG_SHEET_BYTES } from '../lib/bugreport';
+import { submitMakerReview } from './reviews';
 
 // Soft ban: a suspended account can still sign in and browse, but every mutation
 // runs through here, so this one check makes the whole account read-only.
@@ -55,6 +56,7 @@ async function assertInteractable(env: Env, fontId: string, userId: string) {
 const MAX_FONT_BYTES = 5 * 1024 * 1024;
 
 export const server = {
+  submitMakerReview,
   toggleVote: defineAction({
     input: z.object({ fontId: z.string().min(1) }),
     handler: async ({ fontId }, ctx) => {
@@ -860,6 +862,7 @@ export const server = {
       await env.DB.prepare('DELETE FROM reports WHERE reported_user_id = ?').bind(userId).run();
       await env.DB.prepare('UPDATE reports SET reporter_id = NULL WHERE reporter_id = ?').bind(userId).run();
       await env.DB.prepare('DELETE FROM bug_reports WHERE user_id = ?').bind(userId).run();
+      await env.DB.prepare('DELETE FROM maker_reviews WHERE user_id = ?').bind(userId).run();
 
       // auth records last, then the account itself
       await env.DB.prepare('DELETE FROM session WHERE "userId" = ?').bind(userId).run();

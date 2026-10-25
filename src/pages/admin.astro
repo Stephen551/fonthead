@@ -71,6 +71,18 @@ try {
 }
 const bugs = (bugRows ?? []).map((b) => ({ ...b, contextText: formatBugContext(parseBugContext(b.context)) }));
 
+type MakerReviewRow = {
+  id: string;
+  rating: number;
+  message: string;
+  allow_public: number;
+  permission_text: string | null;
+  created_at: string;
+};
+const { results: makerReviews } = await env.DB.prepare(
+  'SELECT id, rating, message, allow_public, permission_text, created_at FROM maker_reviews ORDER BY created_at DESC LIMIT 100',
+).all<MakerReviewRow>();
+
 type UserRow = {
   id: string;
   name: string;
@@ -156,6 +168,23 @@ const td = 'font-size:12.5px;color:var(--ink);padding:9px 12px 9px 0;border-top:
       ) : (
         <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);">no events yet</p>
       )}
+    </section>
+
+    <section class="fh-pad" style="padding:28px 0;border-bottom:1px solid var(--line);">
+      <div class="fh-eyebrow" style="margin-bottom:14px;">Maker reviews · latest {makerReviews?.length ?? 0}</div>
+      <p style="font-size:12px;color:var(--ink-soft);margin:0 0 14px;line-height:1.5;">Reviews are kept here for the team. Permission allows anonymous display on Fonthead; it does not publish a review automatically.</p>
+      {makerReviews?.length ? (
+        <div style="display:grid;gap:12px;">
+          {makerReviews.map(review => (
+            <article data-review-id={review.id} style="border:1px solid var(--line);border-radius:3px;padding:14px 16px;min-width:0;">
+              <p class="fh-mono" style="font-size:12px;margin:0 0 8px;color:var(--ink);">{review.rating}/5 · {day(review.created_at)}</p>
+              <p style="font-size:13px;margin:0 0 10px;white-space:pre-wrap;overflow-wrap:anywhere;">{review.message || '(rating only)'}</p>
+              <p class="fh-mono" style="font-size:11.5px;margin:0;color:var(--ink-soft);">{review.allow_public ? 'Public display permitted · anonymous' : 'Private feedback · do not publish'}</p>
+              {review.allow_public && <p style="font-size:11px;color:var(--ink-faint);margin:6px 0 0;">Permission given: {review.permission_text}</p>}
+            </article>
+          ))}
+        </div>
+      ) : <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);">No maker reviews yet.</p>}
     </section>
 
     <section class="fh-pad" style="padding:28px 0;border-bottom:1px solid var(--line);">

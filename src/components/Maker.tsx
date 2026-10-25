@@ -38,6 +38,7 @@ import {
   type Glyph,
 } from '../lib/maker';
 import BugReport from './BugReport';
+import ReviewPrompt from './ReviewPrompt';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
 type StageState = 'queued' | 'active' | 'done';
@@ -114,6 +115,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [log, setLog] = useState<string>('');
   const [traceSummary, setTraceSummary] = useState('');
   const [result, setResult] = useState<FontResult | null>(null);
+  const [downloads, setDownloads] = useState(0);
   const [glyphCount, setGlyphCount] = useState(0);
   const [builtVariantCount, setBuiltVariantCount] = useState(0);
   const [elapsed, setElapsed] = useState(0);
@@ -1379,6 +1381,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                       onClick={() => {
                         track('download', fmt);
                         downloadFont(result[fmt] as Uint8Array, family.trim() || 'Handmade', fmt);
+                        setDownloads(n => n + 1);
                       }}
                     >
                       download {fmt}
@@ -1387,6 +1390,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
               </div>
 
+              <ReviewPrompt downloads={downloads} />
               {/* publish to the library */}
               <div style={{ marginTop: 22, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
                 <span className="fh-eyebrow" style={{ display: 'block', marginBottom: 12 }}>03 · publish to the library</span>
