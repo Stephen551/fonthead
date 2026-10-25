@@ -49,6 +49,14 @@ describe('guessCharset', () => {
 });
 
 describe('guessCharsetFromRows (per-row cell counts)', () => {
+  it('keeps the standard seven-row punctuation mapping when decorations add cells', () => {
+    for (const cells of [[13, 13, 13, 13, 12, 20, 13], [13, 13, 12, 13, 10, 17, 13]]) {
+      expect(guessCharsetFromRows(cells).slice(4)).toEqual([
+        '0123456789', '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|',
+      ]);
+    }
+  });
+
   it('always returns one line per detected row', () => {
     expect(guessCharsetFromRows([13, 13, 13, 13, 10, 17, 14])).toHaveLength(7);
     expect(guessCharsetFromRows([13, 13, 13, 13]).length).toBe(4);

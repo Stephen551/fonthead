@@ -71,6 +71,8 @@ left out — they live in CLAUDE.md, not here.
 
 | [0061](0061-smooth-terminal-joins.md) | Opt-in smooth joins reconstruct measured terminal strokes with shared endpoints, tangents and widths | Accepted |
 
+| [0062](0062-decorated-row-valleys-and-foreign-fragments.md) | Recover decorated rows, retain the standard symbol mapping, and exclude connected neighboring fragments from digit cuts | Accepted |
+
 ## Format
 
 Each ADR records Context (the problem), Decision (what was chosen), Alternatives

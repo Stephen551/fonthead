@@ -183,6 +183,27 @@ export function waitForEngine(timeoutMs = 15000): Promise<void> {
 export type SlicerKind = 'auto' | 'whitespace' | 'anchored' | 'components' | 'ownership';
 type PickedSlicer = Exclude<SlicerKind, 'auto'>;
 
+/** A valley can cut through a neighboring row's tip. Ignore an isolated run
+ * only when its shallow ink actually continues beyond this band's edge. A
+ * detached dot or decorative mark wholly inside the row is never discarded. */
+export function dropForeignRowFragments(data: Uint8ClampedArray, W: number, y0: number, y1: number, ranges: number[][]): number[][] {
+  const H = data.length / (4 * W), h = y1 - y0;
+  const ink = (x: number, y: number) => x >= 0 && x < W && y >= 0 && y < H && data[(y * W + x) * 4] === 0;
+  return ranges.filter(([x0, x1]) => {
+    let top = y1, bottom = y0 - 1;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      if (ink(x, y)) { top = Math.min(top, y); bottom = Math.max(bottom, y); }
+    }
+    const crosses = (inside: number, outside: number) => {
+      for (let x = x0; x < x1; x++) if (ink(x, inside) && [x - 1, x, x + 1].some(nx => ink(nx, outside))) return true;
+      return false;
+    };
+    if (bottom < y0 + h * 0.25 && crosses(y0, y0 - 1)) return false;
+    if (top > y1 - h * 0.25 && crosses(y1 - 1, y1)) return false;
+    return true;
+  });
+}
+
 function pickRanges(
   data: Uint8ClampedArray,
   W: number,
@@ -223,6 +244,15 @@ function pickRanges(
   }
   const ws = TC.sliceRowByWhitespace(data, W, y0, y1);
   if (ws.length === expected) return { ranges: ws, ownerFn: null, slicer: 'whitespace', forced: false, naturalCount: ws.length };
+  if (ws.length > expected) {
+    const fragmentsRemoved = dropForeignRowFragments(data, W, y0, y1, ws);
+    // Rejoin tiny internal gaps (for example the rays beside a doodled 6)
+    // using the same rule as the geometry probe, after excluding foreign ink.
+    const clean = fragmentsRemoved.length < ws.length ? mergeNarrowRuns(fragmentsRemoved) : ws;
+    // Only adopt this repair when it recovers the requested natural count.
+    // Otherwise preserve the established fallback and its forced-cut warning.
+    if (clean.length === expected) return { ranges: clean, ownerFn: null, slicer: 'whitespace', forced: false, naturalCount: clean.length };
+  }
   return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: true, naturalCount: ws.length };
 }
 
@@ -735,6 +765,13 @@ export function guessCharsetFromRows(cellsPerRow: number[]): string[] {
     lines.push(DIGITS);
     i++;
   }
+  // Recognize the standard seven-row generator template. Detached rays and
+  // stars can add whitespace cells to its 17-symbol row; allowing those cells
+  // to advance the punctuation bank mislabels both rows. The final 13-symbol
+  // row is the anchor; other layouts retain their editable, count-based guess.
+  if (split && n === 7 && i === 5 && cellsPerRow[5] >= 17 && cellsPerRow[5] <= 20 && cellsPerRow[6] === 13) {
+    return [...lines, PUNCT_BANK.slice(0, 17), PUNCT_BANK.slice(17, 30)];
+  }
   // the remaining rows are punctuation, sized to each row's cell count and
   // advancing through the bank so two punctuation rows do not collide
   let p = 0;
@@ -783,11 +820,11 @@ const SHADOW_ROW_THRESHOLD = 64;
 // row detector fuses them (a Nano Banana sheet fused rows 1-4 into one band).
 // A true row boundary still reads as a deep VALLEY in the per-scanline ink
 // profile — the color path splits rows this way already; this is the mono twin.
-// A valley this far under the SMALLER flanking peak is a row boundary. 0.2, not
-// lower: a row with six descenders rains ~40px of ink through a sparse digit
-// row's line (nano-v2: valley 39 vs digit peak 222, ratio 0.176), while a real
-// in-row minimum measures 0.4+ of its flanks — the classes are far apart.
-const VALLEY_FRAC = 0.2;
+// A valley this far under the SMALLER flanking peak is a row boundary. Doodle
+// decorations can reach through the number/symbol gap (field sheet: 68.6 vs
+// 314.2, ratio 0.218). Accept that gap while keeping shallow in-letter valleys
+// intact; the minimum-height and even-spacing guards still apply.
+const VALLEY_FRAC = 0.25;
 const VALLEY_MIN_ROW = 40; // px — never produce a band shorter than this
 const VALLEY_EVEN_RATIO = 2.6; // guard: accept a split only if band heights stay plausibly even
 

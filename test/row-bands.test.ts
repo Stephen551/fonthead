@@ -1,5 +1,38 @@
 import { describe, it, expect } from 'vitest';
-import { mergeSliverBands } from '../src/lib/maker';
+import { dropForeignRowFragments, mergeSliverBands, splitBandsAtValleys } from '../src/lib/maker';
+import graffitiProfile from './fixtures/graffiti-row-profile.json';
+
+describe('decorated row valleys', () => {
+  it('discards only shallow runs connected to ink outside the row', () => {
+    const width = 80, height = 140;
+    const data = new Uint8ClampedArray(width * height * 4).fill(255);
+    const rect = (x: number, top: number, bottom: number) => {
+      for (let y = top; y < bottom; y++) for (let dx = 0; dx < 5; dx++) data[(y * width + x + dx) * 4] = 0;
+    };
+    rect(5, 0, 18); // the preceding row's tail crosses the band's top
+    rect(20, 102, 130); // the following row's tip crosses its bottom
+    rect(35, 10, 18); // a detached decoration, with no connection above
+    rect(50, 10, 115); // a real tall character, touching both boundaries
+    rect(65, 90, 110); // a detached low mark, with no connection below
+    expect(dropForeignRowFragments(data, width, 10, 110, [[5, 10], [20, 25], [35, 40], [50, 55], [65, 70]]))
+      .toEqual([[35, 40], [50, 55], [65, 70]]);
+  });
+
+  it('recovers all seven rows when decorations bridge the number/symbol gap', () => {
+    const rows = splitBandsAtValleys(graffitiProfile.profile, graffitiProfile.bands);
+    expect(rows).toHaveLength(7);
+    // The first two and last rows were already separated by white space.
+    expect(rows.slice(0, 2)).toEqual(graffitiProfile.bands.slice(0, 2));
+    expect(rows[6]).toEqual(graffitiProfile.bands[3]);
+    expect(rows[4][1]).toBeGreaterThan(590);
+    expect(rows[4][1]).toBeLessThan(610);
+  });
+
+  it('does not split a shallow valley inside a letter row', () => {
+    const profile = Array.from({ length: 120 }, (_, y) => y >= 50 && y < 70 ? 35 : 100);
+    expect(splitBandsAtValleys(profile, [[0, 119]])).toEqual([[0, 119]]);
+  });
+});
 
 // Row bands as detectRowsInBinary returns them: [y0, y1) runs of inked scanlines.
 // Both reads below are the measured bands of a light-ballpoint scan of the
