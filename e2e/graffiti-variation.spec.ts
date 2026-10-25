@@ -76,6 +76,71 @@ test('re-slicing a varied font preserves all three drawings and the base sheet',
   expect(await page.evaluate(() => (window as any).__lastBuild.variants)).toBe(2);
 });
 
+test('every variation sheet has independent row controls', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/make');
+  await page.locator('#sheet-file').setInputFiles([1, 2, 3].map(n => `e2e/fixtures/graffiti-variation-${n}.png`));
+  await expect(page.getByRole('button', { name: 'download woff2', exact: true })).toBeVisible({ timeout: 180_000 });
+  let before = await exportedFont(page);
+  // A different contour preset makes the edited row observably different even
+  // when both slicers happen to find the same whitespace cuts.
+  await page.getByRole('button', { name: 'advanced' }).click();
+  await page.getByRole('button', { name: 'logo', exact: true }).click();
+  for (const sheet of [2, 3]) {
+    const group = page.getByRole('group', { name: `Sheet ${sheet} · variation`, exact: true });
+    await expect(group).toBeVisible();
+    await expect(group.getByRole('combobox')).toHaveCount(7);
+    const select = group.getByRole('combobox').first();
+    await select.selectOption('anchored');
+    await group.getByRole('button', { name: 're-slice', exact: true }).first().click();
+    await expect(group.getByRole('button', { name: 'slicing…', exact: true })).toBeVisible();
+    await expect(group.getByRole('button', { name: 'slicing…', exact: true })).toHaveCount(0, { timeout: 120_000 });
+    expect(await page.getByRole('alert').allTextContents()).toEqual([]);
+    await expect(select).toHaveValue('anchored');
+    await select.focus();
+    await page.keyboard.press('Tab');
+    await expect(group.getByRole('button', { name: 're-slice', exact: true }).first()).toBeFocused();
+    const after = await exportedFont(page);
+    expectThreeDrawings(after);
+    const targetSuffix = `.cv0${sheet - 1}`;
+    let changed = 0;
+    for (let i = 0; i < before.numGlyphs; i++) {
+      const a = before.getGlyph(i);
+      const b = after.getGlyph(i);
+      if (/^[A-M]/.test(a.name) && a.name.endsWith(targetSuffix)) {
+        if (JSON.stringify(a.path.commands) !== JSON.stringify(b.path.commands)) changed++;
+      } else if (a.name.endsWith(targetSuffix)) {
+        // The edited sheet's cap-height estimate can move Q's baseline. Keep
+        // its outline: only a uniform Y translation plus integer rounding is
+        // allowed. Other sheets below must remain exactly unchanged.
+        expect(b.path.commands.map((c: any) => c.command)).toEqual(a.path.commands.map((c: any) => c.command));
+        const dy: number[] = [];
+        a.path.commands.forEach((c: any, j: number) => c.args.forEach((v: number, k: number) => {
+          if (k % 2 === 0) expect(b.path.commands[j].args[k], `${a.name} x`).toBe(v);
+          else dy.push(b.path.commands[j].args[k] - v);
+        }));
+        if (dy.length) expect(Math.max(...dy) - Math.min(...dy), `${a.name} outline`).toBeLessThanOrEqual(1);
+      } else {
+        expect(b.path.commands, `untouched ${a.name}`).toEqual(a.path.commands);
+      }
+    }
+    expect(changed, `sheet ${sheet}'s selected row actually changed`).toBeGreaterThan(0);
+    before = after;
+  }
+  await expect(page.getByRole('group', { name: 'Sheet 1 · base alphabet', exact: true }).getByRole('combobox').first()).toHaveValue('auto');
+  for (const width of [375, 768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    const group = page.getByRole('group', { name: 'Sheet 3 · variation', exact: true });
+    await group.screenshot({ path: test.info().outputPath(`sheet-3-${width}.png`) });
+    expect(await group.evaluate(el => [el, ...el.querySelectorAll('*')].every(node => {
+      const box = node.getBoundingClientRect();
+      return box.left >= 0 && box.right <= innerWidth;
+    })), `sheet controls fit at ${width}px`).toBe(true);
+  }
+  expect(errors).toEqual([]);
+});
+
 test('decorated seven-row sheets build a complete three-drawing variation font', async ({ page }) => {
   await page.goto('/make');
   await page.locator('#font-name').fill('Graffiti Variations');

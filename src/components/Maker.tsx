@@ -182,10 +182,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [sheet, setSheet] = useState<{ url: string; w: number; h: number; geom: SheetGeometry } | null>(null);
   const sheetImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
   // mono per-row slicing: diagnostics + which row (if any) is being re-sliced
-  const [monoRows, setMonoRows] = useState<MonoRowInfo[]>([]);
-  const [rowBusy, setRowBusy] = useState<number | null>(null);
+  const [monoSheets, setMonoSheets] = useState<{ label: string; rows: MonoRowInfo[] }[]>([]);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [rowErr, setRowErr] = useState('');
-  const [rowSlicerSel, setRowSlicerSel] = useState<Record<number, SlicerKind>>({});
+  const [rowSlicerSel, setRowSlicerSel] = useState<Record<string, SlicerKind>>({});
   const traceOpts = { ...TRACE_PRESETS[preset], fineDetail };
 
   const isColor = kind !== 'mono';
@@ -317,7 +317,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setColrStatus('');
     setReport([]);
     setEditIdx(null);
-    setMonoRows([]);
+    setMonoSheets([]);
+    setRowSlicerSel({});
     setRowErr('');
     const rows = charLinesOverride ?? parseCharset(charsetText);
     const t0 = performance.now();
@@ -374,7 +375,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         count = trace.glyphs.length;
         warn = trace.rowWarning;
         rep = trace.report;
-        setMonoRows(trace.rows);
+        const sheetRows = [{ label: 'Sheet 1 · base alphabet', rows: trace.rows }];
         const useConnect = connect;
         // natural variation: trace each extra sheet against the SAME charset and
         // merge into one glyph list (bases + .cv01/.cv02) before building, so a
@@ -385,16 +386,20 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         let glyphsForBuild = trace.glyphs;
         if (useVariation) {
           const variantSheets: Glyph[][] = [];
-          for (const vimg of variationImgsRef.current) {
+          for (const [slot, vimg] of variationImgsRef.current.entries()) {
             if (!vimg) continue;
             const vtrace = await traceSheet(vimg, rows, effTraceOpts, undefined, 'variation');
-            if (vtrace.glyphs.length) variantSheets.push(vtrace.glyphs);
+            if (vtrace.glyphs.length) {
+              variantSheets.push(vtrace.glyphs);
+              sheetRows.push({ label: `Sheet ${slot + 2} · variation`, rows: vtrace.rows });
+            }
           }
           if (variantSheets.length) {
             glyphsForBuild = mergeVariantSheets([trace.glyphs, ...variantSheets]);
             variantSheetCount = variantSheets.length;
           }
         }
+        setMonoSheets(sheetRows);
         res = await buildFont(
           glyphsForBuild,
           {
@@ -603,18 +608,18 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   }
 
   // mono: re-slice one row with a chosen slicer and rebuild the font
-  async function applyRowEdit(rowIndex: number, slicer: SlicerKind) {
+  async function applyRowEdit(sheetIndex: number, rowIndex: number, slicer: SlicerKind) {
     if (buildBusyRef.current) return;
     buildBusyRef.current = true;
-    setRowBusy(rowIndex);
+    setRowBusy(`${sheetIndex}:${rowIndex}`);
     setRowErr('');
     try {
-      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, connect ? false : trimFlourishes, connect, undefined, undefined, connect && smoothJoins, italic && !connect ? 'Italic' : 'Regular');
+      const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, connect ? false : trimFlourishes, connect, undefined, undefined, connect && smoothJoins, italic && !connect ? 'Italic' : 'Regular', sheetIndex);
       setResult(r.result);
       setReport(r.report);
       setGlyphCount(r.glyphCount);
       setBuiltVariantCount(r.variants);
-      setMonoRows(r.rows);
+      setMonoSheets(sheets => sheets.map((sheet, i) => i === sheetIndex ? { ...sheet, rows: r.rows } : sheet));
       const bytes = r.result.woff2 || r.result.otf;
       if (bytes) setPreviewFam(await loadPreviewFont(bytes as Uint8Array));
       (window as any).__lastBuild = {
@@ -1281,44 +1286,50 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                   )}
 
                   {/* mono per-row slicing: rescue a row whose cut came out wrong */}
-                  {!isColor && monoRows.length > 0 && (
+                  {!isColor && monoSheets.length > 0 && (
                     <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
                       <div className="fh-mono" style={{ fontSize: 10.5, letterSpacing: '.06em', marginBottom: 8, color: 'var(--ink-faint)' }}>
                         ROWS · re-slice any that came out wrong
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                        {monoRows.map((r) => {
-                          const off = r.cellCount !== r.expected || r.forced;
-                          const sel = rowSlicerSel[r.index] ?? 'auto';
-                          const busy = rowBusy === r.index;
-                          return (
-                            <div key={r.index} style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '7px 9px', border: `1px solid ${off ? 'var(--flag-line)' : 'var(--line)'}`, borderRadius: 2, background: 'var(--paper)' }}>
-                              <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink)', minWidth: 38 }}>row {r.index + 1}</span>
-                              <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', flex: 1, minWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.chars}</span>
-                              <span className="fh-mono" style={{ fontSize: 10.5, color: off ? 'var(--flag-ink)' : 'var(--ok)' }}>
-                                {r.cellCount}/{r.expected} · {r.slicer}{r.forced ? ' (forced)' : ''}
-                              </span>
-                              <select
-                                value={sel}
-                                disabled={rowBusy !== null}
-                                aria-label={`Slicer for row ${r.index + 1}`}
-                                onChange={(e) => setRowSlicerSel((m) => ({ ...m, [r.index]: e.target.value as SlicerKind }))}
-                                className="fh-mono"
-                                style={{ fontSize: 10.5, padding: '4px 6px', border: '1px solid var(--line-2)', borderRadius: 2, background: 'var(--paper)', color: 'var(--ink-soft)', cursor: 'pointer' }}
-                              >
-                                <option value="auto">auto</option>
-                                <option value="whitespace">whitespace</option>
-                                <option value="anchored">anchored</option>
-                                <option value="components">components</option>
-                                <option value="ownership">ownership</option>
-                              </select>
-                              <button className="fh-btn fh-btn--ghost" disabled={rowBusy !== null} onClick={() => applyRowEdit(r.index, sel)}>
-                                {busy ? 'slicing…' : 're-slice'}
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      {monoSheets.map((sheet, sheetIndex) => (
+                        <div key={sheetIndex} role="group" aria-label={sheet.label} style={{ marginTop: 14 }}>
+                          <h3 className="fh-mono" style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '0 0 8px' }}>{sheet.label}</h3>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                            {sheet.rows.map((r) => {
+                              const off = r.cellCount !== r.expected || r.forced;
+                              const rowKey = `${sheetIndex}:${r.index}`;
+                              const sel = rowSlicerSel[rowKey] ?? 'auto';
+                              const busy = rowBusy === rowKey;
+                              return (
+                                <div key={r.index} style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '7px 9px', border: `1px solid ${off ? 'var(--flag-line)' : 'var(--line)'}`, borderRadius: 2, background: 'var(--paper)' }}>
+                                  <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink)', minWidth: 38 }}>row {r.index + 1}</span>
+                                  <span className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', flex: 1, minWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.chars}</span>
+                                  <span className="fh-mono" style={{ fontSize: 10.5, color: off ? 'var(--flag-ink)' : 'var(--ok)' }}>
+                                    {r.cellCount}/{r.expected} · {r.slicer}{r.forced ? ' (forced)' : ''}
+                                  </span>
+                                  <select
+                                    value={sel}
+                                    disabled={rowBusy !== null}
+                                    aria-label={`${sheet.label}, slicer for row ${r.index + 1}`}
+                                    onChange={(e) => setRowSlicerSel((m) => ({ ...m, [rowKey]: e.target.value as SlicerKind }))}
+                                    className="fh-mono"
+                                    style={{ fontSize: 10.5, padding: '4px 6px', border: '1px solid var(--line-2)', borderRadius: 2, background: 'var(--paper)', color: 'var(--ink-soft)', cursor: 'pointer' }}
+                                  >
+                                    <option value="auto">auto</option>
+                                    <option value="whitespace">whitespace</option>
+                                    <option value="anchored">anchored</option>
+                                    <option value="components">components</option>
+                                    <option value="ownership">ownership</option>
+                                  </select>
+                                  <button className="fh-btn fh-btn--ghost" disabled={rowBusy !== null} onClick={() => applyRowEdit(sheetIndex, r.index, sel)}>
+                                    {busy ? 'slicing…' : 're-slice'}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
                       {rowErr && (
                         <p role="alert" className="fh-mono" style={{ fontSize: 11, color: 'var(--signal)', margin: '9px 0 0', lineHeight: 1.5 }}>{rowErr}</p>
                       )}

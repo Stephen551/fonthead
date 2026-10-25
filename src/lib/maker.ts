@@ -796,7 +796,7 @@ interface MonoSession {
   rowGlyphs: Glyph[][]; // traced glyphs, per row
   rowInfo: MonoRowInfo[];
   sourceImg: HTMLImageElement | ImageBitmap; // kept for fine-detail re-slices
-  variantSheets: Glyph[][];
+  variantSheets: MonoSession[];
 }
 let _monoSession: MonoSession | null = null;
 
@@ -1042,10 +1042,11 @@ export async function traceSheet(
   const report = reportForGlyphs(glyphs);
   // Variations belong to the base session. Replacing it here would make a row
   // edit silently switch to the last sheet and rebuild without the alternates.
+  const session: MonoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo, sourceImg: img, variantSheets: [] };
   if (sessionRole === 'variation') {
-    if (glyphs.length) _monoSession!.variantSheets.push(glyphs);
+    if (glyphs.length) _monoSession!.variantSheets.push(session);
   } else {
-    _monoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo, sourceImg: img, variantSheets: [] };
+    _monoSession = session;
   }
   return { glyphs, rowWarning: connectedWarning || rowWarning, detectedRows: bands.length, report, rows: rowInfo };
 }
@@ -1065,9 +1066,12 @@ export async function editMonoRow(
   onProgress?: Progress,
   smoothJoins?: boolean,
   style?: string,
+  sheetIndex = 0,
 ): Promise<{ result: FontResult; glyphCount: number; report: GlyphReport[]; rows: MonoRowInfo[]; variants: number }> {
-  const s = _monoSession;
-  if (!s) throw new Error('no mono build session — build a font first');
+  const base = _monoSession;
+  if (!base) throw new Error('no mono build session — build a font first');
+  const s = [base, ...base.variantSheets][sheetIndex];
+  if (!s) throw new Error('bad sheet index ' + sheetIndex);
   if (rowIndex < 0 || rowIndex >= s.rowGlyphs.length) throw new Error('bad row index ' + rowIndex);
   const prevGlyphs = s.rowGlyphs[rowIndex];
   const prevInfo = s.rowInfo[rowIndex];
@@ -1079,14 +1083,14 @@ export async function editMonoRow(
     s.rowGlyphs[rowIndex] = r.glyphs;
     s.opts = opts;
     s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: chars.length, glyphCount: r.glyphs.length };
-    const glyphs = s.rowGlyphs.flat();
-    if (!glyphs.length) throw new Error('no glyphs left after re-slicing this row');
+    if (!s.rowGlyphs.flat().length) throw new Error('no glyphs left after re-slicing this row');
+    const glyphs = base.rowGlyphs.flat();
     const result = await buildFont(
-      mergeVariantSheets([glyphs, ...s.variantSheets]),
-      { family: family.trim() || 'Handmade', style, formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes, connect, connectOverlapPct, smoothJoins, naturalVariation: s.variantSheets.length > 0 },
+      mergeVariantSheets([glyphs, ...base.variantSheets.map(sheet => sheet.rowGlyphs.flat())]),
+      { family: family.trim() || 'Handmade', style, formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes, connect, connectOverlapPct, smoothJoins, naturalVariation: base.variantSheets.length > 0 },
       onProgress,
     );
-    return { result, glyphCount: glyphs.length, report: reportForGlyphs(glyphs), rows: s.rowInfo.slice(), variants: s.variantSheets.length };
+    return { result, glyphCount: glyphs.length, report: reportForGlyphs(glyphs), rows: s.rowInfo.slice(), variants: base.variantSheets.length };
   } catch (e) {
     s.rowGlyphs[rowIndex] = prevGlyphs;
     s.rowInfo[rowIndex] = prevInfo;
