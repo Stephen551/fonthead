@@ -7,6 +7,13 @@ export function latinAccent(char: string): { base: string; above: boolean; below
   return { base: parts[0], above: parts.slice(1).some(c => !below.test(c)), below: parts.slice(1).some(c => below.test(c)) };
 }
 
+/** Any character whose canonical decomposition carries a combining mark.
+ * Such glyphs never set the font scale (ADR 0072). Must match isAccentedChar
+ * in public/assets/vendor/font-engine-builder.js. */
+export function hasCombiningMark(char: string): boolean {
+  return /\p{M}/u.test(char.normalize('NFD'));
+}
+
 export function charsetCharacters(line: string): string[] {
   return [...line.normalize('NFC')];
 }
