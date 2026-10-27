@@ -5,7 +5,7 @@ export interface BaselineBounds {
   bottom: number;
   /** Top of the wide body, excluding narrow ears (g) and flourishes. */
   bodyTop: number;
-  /** Bottom of R's left stem, excluding its potentially descending leg. */
+  /** Bottom of R/k's left stem, excluding its potentially descending leg. */
   stemBottom?: number;
 }
 
@@ -79,6 +79,7 @@ export function alignGlyphBaselines(
       const g = glyphs[i];
       const b = bounds[i];
       if (!b || !/^[A-Za-z0-9]$/.test(g.char)) continue;
+      const stemHeight = g.char === 'k' ? ascHeight : capHeight;
       let baseline: number;
       if (DESCENDERS.has(g.char)) {
         if (!bodyHeight || !xHeight) continue;
@@ -96,11 +97,11 @@ export function alignGlyphBaselines(
         // may descend, so align that form's top with the other ascenders.
         if (!ascHeight) continue;
         baseline = height(b) <= ascHeight * 1.15 ? b.bottom : b.top + ascHeight;
-      } else if (g.char === 'R' && capHeight && Number.isFinite(b.stemBottom)
-        && b.stemBottom! - b.top >= capHeight * 0.8
-        && b.stemBottom! - b.top <= capHeight * 1.15
+      } else if ('Rk'.includes(g.char) && stemHeight && Number.isFinite(b.stemBottom)
+        && b.stemBottom! - b.top >= stemHeight * 0.8
+        && b.stemBottom! - b.top <= stemHeight * 1.15
         && b.bottom - b.stemBottom! > scale * 0.02
-        && b.bottom - b.stemBottom! < capHeight * 0.4) {
+        && b.bottom - b.stemBottom! < stemHeight * 0.4) {
         // A descending leg is part of the design. The stem's actual foot is
         // a stronger baseline anchor than either the tail or the cap top.
         baseline = b.stemBottom!;

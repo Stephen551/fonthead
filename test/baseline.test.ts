@@ -82,6 +82,19 @@ describe('automatic glyph baselines', () => {
     expect(align(result.glyphs as MeasuredGlyph[]).adjustments).toEqual([]);
   });
 
+  it('anchors a swashed lowercase k on its stem, keeping the terminal below the line', () => {
+    const k = glyph('k', 40, 230);
+    k.bounds.stemBottom = 200;
+    const result = align([...refs().filter(g => g.char !== 'k'), k]);
+    expect(get(result.glyphs, 'k').baselineYInCell).toBe(200);
+    expect(get(result.glyphs, 'k').paths).toBe(k.paths);
+    expect(align(result.glyphs as MeasuredGlyph[]).adjustments).toEqual([]);
+    for (const stemBottom of [230, 229, 80, NaN]) {
+      const ordinary = { ...k, bounds: { ...k.bounds, stemBottom } };
+      expect(get(align([...refs().filter(g => g.char !== 'k'), ordinary]).glyphs, 'k').baselineYInCell).toBe(230);
+    }
+  });
+
   it('keeps an ordinary R on the line and rejects unreliable stem measurements', () => {
     for (const stemBottom of [235, 234, 110, NaN]) {
       const r = glyph('R', 65, 235);

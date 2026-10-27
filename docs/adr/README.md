@@ -79,6 +79,7 @@ left out — they live in CLAUDE.md, not here.
 | [0067](0067-first-download-maker-reviews.md) | Ask once for a maker review with separate public-display permission | Accepted |
 | [0068](0068-admin-usage-and-member-adoption.md) | Show usage trends and member adoption without uploading unpublished work | Accepted |
 | [0069](0069-complete-descenders-and-serif-spacing.md) | Recover crossing descenders and preserve complete serif spacing through export | Accepted |
+| [0070](0070-measured-spacing-and-swashed-k-baseline.md) | Measure automatic spacing and anchor swashed lowercase k on its stem | Accepted |
 
 ## Format
 

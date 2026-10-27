@@ -9,10 +9,15 @@ test('luxury serif keeps the y hook, complete hairline bearings and working kern
   await page.addInitScript(() => localStorage.setItem('fh-maker-tour-seen', '1'));
   await page.goto('/make');
   await page.getByRole('button', { name: /advanced/ }).click();
-  await page.getByLabel('spacing', { exact: true }).fill('5');
+  await expect(page.getByLabel('spacing', { exact: true })).toHaveValue('0');
   await page.locator('#sheet-file').setInputFiles('e2e/fixtures/luxury-serif-sheet.png');
   await expect(page.getByRole('button', { name: 'download otf', exact: true })).toBeVisible({ timeout: 120_000 });
   await expect(page.getByRole('button', { name: /connected cursive/ })).toHaveAttribute('aria-pressed', 'false');
+  const spacing = await page.evaluate(() => (window as any).__lastSpacing);
+  expect(spacing.mode).toBe('auto');
+  expect(spacing.source).toBe('counters');
+  expect(spacing.pct).toBeGreaterThanOrEqual(4.5);
+  expect(spacing.pct).toBeLessThanOrEqual(6);
   const fonts: any[] = [];
   for (const format of ['otf', 'ttf', 'woff2']) {
     const pending = page.waitForEvent('download');
@@ -41,6 +46,8 @@ test('luxury serif keeps the y hook, complete hairline bearings and working kern
   }
   const audit = await auditAlphabet(page, fonts[2]);
   writeFileSync(test.info().outputPath('alphabet-audit.json'), JSON.stringify(audit, null, 2));
+  expect(Math.abs(audit.stemBottoms.k), 'Quick: k stem rests on the baseline').toBeLessThanOrEqual(2);
+  expect(fonts[2].glyphForCodePoint(107).bbox.minY, 'k swash descends below its stem').toBeLessThan(-50);
   for (const pair of audit.pairs) expect(pair.clearance, `${pair.pair} does not collide`).toBeGreaterThan(0);
   expect(await page.evaluate(() => (window as any).__lastBuild.glyphCount)).toBe(92);
 });

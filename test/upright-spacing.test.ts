@@ -20,4 +20,10 @@ describe('upright spacing evidence', () => {
     expect(hasStraightUprightStems(['H', 'I', 'i'].map(c => ({ ...stem(c), left: [], right: [] })), 60)).toBe(false);
     expect(hasStraightUprightStems(['H', 'I', 'i'].map(c => stem(c)), NaN)).toBe(false);
   });
+
+  it('allows conservative auto fitting with two distinct straight stems, never duplicate votes', () => {
+    expect(hasStraightUprightStems([stem('I'), stem('i')], 60, 2)).toBe(true);
+    expect(hasStraightUprightStems([stem('i'), stem('i')], 60, 2)).toBe(false);
+    expect(hasStraightUprightStems([stem('I', 0.3), stem('i', 0.3)], 60, 2)).toBe(false);
+  });
 });

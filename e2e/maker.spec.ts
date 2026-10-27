@@ -31,8 +31,9 @@ test.beforeEach(async ({ page }) => {
 type LastBuild = { kind: string; glyphCount: number; colrStatus: string; otf: number; ttf: number; woff2: number };
 
 async function buildDone(page: Page) {
-  // the "download otf" button only renders once the build reaches the done phase
+  // A re-slice keeps the previous download visible but disabled until rebuilt.
   await expect(page.getByRole('button', { name: 'download otf' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('button', { name: 'download otf' })).toBeEnabled({ timeout: 60_000 });
 }
 
 async function lastBuild(page: Page): Promise<LastBuild> {
@@ -109,6 +110,7 @@ test.describe('maker builds valid fonts', () => {
     await buildDone(page);
     const lb = await lastBuild(page);
     expect(lb.kind).toBe('gradient');
+    expect(await page.evaluate(() => (window as any).__lastSpacing)).toMatchObject({ mode: 'auto' });
     expect(lb.colrStatus).toBe('ok');
     assertValidFont(await captureOtf(page), lb.glyphCount);
   });
@@ -120,6 +122,7 @@ test.describe('maker builds valid fonts', () => {
     await buildDone(page);
     const lb = await lastBuild(page);
     expect(lb.kind).toBe('flat');
+    expect(await page.evaluate(() => (window as any).__lastSpacing)).toMatchObject({ mode: 'auto' });
     expect(lb.colrStatus).toBe('ok');
     assertValidFont(await captureOtf(page), lb.glyphCount);
   });
@@ -179,10 +182,12 @@ test.describe('maker builds valid fonts', () => {
       sel.dispatchEvent(new Event('change', { bubbles: true }));
       await new Promise((r) => setTimeout(r, 120));
       const btn = Array.from(sel.parentElement!.querySelectorAll('button')).find((b) => /re-slice|slicing/.test(b.textContent || ''));
+      (window as any).__beforeReslice = (window as any).__lastBuild;
       btn?.click();
       return true;
     });
     expect(changed, 'mono ROWS panel present').toBe(true);
+    await page.waitForFunction(() => (window as any).__lastBuild !== (window as any).__beforeReslice, undefined, { timeout: 60_000 });
     await buildDone(page);
     const after = await lastBuild(page);
     assertValidFont(await captureOtf(page), after.glyphCount);

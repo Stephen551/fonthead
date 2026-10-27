@@ -628,13 +628,16 @@
         bodyMinX: r.bodyMinX, bodyMaxX: r.bodyMaxX,
       };
     });
+    const buildOpts = typeof session.buildOpts.resolveSideBearing === 'function'
+      ? Object.assign({}, session.buildOpts, { sideBearing: session.buildOpts.resolveSideBearing(chars) })
+      : session.buildOpts;
     let res;
     if (session.mode === 'gradient') {
       if (typeof global.buildGradientFont !== 'function') throw new Error('window.buildGradientFont not loaded');
-      res = global.buildGradientFont(chars, session.gradient, session.buildOpts);
+      res = global.buildGradientFont(chars, session.gradient, buildOpts);
     } else {
       if (typeof global.buildColorFont !== 'function') throw new Error('window.buildColorFont not loaded');
-      res = global.buildColorFont(chars, session.palette, session.buildOpts);
+      res = global.buildColorFont(chars, session.palette, buildOpts);
     }
     return { bytes: res.bytes, colrStatus: res.stats ? res.stats.colrStatus : undefined, charCount: chars.length };
   }
@@ -801,6 +804,7 @@
       familyName: familyName,
       unitsPerEm: unitsPerEm,
       sideBearing: sideBearing,
+      resolveSideBearing: opts.resolveSideBearing,
       kern: kern,
       gradientAngle: gradientAngle,
       outline: outline,

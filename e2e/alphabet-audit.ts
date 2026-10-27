@@ -29,7 +29,7 @@ export async function auditAlphabet(page: Page, font: any) {
         for (let x = 0; x < W; x++) if (data[(y * W + x) * 4 + 3] > 128) {
           if (left[y] === undefined) left[y] = (x - pad) / S + g.bbox.minX;
           right[y] = (x + 1 - pad) / S + g.bbox.minX;
-          if (g.c === 'R' && x < pad + (g.bbox.maxX - g.bbox.minX) * S * 0.45) stemBottoms[g.c] = yTop - (y + 1) / S;
+          if ('Rk'.includes(g.c) && x < pad + (g.bbox.maxX - g.bbox.minX) * S * 0.45) stemBottoms[g.c] = yTop - (y + 1) / S;
         }
         if (bodyTops[g.c] === undefined && right[y] - left[y] >= (g.bbox.maxX - g.bbox.minX) * 0.5) bodyTops[g.c] = yTop - (y + 0.5) / S;
       }

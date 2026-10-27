@@ -16,9 +16,8 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-// The spacing knob. Auto keeps the sheet's own pitch (cell-width advance, the
-// historical default); a positive value rebuilds on tight advance with that
-// percent of UPM per side. Proven on real bytes: download both builds' OTFs
+// Auto measures the letterforms; a positive value overrides its margin with
+// that percent of UPM per side. Proven on real bytes: download both builds' OTFs
 // and compare a glyph's advance width via the page's own opentype.js.
 
 async function advanceOfH(page: Page, otfPath: string): Promise<number> {
@@ -42,6 +41,14 @@ async function downloadOtf(page: Page, to: string): Promise<string> {
   return p;
 }
 
+async function rebuildSpacing(page: Page, value: string) {
+  await page.getByLabel('spacing', { exact: true }).fill(value);
+  await page.evaluate(() => { (window as any).__b0 = (window as any).__lastBuild; });
+  await page.getByRole('button', { name: 'rebuild with these settings' }).click();
+  await page.waitForFunction(() => (window as any).__lastBuild !== (window as any).__b0, undefined, { timeout: 60_000 });
+  await expect(page.getByRole('button', { name: 'download otf', exact: true })).toBeEnabled();
+}
+
 test('the spacing knob changes the built advance widths', async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto('/make');
@@ -53,25 +60,39 @@ test('the spacing knob changes the built advance widths', async ({ page }) => {
 
   // open advanced, push spacing to 12 (loose), rebuild
   await page.getByRole('button', { name: /advanced/ }).click();
-  await page.getByLabel('spacing', { exact: true }).fill('12');
-  await page.evaluate(() => {
-    (window as unknown as { __b0?: unknown; __lastBuild?: unknown }).__b0 = (window as unknown as { __lastBuild?: unknown }).__lastBuild;
-  });
-  await page.getByRole('button', { name: 'rebuild with these settings' }).click();
-  await page.waitForFunction(
-    () => {
-      const w = window as unknown as { __b0?: unknown; __lastBuild?: unknown };
-      return w.__lastBuild !== w.__b0;
-    },
-    undefined,
-    { timeout: 60_000 },
-  );
-  await expect(page.getByRole('button', { name: 'download otf' })).toBeEnabled({ timeout: 15_000 });
+  await rebuildSpacing(page, '12');
   const looseAdvance = await advanceOfH(page, await downloadOtf(page, 'loose.otf'));
 
-  // tight advance at 12% must differ from the sheet's cell pitch; both built
+  // The manual 12% override must be looser than the measured auto value; both built
   // valid (buildFont validates internally or it would have errored)
-  expect(looseAdvance).not.toBe(autoAdvance);
+  expect(looseAdvance).toBeGreaterThan(autoAdvance);
   expect(looseAdvance).toBeGreaterThan(0);
   expect(autoAdvance).toBeGreaterThan(0);
+
+  await rebuildSpacing(page, '0');
+  expect(await advanceOfH(page, await downloadOtf(page, 'auto-again.otf'))).toBe(autoAdvance);
+  expect(await page.evaluate(() => (window as any).__lastSpacing.mode)).toBe('auto');
+});
+
+test('color auto spacing survives a manual override and glyph edits', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto('/make');
+  await page.getByRole('button', { name: 'color · flat', exact: true }).click();
+  await page.getByRole('button', { name: 'try a sample sheet', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'download otf', exact: true })).toBeVisible({ timeout: 60_000 });
+  const automatic = await advanceOfH(page, await downloadOtf(page, 'color-auto.otf'));
+  await page.getByRole('button', { name: /advanced/ }).click();
+  await rebuildSpacing(page, '12');
+  expect(await advanceOfH(page, await downloadOtf(page, 'color-loose.otf'))).toBeGreaterThan(automatic);
+  await rebuildSpacing(page, '0');
+  expect(await advanceOfH(page, await downloadOtf(page, 'color-auto-again.otf'))).toBe(automatic);
+  const spacing = await page.evaluate(async () => {
+    const w = window as any;
+    w.__lastSpacing = null;
+    await w.ColorMaker.editGlyph('exclude', 0, { excluded: true });
+    return w.__lastSpacing;
+  });
+  expect(spacing.mode).toBe('auto');
+  expect(spacing.pct).toBeGreaterThanOrEqual(2.5);
+  expect(spacing.pct).toBeLessThanOrEqual(7);
 });

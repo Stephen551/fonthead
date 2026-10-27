@@ -146,8 +146,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [fineDetail, setFineDetail] = useState(false);
   const [fineTouched, setFineTouched] = useState(false);
   const fineAutoRef = useRef(false);
-  // letter spacing: 0 = auto (the sheet's own pitch for mono, the engine
-  // default for color); 1-12 = percent of UPM as the side bearing per side
+  // letter spacing: 0 = measured from the letterforms, 1-12 = percent of UPM per side.
   const [spacing, setSpacing] = useState(0);
   // flourish overhang: advances from the dense letter body, thin tails
   // overhang the neighbor (negative bearings). Mono only. Default ON: it is a
@@ -1021,7 +1020,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
               <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
                 <RangeRow label="spacing" min={0} max={12} value={spacing} onChange={setSpacing} fmt={(v) => (v === 0 ? 'auto' : String(v))} disabled={!isColor && connect} />
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', margin: '7px 0 11px', lineHeight: 1.5 }}>
-                  auto keeps the sheet's own letter pitch. Higher numbers rebuild every letter with an even gap, looser as it grows.
+                  auto chooses spacing from the letter shapes. Set a number to adjust the margins yourself; higher numbers give letters more room. Connected cursive uses its joining strokes instead.
                 </p>
                 <ToggleRow label="fine detail" on={fineDetail} onChange={(v) => { setFineDetail(v); setFineTouched(true); }} />
                 <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>

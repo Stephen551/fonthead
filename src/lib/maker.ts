@@ -10,7 +10,7 @@
 import { fixSfntChecksums } from './sfnt';
 import { alignGlyphBaselines, type BaselineBounds } from './baseline';
 import { recoverRowExtent } from './row-extent';
-import { hasStraightUprightStems } from './spacing';
+import { chooseAutoSpacing, hasStraightUprightStems, type SpacingSample } from './spacing';
 
 const w = () => window as any;
 
@@ -66,7 +66,7 @@ export interface ColorOpts {
   outline?: boolean;
   gloss?: boolean;
   fineDetail?: boolean;
-  /** Letter spacing, percent of UPM per side. 0/unset keeps the engine default. */
+  /** Letter spacing, percent of UPM per side. 0/unset measures the letterforms. */
   spacingPct?: number;
 }
 export const DEFAULT_COLOR_OPTS: ColorOpts = { K: 3, stops: 5, bgDist: 20, outline: false, gloss: false, fineDetail: false };
@@ -1146,10 +1146,8 @@ export interface BuildOpts {
   /** Auto-level separate letters by default. Connected cursive uses its own
    *  placement pass. False preserves the source row baselines. */
   autoBaseline?: boolean;
-  /** Letter spacing. 0/unset keeps the sheet's drawn pitch (cell-width
-   *  advance, the historical default); 1-12 switches to tight advance with
-   *  that percent of UPM as the side bearing, which evens out a loosely or
-   *  unevenly drawn sheet. */
+  /** Letter spacing. 0/unset measures the letterforms; 1-12 overrides the
+   *  measured margin with that percent of UPM per side. */
   spacingPct?: number;
   /** Measure each glyph's advance from its dense ink body and let thin
    *  flourish tails overhang the neighboring letters (negative side
@@ -1340,6 +1338,7 @@ function glyphColumnAreas(g: Glyph): {
   spans: number[];
   rowLeft: number[];
   rowRight: number[];
+  rowCounter: number[];
   /** per-column ink y-extents — the terminal stroke model reads its
    *  cross-sections here (per-row extents smear a sloped tail, ADR 0049) */
   colTop: number[];
@@ -1365,6 +1364,7 @@ function glyphColumnAreas(g: Glyph): {
   const maxY = new Array<number>(cw).fill(-1);
   const rowLeft = new Array<number>(ch).fill(Infinity);
   const rowRight = new Array<number>(ch).fill(-Infinity);
+  const rowCounter = new Array<number>(ch).fill(0);
   let gMin = Infinity,
     gMax = -1;
   for (let p = 0; p < img.length; p += 4) {
@@ -1375,6 +1375,7 @@ function glyphColumnAreas(g: Glyph): {
       if (y < minY[i]) minY[i] = y;
       if (y > maxY[i]) maxY[i] = y;
       if (i < rowLeft[y]) rowLeft[y] = i;
+      if (Number.isFinite(rowRight[y])) rowCounter[y] = Math.max(rowCounter[y], i - rowRight[y] - 1);
       if (i > rowRight[y]) rowRight[y] = i;
       if (y < gMin) gMin = y;
       if (y > gMax) gMax = y;
@@ -1382,7 +1383,7 @@ function glyphColumnAreas(g: Glyph): {
   }
   const inkH = Math.max(1, gMax - gMin + 1);
   const spans = cols.map((n, i) => (n > 0 ? (maxY[i] - minY[i] + 1) / inkH : 0));
-  return { cols, spans, rowLeft, rowRight, colTop: minY, colBot: maxY, inkTopRow: gMin === Infinity ? 0 : gMin };
+  return { cols, spans, rowLeft, rowRight, rowCounter, colTop: minY, colBot: maxY, inkTopRow: gMin === Infinity ? 0 : gMin };
 }
 
 /** Stage A of connector reconstruction (ADR 0049): recover a terminal tail as
@@ -1665,6 +1666,41 @@ function bodyPadPx(glyphs: Glyph[], pct: number): number {
   return Math.max(1, Math.round((pct / 100) * (maxAsc / 0.8)));
 }
 
+/** Sample only the base alphabet: adding decorative alternates must not
+ * reweight the family rhythm. Measure within the body, away from serifs and
+ * arches; take one median per character so tall capitals get no extra votes. */
+export function measureAutoSpacing(glyphs: Glyph[]): ReturnType<typeof chooseAutoSpacing> {
+  const base = glyphs.filter(g => !g.variantSuffix);
+  const emPx = w().measureGlyphBounds(base).maxAsc / 0.8;
+  const samples: SpacingSample[] = [];
+  for (const g of base) {
+    if (!'HOnou'.includes(g.char) || g.char.length !== 1) continue;
+    const prof = glyphColumnAreas(g);
+    if (!prof) continue;
+    const path = w().svgPathToOpentypePath(g.paths.join(' '), (x: number, y: number) => [x, y], false);
+    if (!path.commands.length) continue;
+    const bb = path.getBoundingBox(), height = g.baselineYInCell - bb.y1;
+    const counters: number[] = [];
+    for (let y = Math.max(0, Math.ceil(g.baselineYInCell - height * 0.7));
+      y <= Math.min(prof.rowCounter.length - 1, g.baselineYInCell - height * 0.25); y++) {
+      if (prof.rowCounter[y] > height * 0.04) counters.push(prof.rowCounter[y]);
+    }
+    counters.sort((a, b) => a - b);
+    samples.push({ char: g.char, width: bb.x2 - bb.x1, counter: counters[Math.floor(counters.length / 2)] ?? 0 });
+  }
+  return chooseAutoSpacing(samples, emPx);
+}
+
+function fitCompleteOutlines(glyphs: Glyph[], padPx: number): Glyph[] {
+  return glyphs.map(g => {
+    const path = w().svgPathToOpentypePath(g.paths.join(' '), (x: number, y: number) => [x, y], false);
+    if (!path.commands.length) return g;
+    const bb = path.getBoundingBox();
+    return { ...g, paths: g.paths.map(p => translatePathX(p, padPx - bb.x1)),
+      cellW: bb.x2 - bb.x1 + padPx * 2 };
+  });
+}
+
 /** Re-fit glyphs on their dense ink body: the advance becomes body + 2*pad,
  *  the body is translated to start at pad, and any trimmed tail keeps its
  *  shape but overhangs the advance (negative left bearing or ink past the
@@ -1710,8 +1746,8 @@ const SCRIPT_TAIL_DEPTH = 0.08;
 export function trimGlyphOverhangs(
   glyphs: Glyph[],
   padPx: number,
-  opts: { padAll?: boolean; skipPairFeedback?: boolean } = {},
-): { glyphs: Glyph[]; trimmed: number; script: boolean; upright?: boolean } {
+  opts: { padAll?: boolean; skipPairFeedback?: boolean; autoSpacing?: boolean } = {},
+): { glyphs: Glyph[]; trimmed: number; script: boolean; upright?: boolean; conservative?: boolean } {
   // pass 1: profiles + conservative bounds, and let the sheet declare itself
   const profiles = glyphs.map((g) => glyphColumnAreas(g));
   const ink = profiles.map((prof) => {
@@ -1729,23 +1765,21 @@ export function trimGlyphOverhangs(
   const xIndex = glyphs.findIndex(g => g.char === 'x' && !g.variantSuffix);
   const xHeight = xIndex >= 0 && profiles[xIndex]
     ? glyphs[xIndex].baselineYInCell - profiles[xIndex]!.inkTopRow : 0;
-  const upright = hasStraightUprightStems(glyphs.flatMap((g, i) => {
+  const stems = glyphs.flatMap((g, i) => {
     const p = profiles[i];
     return p && !g.variantSuffix ? [{ char: g.char, baseline: g.baselineYInCell, left: p.rowLeft, right: p.rowRight }] : [];
-  }), xHeight);
+  });
+  // Auto favors keeping decorative ink inside the advance. Two independent
+  // straight stems are enough to avoid treating doodle edges as script tails;
+  // explicit flourish fitting retains its historical three-stem threshold.
+  const strictUpright = hasStraightUprightStems(stems, xHeight);
+  const upright = strictUpright || (!!opts.autoSpacing && hasStraightUprightStems(stems, xHeight, 2));
   if (upright) {
     // Keep the entire serif/diagonal inside the advance. Re-anchor every
     // glyph so the source sheet's cell widths cannot leave uneven spacing.
     // A native-resolution silhouette drops subpixel hairline serifs. Use the
     // actual curve bounds for bearings; raster bounds remain for classification.
-    return { script: false, upright: true, trimmed: 0, glyphs: glyphs.map((g, i) => {
-      const span = ink[i];
-      if (!span) return g;
-      const path = w().svgPathToOpentypePath(g.paths.join(' '), (x: number, y: number) => [x, y], false);
-      const bb = path.getBoundingBox();
-      return { ...g, paths: g.paths.map(p => translatePathX(p, padPx - bb.x1)),
-        cellW: bb.x2 - bb.x1 + padPx * 2 };
-    }) };
+    return { script: false, upright: true, conservative: !strictUpright, trimmed: 0, glyphs: fitCompleteOutlines(glyphs, padPx) };
   }
   const conservative = profiles.map((prof, i) =>
     prof && ink[i] ? bodyBoundsFromColumns(prof.cols, {}, prof.spans) : null,
@@ -3501,10 +3535,9 @@ export function isScriptFace(glyphs: Glyph[]): boolean {
   return withInk > 0 && deepTails / withInk >= SCRIPT_TAIL_SHARE;
 }
 
-/** Map the spacing knob to the engine's advance flags. The engine only reads
- *  sideBearingPct on the tight-advance path; under cell-width advance the
- *  sheet's own pitch wins, so auto (0) keeps the historical behavior bit for
- *  bit. Out-of-range values clamp to the slider's 1-12. */
+/** Map an explicit spacing percentage to worker flags. buildFont resolves
+ * auto from the glyphs first; connected and fitted-body paths override these
+ * flags because their cell widths already encode placement. */
 export function spacingToBuildFlags(spacingPct?: number): {
   useCellWidth: boolean;
   tightAdvance: boolean;
@@ -3547,7 +3580,7 @@ function measureBaselineBounds(g: Glyph): BaselineBounds | null {
     }
   }
   let stemBottom: number | undefined;
-  if (g.char === 'R') {
+  if ('Rk'.includes(g.char) && g.char.length === 1) {
     // Use complete curve segments inside the left stem region. Keeping their
     // real extrema avoids raster rounding and excludes the descending leg.
     const stem = new (w().opentype.Path)();
@@ -3579,10 +3612,17 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     : { glyphs, adjustments: [] };
   glyphs = aligned.glyphs;
   (globalThis as unknown as { __lastBaseline?: object }).__lastBaseline = { adjustments: aligned.adjustments };
-  const flags = spacingToBuildFlags(opts.spacingPct);
+  const manualSpacing = typeof opts.spacingPct === 'number' && Number.isFinite(opts.spacingPct) && opts.spacingPct > 0;
+  const autoSpacing = !opts.connect && !manualSpacing ? measureAutoSpacing(glyphs) : null;
+  const spacingPct = manualSpacing ? Math.min(Math.max(opts.spacingPct!, 1), 12) : autoSpacing?.pct ?? 3.5;
+  const flags = spacingToBuildFlags(spacingPct);
+  (globalThis as unknown as { __lastSpacing?: object }).__lastSpacing = opts.connect
+    ? { mode: 'connected', pct: null } : { mode: manualSpacing ? 'manual' : 'auto', pct: spacingPct, ...autoSpacing };
   let glyphsIn = glyphs;
   let spaceAdvance: number | undefined;
   let uprightSpacing = false;
+  let exactSpacing = false;
+  let protectSpacingBounds = false;
   let styleOut = opts.style ?? 'Regular';
   // Set when connectGlyphs fires the entry-reach normalization: the placement
   // already carries the rhythm (even body gaps, deliberate connector bridges),
@@ -3761,25 +3801,37 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // Natural variation WITHOUT connect (an upright hand): a plain build that
     // carries the .cv01/.cv02 palette; calt cycles the repeated letters.
     onProgress?.('variation', 'natural variation · cycling letter variants');
+    if (autoSpacing) {
+      glyphsIn = fitCompleteOutlines(glyphs, bodyPadPx(glyphs, spacingPct));
+      flags.useCellWidth = true;
+      flags.tightAdvance = false;
+      exactSpacing = true;
+      protectSpacingBounds = true;
+    }
   } else if (opts.trimFlourishes) {
     // body advances need cell-width mode: the trimmed cell IS the advance and
     // the tail rides outside it; tight advance would re-measure the full bbox
     // and put the tail back into the advance. When the spacing knob is set it
-    // becomes the pad and every glyph re-anchors (tight rhythm + overhang);
-    // at auto only tailed glyphs re-fit, so the sheet's pitch survives.
+    // becomes the pad; auto chooses the pad from the letterforms. Both fit
+    // every glyph, so arbitrary grid margins do not survive into the font.
     flags.useCellWidth = true;
     flags.tightAdvance = false;
-    const knob = !!opts.spacingPct && opts.spacingPct > 0;
-    const pct = knob ? Math.min(Math.max(opts.spacingPct!, 1), 12) : 3.5;
     onProgress?.('trim', 'flourish overhang · body advances');
-    const fit = trimGlyphOverhangs(glyphs, bodyPadPx(glyphs, pct), { padAll: knob });
+    const fit = trimGlyphOverhangs(glyphs, bodyPadPx(glyphs, spacingPct), { padAll: true, autoSpacing: !!autoSpacing });
     glyphsIn = fit.glyphs;
     uprightSpacing = !!fit.upright;
+    protectSpacingBounds = !!fit.conservative;
     // script overhangs sweep into the word space; widen it so word breaks
     // survive (the engine default is 0.28em)
     if (fit.script) spaceAdvance = 0.38;
     // diagnostics hook (harmless), mirrors __lastBuild
     (globalThis as unknown as { __lastTrim?: object }).__lastTrim = { script: fit.script, trimmed: fit.trimmed, upright: !!fit.upright };
+  } else if (autoSpacing) {
+    glyphsIn = fitCompleteOutlines(glyphs, bodyPadPx(glyphs, spacingPct));
+    flags.useCellWidth = true;
+    flags.tightAdvance = false;
+    exactSpacing = true;
+    protectSpacingBounds = true;
   }
   const payload = {
     glyphs: glyphsIn.map((g) => ({
@@ -3796,7 +3848,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     style: styleOut,
     upm: opts.upm ?? 1000,
     quantizeY: !opts.connect && opts.autoBaseline !== false,
-    quantizeX: uprightSpacing,
+    quantizeX: uprightSpacing || exactSpacing,
     ...flags,
     spaceAdvance,
     formats: opts.formats ?? ['otf', 'ttf', 'woff2'],
@@ -3811,6 +3863,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     features: {
       kerning: !smoothJoins,
       kernAllLetters: uprightSpacing,
+      kernProtectBounds: protectSpacingBounds,
       connectKern: opts.connect && !smoothJoins ? (connectBridged ? { bridgedPlacement: true } : {}) : undefined,
       naturalVariation: opts.naturalVariation ? true : undefined,
       joinAltRights: seamAltRights,
@@ -4091,10 +4144,15 @@ export async function buildColorFontFromImage(
     gloss: colorOpts.gloss,
     fineDetail: !!colorOpts.fineDetail,
     // the orchestrator takes an absolute side bearing in UPM units (its
-    // default is 50, i.e. 5% of 1000); the knob speaks percent
-    ...(colorOpts.spacingPct && colorOpts.spacingPct > 0
-      ? { sideBearing: Math.round(Math.min(Math.max(colorOpts.spacingPct, 1), 12) * 10) }
-      : {}),
+    // default is 50, i.e. 5% of 1000); the knob speaks percent. Resolve auto
+    // from the traced union outlines, also after edits in the color session.
+    ...(Number.isFinite(colorOpts.spacingPct) && colorOpts.spacingPct! > 0
+      ? { sideBearing: Math.round(Math.min(Math.max(colorOpts.spacingPct!, 1), 12) * 10) }
+      : { resolveSideBearing: (chars: any[]) => {
+        const auto = measureAutoSpacing(chars.map(c => ({ ...c, italic: false, paths: [c.baseD] })));
+        (globalThis as unknown as { __lastSpacing?: object }).__lastSpacing = { mode: 'auto', ...auto };
+        return auto.pct * 10;
+      } }),
   });
   onProgress?.('build', `COLR ${res.colrStatus} · packing`);
   // correct table checksums BEFORE wrapping woff2 (so the woff2 wraps valid otf)

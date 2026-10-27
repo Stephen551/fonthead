@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { spacingToBuildFlags } from '../src/lib/maker';
 
 describe('spacingToBuildFlags', () => {
-  it('auto (0 or unset) keeps the historical cell-width advance, bit for bit', () => {
+  it('unresolved spacing flags retain a safe cell-width fallback', () => {
     for (const v of [undefined, 0, -3, NaN]) {
       expect(spacingToBuildFlags(v as number | undefined)).toEqual({
         useCellWidth: true,

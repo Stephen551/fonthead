@@ -317,6 +317,23 @@
     const byChar = new Map();
     for (const g of glyphs) byChar.set(g.char, g);
 
+    // Decorated/alternate alphabets have thin details at arbitrary heights.
+    // Baseline-row quantization can miss those even with supersampling. Keep
+    // their whole control-point envelope separated, including every variant
+    // sharing this character's kerning pair. Ordinary optical fits opt out.
+    const envelopes = new Map();
+    if (opts.protectBounds) for (const g of glyphs) {
+      let min = Infinity, max = -Infinity;
+      for (const d of g.paths) {
+        const b = estimateBBox(d);
+        if (b) { min = Math.min(min, b.minX); max = Math.max(max, b.maxX); }
+      }
+      if (!isFinite(min) || !isFinite(max)) continue;
+      const old = envelopes.get(g.char);
+      envelopes.set(g.char, { left: Math.min(old ? old.left : Infinity, min),
+        right: Math.min(old ? old.right : Infinity, g.cellW - max) });
+    }
+
     const targetGapPx = computeTargetGap(glyphs);
     if (!isFinite(targetGapPx) || targetGapPx <= 0) return [];
 
@@ -348,6 +365,11 @@
          room (T+a, T+o) still kern, landing at the target gap. */
       const minSlack = gap.min - targetGapPx;
       if (minSlack < pullPx) pullPx = Math.max(0, minSlack);
+      if (opts.protectBounds) {
+        const le = envelopes.get(l), re = envelopes.get(r);
+        const slack = le && re ? le.right + re.left - 20 / scale : 0;
+        pullPx = Math.min(pullPx, Math.max(0, slack));
+      }
       const valueUnits = -Math.round(pullPx * scale);
       if (Math.abs(valueUnits) < MIN_VALUE) continue;
       out.push({ leftChar: l, rightChar: r, value: valueUnits });
