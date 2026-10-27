@@ -15,6 +15,17 @@ describe('accented Latin input and placement', () => {
     expect(engine.glyphName('0')).toBe('zero');
   });
 
+  it('maps a decomposed character to its composed code point without replacing the base letter', () => {
+    const engine: any = {};
+    const vendor = (f: string) => readFileSync(join(__dirname, '../public/assets/vendor', f), 'utf8');
+    new Function('self', vendor('opentype.min.js')).call(engine, engine);
+    new Function('self', 'opentype', vendor('font-engine-builder.js')).call(engine, engine, engine.opentype);
+    const glyph = (char: string) => ({ char, italic: false, paths: ['M10 10L90 10L90 90L10 90Z'], cellW: 100, cellH: 100, baselineYInCell: 90 });
+    const font = engine.buildFontForStyle([glyph('e'), glyph('e\u0301')], { unitsPerEm: 1000, familyName: 'T', styleName: 'Regular', useCellWidth: true, outlinesFormat: 'opentype' });
+    expect(font.charToGlyph('e').name).toBe('e');
+    expect(font.charToGlyph('é').name).toBe('uni00E9');
+  });
+
   it('distinguishes upper and lower marks without compatibility decomposition', () => {
     expect(latinAccent('ç')).toEqual({ base: 'c', above: false, below: true });
     expect(latinAccent('ǘ')).toEqual({ base: 'u', above: true, below: false });

@@ -985,7 +985,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             <label htmlFor="supplement-charset" className="fh-mono" style={{ display: 'block', fontSize: 11, margin: '12px 0 6px', color: 'var(--ink-soft)' }}>ACCENTS CHARSET · one row per line</label>
             <textarea id="supplement-charset" className="fh-input" aria-label="Accents sheet character rows" spellCheck={false}
               disabled={phase === 'working' || rowBusy !== null} value={supplementCharset}
-              style={{ width: '100%', minHeight: 145, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.6, whiteSpace: 'pre', overflowWrap: 'normal' }}
+              style={{ width: '100%', minHeight: 176, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.6, whiteSpace: 'pre', overflowWrap: 'normal' }}
               onChange={e => {
                 supplementCharsetEdited.current = true;
                 supplementCharsetRef.current = e.target.value; setSupplementCharset(e.target.value);

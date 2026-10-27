@@ -11,7 +11,7 @@ import { fixSfntChecksums } from './sfnt';
 import { alignGlyphBaselines, type BaselineBounds } from './baseline';
 import { recoverRowExtent } from './row-extent';
 import { chooseAutoSpacing, hasStraightUprightStems, type SpacingSample } from './spacing';
-import { latinAccent, charsetCharacters, validateCharset, mergeAccentBands } from './accents';
+import { latinAccent, charsetCharacters, validateCharset, mergeAccentBands, hasCombiningMark } from './accents';
 
 const w = () => window as any;
 
@@ -1752,8 +1752,10 @@ function glyphBandColumnInk(g: Glyph, yTop: number, yBot: number): number[] | nu
  *  as ~pct% of UPM after the engine's scale (scale = 0.8 * upm / maxAscPx). */
 function bodyPadPx(glyphs: Glyph[], pct: number): number {
   const estimateBBox = w().estimateBBox;
+  // Match the engine's scale reference, which excludes accented glyphs.
+  const reference = glyphs.some(g => !hasCombiningMark(g.char)) ? glyphs.filter(g => !hasCombiningMark(g.char)) : glyphs;
   let maxAsc = 1;
-  for (const g of glyphs) {
+  for (const g of reference) {
     for (const d of g.paths) {
       const bb = estimateBBox(d);
       if (bb) maxAsc = Math.max(maxAsc, g.baselineYInCell - bb.minY);
@@ -1930,6 +1932,8 @@ export function trimGlyphOverhangs(
         if (!byChar.has(g.char)) byChar.set(g.char, i);
       }
     });
+    // Accented glyphs never set the scale reference unless nothing else has ink.
+    const plainInk = glyphs.some((g, i) => profiles[i] && ink[i] && !hasCombiningMark(g.char));
     let maxAsc = 1;
     let xAsc = 0;
     const xHeights: number[] = [];
@@ -1937,7 +1941,7 @@ export function trimGlyphOverhangs(
       const prof = profiles[i];
       if (!prof || !ink[i]) return;
       const asc = g.baselineYInCell - prof.inkTopRow;
-      if (asc > maxAsc) maxAsc = asc;
+      if (asc > maxAsc && (!plainInk || !hasCombiningMark(g.char))) maxAsc = asc;
       if (g.char === 'x') xAsc = asc;
       if ('xvwzonu'.includes(g.char)) xHeights.push(asc);
     });
@@ -2137,10 +2141,13 @@ export interface FaceMetrics {
  *  Mixing them drifts the realized overlap/penetration off its intended size. */
 export function faceMetrics(glyphs: Glyph[], profiles?: (ReturnType<typeof glyphColumnAreas>)[]): FaceMetrics {
   const estimateBBox = w().estimateBBox;
+  // Both ascents follow the engine's scale reference: accented glyphs are
+  // excluded unless the face has nothing else (ADR 0072).
+  const reference = glyphs.some(g => !hasCombiningMark(g.char));
   let maxAscBBox = 1;
   if (estimateBBox) {
     for (const g of glyphs)
-      for (const d of g.paths) {
+      if (!reference || !hasCombiningMark(g.char)) for (const d of g.paths) {
         const bb = estimateBBox(d);
         if (bb) maxAscBBox = Math.max(maxAscBBox, g.baselineYInCell - bb.minY);
       }
@@ -2153,7 +2160,7 @@ export function faceMetrics(glyphs: Glyph[], profiles?: (ReturnType<typeof glyph
     const prof = profiles ? profiles[i] : glyphColumnAreas(g);
     if (!prof) return;
     const asc = g.baselineYInCell - prof.inkTopRow;
-    if (asc > maxAscRaster) maxAscRaster = asc;
+    if (asc > maxAscRaster && (!reference || !hasCombiningMark(g.char))) maxAscRaster = asc;
     if (g.char === 'x') xAsc = asc;
     if ('xvwzonu'.includes(g.char)) xHeights.push(asc);
     if ('HBEINPRT'.includes(g.char)) capAsc.push(asc);

@@ -228,22 +228,38 @@
     return path;
   }
 
+  /* A character whose canonical decomposition carries a combining mark (É, ñ,
+     ǘ). Must match hasCombiningMark in src/lib/accents.ts. */
+  function isAccentedChar(ch) {
+    return typeof ch === 'string' && /\p{M}/u.test(ch.normalize('NFD'));
+  }
+
+  /* maxAsc is the SCALE reference: the tallest glyph that is not accented.
+     Accents stand above the alphabet, so letting them set the scale would
+     shrink every plain letter once an É is added (ADR 0072). maxAscAll is the
+     true tallest ink, which the ascender grows to cover so nothing clips.
+     A font of only accented glyphs (or glyphs with no char) falls back to the
+     tallest ink, the historical behavior. */
   function measureGlyphBounds(glyphs) {
-    let maxAsc = 0, maxDesc = 0;
+    let maxAsc = 0, maxAscAll = 0, maxDesc = 0;
     for (const g of glyphs) {
+      const accented = isAccentedChar(g.char);
       for (const d of g.paths) {
         const bb = estimateBBox(d);
         if (!bb) continue;
         const ascPx = g.baselineYInCell - bb.minY;
         const descPx = bb.maxY - g.baselineYInCell;
-        if (ascPx > maxAsc) maxAsc = ascPx;
+        if (!accented && ascPx > maxAsc) maxAsc = ascPx;
+        if (ascPx > maxAscAll) maxAscAll = ascPx;
         if (descPx > maxDesc) maxDesc = descPx;
       }
     }
+    if (maxAsc < 1) maxAsc = maxAscAll;
     /* Floor at 1px so scale calc never divides by zero — but the
        calling code should check for degenerate input separately. */
     if (maxAsc < 1) maxAsc = 1;
-    return { maxAsc, maxDesc };
+    if (maxAscAll < maxAsc) maxAscAll = maxAsc;
+    return { maxAsc, maxAscAll, maxDesc };
   }
 
   /* PostScript name sanitizer per Adobe rules:
@@ -290,10 +306,12 @@
     const sideBearingPct = (typeof opts.sideBearingPct === 'number' && opts.sideBearingPct > 0)
       ? opts.sideBearingPct : 0.05;
 
-    const { maxAsc, maxDesc } = measureGlyphBounds(glyphs);
+    const { maxAsc, maxAscAll, maxDesc } = measureGlyphBounds(glyphs);
     const targetAsc = upm * 0.80;
     const scale = targetAsc / maxAsc;
-    const ascender = Math.ceil(targetAsc);
+    /* Accented capitals may rise above targetAsc: the ascender (and with it
+       the line height) grows to fit them rather than the letters shrinking. */
+    const ascender = Math.ceil(maxAscAll > maxAsc ? Math.max(targetAsc, maxAscAll * scale) : targetAsc);
     /* Descender = max ink below baseline + ~5% padding, in font units.
        Min absolute floor of 50 units so even an all-x-height font
        has SOME descender region. */
@@ -314,7 +332,9 @@
     const variantGlyphs = []; // natural-variation .cvNN sheets, appended unicode-less after the bases
     for (const g of glyphs) {
       if (g.variantSuffix) { variantGlyphs.push(g); continue; }
-      const cp = g.char.codePointAt(0);
+      // Key by the NFC code point, as glyphName does: a decomposed é must not
+      // land on U+0065 and silently replace the plain e.
+      const cp = g.char.normalize('NFC').codePointAt(0);
       byCodepoint.set(cp, g);
     }
 
@@ -499,6 +519,7 @@
   global.glyphName = glyphName;
   global.svgPathToOpentypePath = svgPathToOpentypePath;
   global.measureGlyphBounds = measureGlyphBounds;
+  global.isAccentedChar = isAccentedChar;
   global.buildFontForStyle = buildFontForStyle;
   global.sanitizePostScriptName = sanitizePostScriptName;
 })(typeof self !== 'undefined' ? self : this);
