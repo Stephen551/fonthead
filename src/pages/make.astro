@@ -85,6 +85,7 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
       <h3 id="sheet-style-heading" class="fh-mono" style="font-size:13px;font-weight:600;margin:20px 0 0;">Choose a sheet style</h3>
       <div class="fh-gen-presets" role="group" aria-labelledby="sheet-style-heading">
         <button type="button" class="fh-chip fh-preset" data-preset="standard" aria-pressed="true">standard</button>
+        <button type="button" class="fh-chip fh-preset" data-preset="latin-ext" aria-pressed="false">Extended Latin</button>
         <button type="button" class="fh-chip fh-preset" data-preset="script" aria-pressed="false">script</button>
         <button type="button" class="fh-chip fh-preset" data-preset="monoline" aria-pressed="false">monoline</button>
         <button type="button" class="fh-chip fh-preset" data-preset="flat" aria-pressed="false">flat color</button>
@@ -171,13 +172,14 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
   </div>
 
   <script>
+    import { EXTENDED_LATIN_ROWS } from '../lib/charsets';
     // Generate-a-sheet: four presets, each mapping to a maker build path
     // (standard -> mono, monoline -> single-line, flat/gradient -> color). Each
     // is a full prompt with one fill slot: standard takes a style, flat a palette,
     // gradient a color family, monoline none. The two symbol rows match the
     // maker's punctuation order so the charset auto-detect reads every row.
     // (Template lines sit at column 0 so no source indentation leaks into the copy.)
-    type Preset = 'standard' | 'script' | 'monoline' | 'flat' | 'gradient';
+    type Preset = 'standard' | 'script' | 'monoline' | 'flat' | 'gradient' | 'latin-ext';
 
     const STANDARD = (style: string) =>
       `Hand-drawn alphabet sheet, 7 rows on white paper:
@@ -197,6 +199,24 @@ Requirements:
 - No swashes or decorative flourishes that extend into the next letter
 - High resolution: at least 2000px wide
 - Output: one clean PNG image, 7 rows of letters as specified above`;
+
+    const LATIN_EXT = () =>
+      `Attach your first alphabet sheet as a reference image. Draw a separate Extended Latin supplement to that alphabet, exactly 7 rows on pure white paper. Match the reference's letterform style, stroke weight, cap height and lowercase body size exactly. Keep the original main sheet unchanged.
+${EXTENDED_LATIN_ROWS.map((row, i) => `Row ${i + 1} — ${[...row].length} characters: ${[...row].join(' ')}`).join('\n')}
+
+Requirements:
+- Pure BLACK ink on white background, one consistent style matching the attached reference
+- Draw exactly the characters listed, once each and in that order; do not fill shorter rows with extra letters
+- Keep every accent, dot, cedilla, ogonek and caron with its letter, including side marks on ď and ť
+- Đ/đ are D with a stroke; Ð/ð are eth. They are distinct pairs. Include lowercase ß as listed
+- Wide horizontal spacing (at least one letter-width gap), with no letters or marks touching their neighbors
+- Align the letter bodies to the baseline; accents may rise above it and below-base marks must extend below it
+- Leave clear white space between rows; no accent or descender may reach another row
+- No titles, headings, labels, row numbers, divider lines, borders, shadows or paper texture
+- No connected lettering or swashes extending into the next character
+- Check every row against its list; correct any missing, duplicated or reordered character
+- High resolution: at least 3000px wide
+- Output one clean PNG with only these 7 rows. Add it to the maker's accents sheet slot alongside the original alphabet`;
 
     // The script preset has two modes. SINGLE is one sheet for one cursive font:
     // the eval-winning prompt from ADR 0053 verbatim (it was measured in exactly
@@ -378,6 +398,7 @@ Other requirements:
 
     const PRESETS: Record<Preset, { build: (v: string) => string; chips: boolean; label: string | null; placeholder: string }> = {
       standard: { build: STANDARD, chips: true, label: 'YOUR STYLE', placeholder: 'type a style: brush script, bubbly, monospace tech, hand-cut stencil...' },
+      'latin-ext': { build: LATIN_EXT, chips: false, label: null, placeholder: '' },
       script: { build: (v) => (scriptMode === 'palette' ? SCRIPT(v) : SCRIPT_SINGLE(v)), chips: false, label: 'YOUR STYLE', placeholder: 'type a cursive style: elegant, casual, brush, spencerian...' },
       monoline: { build: () => MONOLINE(), chips: false, label: null, placeholder: '' },
       flat: { build: FLAT, chips: false, label: 'YOUR PALETTE', placeholder: 'list 2 to 4 flat colors' },
@@ -391,6 +412,7 @@ Other requirements:
     const ALPHA = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789'];
     const PRESET_CHARSETS: Record<Preset, string[]> = {
       standard: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
+      'latin-ext': EXTENDED_LATIN_ROWS,
       // script's row 6 is the eval-calibrated 12-mark row (ADR 0053), not the
       // two exotic symbol rows: image models garble those on every sheet.
       script: [...ALPHA, '.,!?:;\'"-&@#'],
@@ -400,7 +422,8 @@ Other requirements:
     };
     const armCharset = (p: Preset) => {
       try {
-        localStorage.setItem('fh-gen-charset', JSON.stringify(PRESET_CHARSETS[p]));
+        localStorage.setItem(p === 'latin-ext' ? 'fh-gen-charset-supplement' : 'fh-gen-charset', JSON.stringify(PRESET_CHARSETS[p]));
+        if (p === 'latin-ext') window.dispatchEvent(new Event('fh-supplement-charset'));
       } catch {
         /* storage blocked: the tracer just falls back to guessing the charset */
       }

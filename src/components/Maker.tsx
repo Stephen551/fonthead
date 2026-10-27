@@ -5,6 +5,8 @@ import {
   traceSheet,
   buildFont,
   mergeVariantSheets,
+  mergeSupplementSheet,
+  matchSupplementSize,
   downloadFont,
   makeSampleSheet,
   makeTemplateSheet,
@@ -39,6 +41,7 @@ import {
 } from '../lib/maker';
 import BugReport from './BugReport';
 import ReviewPrompt from './ReviewPrompt';
+import { EXTENDED_LATIN_ROWS } from '../lib/charsets';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
 type StageState = 'queued' | 'active' | 'done';
@@ -174,6 +177,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [naturalVariation, setNaturalVariation] = useState(false);
   const variationImgsRef = useRef<(HTMLImageElement | ImageBitmap | null)[]>([null, null]);
   const [variationNames, setVariationNames] = useState<(string | null)[]>([null, null]);
+  const supplementImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
+  const supplementFileRef = useRef<HTMLInputElement>(null);
+  const [supplementName, setSupplementName] = useState<string | null>(null);
+  const [supplementCharset, setSupplementCharset] = useState(EXTENDED_LATIN_ROWS.join('\n'));
+  const supplementCharsetRef = useRef(supplementCharset);
+  const supplementCharsetEdited = useRef(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
   // the build readout / result column, scrolled into view on a phone when a build
@@ -202,6 +211,20 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     const sk = document.getElementById('maker-skeleton');
     if (sk) sk.hidden = true;
     track('make_view');
+  }, []);
+
+  useEffect(() => {
+    const sync = () => {
+      if (supplementImgRef.current || supplementCharsetEdited.current) return;
+      const rows = readArmedCharset('fh-gen-charset-supplement');
+      if (rows) {
+        supplementCharsetRef.current = rows.join('\n');
+        setSupplementCharset(supplementCharsetRef.current);
+      }
+    };
+    sync();
+    window.addEventListener('fh-supplement-charset', sync);
+    return () => window.removeEventListener('fh-supplement-charset', sync);
   }, []);
 
   // Escape closes the per-glyph editor, mirroring the site's dialogs.
@@ -329,8 +352,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     const rows = charLinesOverride ?? parseCharset(charsetText);
     const t0 = performance.now();
     const fam = family.trim() || 'Handmade';
+    const useSupplement = !isColor && !!supplementImgRef.current;
     try {
       if (!rows.length) throw new Error('add at least one row of characters to the charset');
+      if (useSupplement && connect) throw new Error('Turn off connected cursive to use an accents sheet.');
       let res: FontResult;
       let count = 0;
       let colr = '';
@@ -373,7 +398,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         // the auto decision from the drop (ref, current for this build) unless
         // the user has taken the toggle over
         const effTraceOpts = { ...traceOpts, fineDetail: fineTouched ? traceOpts.fineDetail : traceOpts.fineDetail || fineAutoRef.current };
-        const sheetCount = 1 + variationImgsRef.current.filter(Boolean).length;
+        const sheetCount = 1 + variationImgsRef.current.filter(Boolean).length + Number(useSupplement);
         const trace = await traceSheet(img, rows, effTraceOpts, (step, message) =>
           setStage(STEP_STAGE[step] ?? 2, `sheet 1/${sheetCount} · ${message}`),
         );
@@ -405,13 +430,28 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             tracedDrawings += vtrace.glyphs.length;
             if (vtrace.glyphs.length) {
               variantSheets.push(vtrace.glyphs);
-              sheetRows.push({ label: `Sheet ${slot + 2} · variation`, rows: vtrace.rows });
+              sheetRows.push({ label: `Sheet ${sheetRows.length + 1} · variation`, rows: vtrace.rows });
             }
           }
           if (variantSheets.length) {
             glyphsForBuild = mergeVariantSheets([trace.glyphs, ...variantSheets]);
             variantSheetCount = variantSheets.length;
           }
+        }
+        if (useSupplement) {
+          const supplementRows = parseCharset(supplementCharsetRef.current);
+          if (!supplementRows.length) throw new Error('Add at least one row to the accents charset.');
+          const extra = await traceSheet(supplementImgRef.current!, supplementRows, effTraceOpts, (_step, message) =>
+            setStage(2, `sheet ${sheetCount}/${sheetCount} · accents · ${message}`), 'supplement');
+          if (!extra.glyphs.length) throw new Error('No glyphs traced on the accents sheet. Try dark letters on white.');
+          const baseChars = new Set(trace.glyphs.map(g => g.char));
+          glyphsForBuild = mergeSupplementSheet(glyphsForBuild, matchSupplementSize(trace.glyphs, extra.glyphs));
+          count = glyphsForBuild.filter(g => !g.variantSuffix).length;
+          rep = [...rep, ...extra.report.filter(g => !baseChars.has(g.char))];
+          warn = [warn, extra.rowWarning && `Accents sheet: ${extra.rowWarning}`].filter(Boolean).join(' ');
+          tracedRows += extra.rows.length;
+          tracedDrawings += extra.glyphs.length;
+          sheetRows.push({ label: `Sheet ${sheetRows.length + 1} · accents`, rows: extra.rows });
         }
         setMonoSheets(sheetRows);
         setTraceSummary(`${tracedRows} rows · ${tracedDrawings} drawings · ${sheetCount} ${sheetCount === 1 ? 'sheet' : 'sheets'}`);
@@ -447,6 +487,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         ttf: res.ttf?.length ?? 0,
         woff2: res.woff2?.length ?? 0,
         variants: variantSheetCount,
+        supplement: useSupplement,
       };
       // live preview from the built woff2 (fall back to otf); COLR renders in color
       const previewBytes = res.woff2 || res.otf;
@@ -457,7 +498,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       }
       setPhase('done');
       const fitScript = !isColor && !!(window as unknown as { __lastTrim?: { script?: boolean } }).__lastTrim?.script;
-      track('build_ok', `${kind}${fitScript ? '+script' : ''}`, buildSource);
+      track('build_ok', `${kind}${useSupplement ? '+accents' : fitScript ? '+script' : ''}`, buildSource);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -681,9 +722,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
 
   // The charset stashed by the generate block (make.astro) when a preset prompt
   // was used: the exact characters that preset told the AI to draw.
-  function readArmedCharset(): string[] | null {
+  function readArmedCharset(key = 'fh-gen-charset'): string[] | null {
     try {
-      const raw = localStorage.getItem('fh-gen-charset');
+      const raw = localStorage.getItem(key);
       if (!raw) return null;
       const arr = JSON.parse(raw);
       return Array.isArray(arr) && arr.length > 0 && arr.every((r) => typeof r === 'string') ? arr : null;
@@ -797,6 +838,35 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     }
   };
 
+  const onSupplementFile = async (file: File | undefined) => {
+    if (!file || buildBusyRef.current || isColor || connect) return;
+    buildBusyRef.current = true;
+    setPhase('working'); setResult(null); setPreviewFam('');
+    try {
+      await waitForEngine();
+      const img = await fileToImage(file);
+      const armed = !supplementCharsetEdited.current && readArmedCharset('fh-gen-charset-supplement');
+      if (armed) {
+        supplementCharsetRef.current = armed.join('\n');
+        setSupplementCharset(supplementCharsetRef.current);
+      }
+      supplementImgRef.current = img;
+      setSupplementName(file.name);
+      if (lastImgRef.current) await run(() => Promise.resolve(lastImgRef.current!));
+      else setPhase('idle');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not read the accents sheet.'); setPhase('error');
+    } finally { buildBusyRef.current = false; }
+  };
+
+  const removeSupplement = () => {
+    if (buildBusyRef.current) return;
+    supplementImgRef.current = null; setSupplementName(null);
+    if (supplementFileRef.current) supplementFileRef.current.value = '';
+    if (lastImgRef.current) rebuild();
+    else { setResult(null); setPhase('idle'); }
+  };
+
   const stageStateOf = (i: number): StageState =>
     stageIdx > i ? 'done' : stageIdx === i ? 'active' : 'queued';
 
@@ -895,6 +965,39 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             </label>
           </div>
         </div>
+
+        {!isColor && (
+          <div role="group" aria-label="Accents sheet" style={{ marginTop: 18, border: '1px dashed var(--line-2)', borderRadius: 3, padding: 14, minWidth: 0 }}
+            onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); onSupplementFile(e.dataTransfer.files[0]); }}>
+            <div className="fh-mono" style={{ fontSize: 12, color: 'var(--ink)' }}>Accents sheet · optional</div>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5, margin: '7px 0 12px' }}>
+              Add new characters to this font. Drop a separate sheet here; its letters will be sized to match your main alphabet. Existing characters keep the main sheet’s drawing.
+            </p>
+            <input ref={supplementFileRef} id="supplement-file" type="file" accept="image/*" style={{ display: 'none' }}
+              disabled={phase === 'working' || rowBusy !== null || connect} onChange={e => onSupplementFile(e.target.files?.[0])} />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="fh-btn fh-btn--ghost" disabled={phase === 'working' || rowBusy !== null || connect}
+                onClick={() => supplementFileRef.current?.click()}>Choose accents sheet</button>
+              {supplementName && <button type="button" className="fh-btn fh-btn--ghost" disabled={phase === 'working' || rowBusy !== null} onClick={removeSupplement}>Remove accents sheet</button>}
+            </div>
+            {supplementName && <p className="fh-mono" style={{ fontSize: 11, overflowWrap: 'anywhere', color: 'var(--ink-soft)' }}>{supplementName}</p>}
+            {connect && <p style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Turn off connected cursive to add an accents sheet.</p>}
+            <label htmlFor="supplement-charset" className="fh-mono" style={{ display: 'block', fontSize: 11, margin: '12px 0 6px', color: 'var(--ink-soft)' }}>ACCENTS CHARSET · one row per line</label>
+            <textarea id="supplement-charset" className="fh-input" aria-label="Accents sheet character rows" spellCheck={false}
+              disabled={phase === 'working' || rowBusy !== null} value={supplementCharset}
+              style={{ width: '100%', minHeight: 145, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.6, whiteSpace: 'pre', overflowWrap: 'normal' }}
+              onChange={e => {
+                supplementCharsetEdited.current = true;
+                supplementCharsetRef.current = e.target.value; setSupplementCharset(e.target.value);
+                if (supplementImgRef.current) { setResult(null); setPreviewFam(''); setMonoSheets([]); setPhase('idle'); }
+              }} />
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5, margin: '6px 0 0' }}>
+              Match these rows to the accents sheet. The Extended Latin prompt above makes a matching sheet from a reference image of your first alphabet.
+            </p>
+            {supplementName && lastImgRef.current && <button type="button" className="fh-btn fh-btn--ghost" style={{ marginTop: 12 }}
+              disabled={phase === 'working' || rowBusy !== null} onClick={rebuild}>Rebuild with accents</button>}
+          </div>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
           <button className="fh-btn fh-btn--ghost" onClick={onSample} disabled={phase === 'working' || rowBusy !== null}>
@@ -1028,7 +1131,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 </p>
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="connected cursive" on={connect} onChange={setConnect} />
+                    <ToggleRow label="connected cursive" on={connect} onChange={setConnect} disabled={!!supplementName} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       joins the letters into a connected script. Off by default. Turns off flourish overhang, spacing, and italic while on.
                     </p>

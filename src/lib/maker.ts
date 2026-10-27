@@ -85,6 +85,8 @@ export interface Glyph {
    * Variant glyphs are appended unicode-less so the cmap and base GIDs stay stable.
    */
   variantSuffix?: string;
+  /** Keeps supplement drawings out of the base alphabet's baseline references. */
+  supplement?: boolean;
 }
 
 /**
@@ -112,6 +114,59 @@ export function mergeVariantSheets(sheets: Glyph[][]): Glyph[] {
     }
   }
   return out;
+}
+
+/** A supplement adds cmap entries, never alternates or replacements. */
+export function mergeSupplementSheet(base: Glyph[], supplement: Glyph[]): Glyph[] {
+  const seen = new Set(base.map(g => g.char));
+  const out = base.slice();
+  for (const g of supplement) {
+    if (seen.has(g.char)) continue;
+    seen.add(g.char);
+    const { variantSuffix: _variant, ...ordinary } = g;
+    out.push({ ...ordinary, supplement: true });
+  }
+  return out;
+}
+
+/** Register a separately drawn sheet in the base sheet's pixel space before
+ * the writer chooses its single font-wide scale. Detached marks never vote
+ * in the height measurement; below marks and descenders aren't references. */
+export function matchSupplementSize(
+  base: Glyph[], supplement: Glyph[], measure: (g: Glyph) => BaselineBounds | null = measureBaselineBounds,
+): Glyph[] {
+  const heights = (glyphs: Glyph[], capitals: boolean): number | null => {
+    const collect = (pattern: RegExp) => glyphs.flatMap(g => {
+      const a = latinAccent(g.char), c = a?.base ?? g.char;
+      if (g.variantSuffix || a?.below || !pattern.test(c)) return [];
+      const b = measure(g);
+      const h = b ? (b.baseBottom ?? b.bottom) - (b.baseTop ?? b.top) : 0;
+      return Number.isFinite(h) && h > 0 ? [h] : [];
+    }).sort((a, b) => a - b);
+    // Use baseline.ts's flat capitals first. Repeated pointed A's and round
+    // overshoots on accent sheets otherwise make E/I/T too small.
+    let samples = collect(capitals ? /^[BEFHIKLMNPTXYZ]$/ : /^[acemnorsuvwxz]$/);
+    if (capitals && !samples.length) samples = collect(/^[A-Z]$/);
+    const mid = samples.length >> 1;
+    return samples.length ? samples.length % 2 ? samples[mid] : (samples[mid - 1] + samples[mid]) / 2 : null;
+  };
+  const baseCaps = heights(base, true), extraCaps = heights(supplement, true);
+  const baseLower = heights(base, false), extraLower = heights(supplement, false);
+  const capRatio = baseCaps && extraCaps ? baseCaps / extraCaps : null;
+  const lowerRatio = baseLower && extraLower ? baseLower / extraLower : null;
+  if (!capRatio && !lowerRatio) throw new Error('Could not match the accents sheet size. Include clear capital or lowercase letters on both sheets.');
+  const scaled = supplement.map(g => {
+    const factor = /^\p{Ll}$/u.test(g.char) ? lowerRatio ?? capRatio! : capRatio ?? lowerRatio!;
+    const { variantSuffix: _variant, ...ordinary } = g;
+    return { ...ordinary, cellW: g.cellW * factor, cellH: g.cellH * factor,
+      baselineYInCell: g.baselineYInCell * factor,
+      // Potrace supplies absolute M/L/C/Q paths. A uniform scale applies to
+      // every coordinate, including curve controls, without altering topology.
+      paths: g.paths.map(d => d.replace(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/gi, n => String(Math.round(Number(n) * factor * 10000) / 10000))),
+    };
+  });
+  const alignedBase = alignGlyphBaselines(base.filter(g => !g.variantSuffix), measure).glyphs;
+  return alignGlyphBaselines([...alignedBase, ...scaled], measure, { accentsOnly: true }).glyphs.slice(alignedBase.length);
 }
 
 export interface FontResult {
@@ -833,6 +888,7 @@ interface MonoSession {
   rowInfo: MonoRowInfo[];
   sourceImg: HTMLImageElement | ImageBitmap; // kept for fine-detail re-slices
   variantSheets: MonoSession[];
+  supplementSheet?: MonoSession;
 }
 let _monoSession: MonoSession | null = null;
 
@@ -1006,10 +1062,10 @@ export async function traceSheet(
   rowChars: string[],
   opts: TraceOpts,
   onProgress?: Progress,
-  sessionRole: 'base' | 'variation' = 'base',
+  sessionRole: 'base' | 'variation' | 'supplement' = 'base',
 ): Promise<TraceResult> {
   rowChars = validateCharset(rowChars);
-  if (sessionRole === 'variation' && !_monoSession) throw new Error('trace the base sheet before its variations');
+  if (sessionRole !== 'base' && !_monoSession) throw new Error('trace the base sheet before adding another sheet');
   const TC = w().TracerCore;
   const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
   const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
@@ -1084,6 +1140,8 @@ export async function traceSheet(
   const session: MonoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo, sourceImg: img, variantSheets: [] };
   if (sessionRole === 'variation') {
     if (glyphs.length) _monoSession!.variantSheets.push(session);
+  } else if (sessionRole === 'supplement') {
+    _monoSession!.supplementSheet = session;
   } else {
     _monoSession = session;
   }
@@ -1109,7 +1167,7 @@ export async function editMonoRow(
 ): Promise<{ result: FontResult; glyphCount: number; report: GlyphReport[]; rows: MonoRowInfo[]; variants: number }> {
   const base = _monoSession;
   if (!base) throw new Error('no mono build session — build a font first');
-  const s = [base, ...base.variantSheets][sheetIndex];
+  const s = [base, ...base.variantSheets, ...(base.supplementSheet ? [base.supplementSheet] : [])][sheetIndex];
   if (!s) throw new Error('bad sheet index ' + sheetIndex);
   if (rowIndex < 0 || rowIndex >= s.rowGlyphs.length) throw new Error('bad row index ' + rowIndex);
   const prevGlyphs = s.rowGlyphs[rowIndex];
@@ -1123,9 +1181,15 @@ export async function editMonoRow(
     s.opts = opts;
     s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: charsetCharacters(chars).length, glyphCount: r.glyphs.length, cells: r.cells };
     if (!s.rowGlyphs.flat().length) throw new Error('no glyphs left after re-slicing this row');
-    const glyphs = base.rowGlyphs.flat();
+    let glyphs = base.rowGlyphs.flat();
+    let merged = mergeVariantSheets([glyphs, ...base.variantSheets.map(sheet => sheet.rowGlyphs.flat())]);
+    if (base.supplementSheet) {
+      if (connect) throw new Error('Turn off connected cursive to use an accents sheet.');
+      merged = mergeSupplementSheet(merged, matchSupplementSize(glyphs, base.supplementSheet.rowGlyphs.flat()));
+      glyphs = merged.filter(g => !g.variantSuffix);
+    }
     const result = await buildFont(
-      mergeVariantSheets([glyphs, ...base.variantSheets.map(sheet => sheet.rowGlyphs.flat())]),
+      merged,
       { family: family.trim() || 'Handmade', style, formats: ['otf', 'ttf', 'woff2'], spacingPct, trimFlourishes, connect, connectOverlapPct, smoothJoins, naturalVariation: base.variantSheets.length > 0 },
       onProgress,
     );
@@ -1808,7 +1872,7 @@ export function trimGlyphOverhangs(
   const upright = strictUpright || (!!opts.autoSpacing && hasStraightUprightStems(stems, xHeight, 2));
   // An accent supplement has no x-height/stem reference alphabet. Preserve
   // complete margins instead of guessing that its serifs are script tails.
-  const accentOnly = xIndex < 0 && glyphs.some(g => latinAccent(g.char));
+  const accentOnly = !glyphs.some(g => !g.variantSuffix && /^[A-Za-z]$/.test(g.char)) && glyphs.some(g => latinAccent(g.char));
   if (upright || accentOnly) {
     // Keep the entire serif/diagonal inside the advance. Re-anchor every
     // glyph so the source sheet's cell widths cannot leave uneven spacing.
@@ -3666,9 +3730,16 @@ function measureBaselineBounds(g: Glyph): BaselineBounds | null {
  *  checksums (the worker's woff2 wrapped the uncorrected otf, so re-wrap from
  *  the fixed otf) and validate. Throws if the font fails validation. */
 export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: Progress): Promise<FontResult> {
-  const aligned = !opts.connect && opts.autoBaseline !== false
-    ? alignGlyphBaselines(glyphs, measureBaselineBounds)
-    : { glyphs, adjustments: [] };
+  let aligned = { glyphs, adjustments: [] as ReturnType<typeof alignGlyphBaselines>['adjustments'] };
+  if (!opts.connect && opts.autoBaseline !== false) {
+    if (glyphs.some(g => g.supplement)) {
+      const base = alignGlyphBaselines(glyphs.filter(g => !g.supplement), measureBaselineBounds);
+      const extras = alignGlyphBaselines([...base.glyphs, ...glyphs.filter(g => g.supplement)], measureBaselineBounds, { accentsOnly: true });
+      // Base letters keep their original baseline decisions; the supplement
+      // is aligned against them, never allowed to change those references.
+      aligned = { glyphs: [...base.glyphs, ...extras.glyphs.slice(base.glyphs.length)], adjustments: [...base.adjustments, ...extras.adjustments] };
+    } else aligned = alignGlyphBaselines(glyphs, measureBaselineBounds);
+  }
   glyphs = aligned.glyphs;
   (globalThis as unknown as { __lastBaseline?: object }).__lastBaseline = { adjustments: aligned.adjustments };
   const manualSpacing = typeof opts.spacingPct === 'number' && Number.isFinite(opts.spacingPct) && opts.spacingPct > 0;

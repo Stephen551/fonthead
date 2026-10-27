@@ -3,10 +3,7 @@ import { readFileSync } from 'node:fs';
 import * as fontkit from 'fontkit';
 import { verifySfntChecksums } from '../src/lib/sfnt';
 
-export const ACCENT_ROWS = [
-  'ÀÁÂÃÄÅĀĂĄÆÇĆČĎĐÈÉ', 'ÊËĒĖĘÌÍÎÏĪŁÑÒÓÔÕÖ', 'ØŒŔŘŚŠŤÙÚÛÜŪŮÝŸŽŻ',
-  'àáâãäåāăąæçćčďðèé', 'êëēėęìíîïīłñòóôõö', 'øœŕřśšťùúûüūůýÿžż', '¡¿“”‘’«»–—…€£¥©®™',
-];
+import { LEGACY_ACCENT_ROWS as FIXTURE_ACCENT_ROWS } from './extended-latin-fixture';
 
 test.beforeEach(async ({ page }) => {
   test.setTimeout(180_000);
@@ -27,7 +24,7 @@ async function download(page: Page, format: string) {
 }
 
 test('the supplied extended Latin sheet keeps marks, Unicode mappings and baselines in every format', async ({ page }) => {
-  await page.addInitScript(rows => localStorage.setItem('fh-gen-charset', JSON.stringify(rows)), ACCENT_ROWS.map(r => r.normalize('NFD')));
+  await page.addInitScript(rows => localStorage.setItem('fh-gen-charset', JSON.stringify(rows)), FIXTURE_ACCENT_ROWS.map(r => r.normalize('NFD')));
   await page.goto('/make');
   await page.locator('#sheet-file').setInputFiles('e2e/fixtures/extended-latin-sheet.png');
   await expect(page.getByRole('button', { name: 'download woff2', exact: true })).toBeVisible({ timeout: 120_000 });
@@ -38,7 +35,7 @@ test('the supplied extended Latin sheet keeps marks, Unicode mappings and baseli
     const { font, bytes } = await download(page, format);
     if (format === 'woff2') webBytes = bytes;
     const ids = new Set<number>(), names = new Set<string>();
-    for (const char of ACCENT_ROWS.join('')) {
+    for (const char of FIXTURE_ACCENT_ROWS.join('')) {
       const g = font.glyphForCodePoint(char.codePointAt(0));
       expect(g.id, char).toBeGreaterThan(0);
       expect(g.path.commands.length, char).toBeGreaterThan(0);

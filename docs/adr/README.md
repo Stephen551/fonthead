@@ -81,6 +81,7 @@ left out — they live in CLAUDE.md, not here.
 | [0069](0069-complete-descenders-and-serif-spacing.md) | Recover crossing descenders and preserve complete serif spacing through export | Accepted |
 | [0070](0070-measured-spacing-and-swashed-k-baseline.md) | Measure automatic spacing and anchor swashed lowercase k on its stem | Accepted |
 | [0071](0071-accented-latin-extraction-and-baselines.md) | Preserve Latin accents, canonical Unicode mapping and body baselines | Accepted |
+| [0073](0073-extended-latin-supplement-sheet.md) | Separate Extended Latin supplements, base-first merging and body-size matching | Accepted |
 
 ## Format
 
