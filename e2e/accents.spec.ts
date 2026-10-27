@@ -46,10 +46,14 @@ test('the supplied extended Latin sheet keeps marks, Unicode mappings and baseli
     }
     expect(ids.size).toBe(119);
     if (format !== 'ttf') expect(names.size).toBe(119);
+    // Widths are judged as if the tallest glyph stood at 800 units, so the
+    // limit holds however the font is scaled (ADR 0072: accents no longer set
+    // the scale, and this sheet's plain ink is only symbols).
+    const tallest = Math.max(...[...ACCENT_ROWS.join('')].map(c => font.glyphForCodePoint(c.codePointAt(0)).bbox.maxY));
     for (const [char, count] of [['é', 3], ['ñ', 2], ['ü', 3], ['Å', 4], ['ď', 3], ['ť', 2]] as const) {
       const g = font.glyphForCodePoint(char.codePointAt(0));
       expect(g.path.commands.filter((c: any) => c.command === 'moveTo').length, `${format} ${char} contours`).toBe(count);
-      expect(g.bbox.maxX - g.bbox.minX, `${char} no foreign fragment`).toBeLessThan(700);
+      expect((g.bbox.maxX - g.bbox.minX) * 800 / tallest, `${char} no foreign fragment`).toBeLessThan(700);
     }
     for (const char of 'ÀÁÂÃÄÅĀĂĆČĎÈÉÊËĒĖÌÍÎÏĪÑÒÓÔÕÖŔŘŚŠŤÙÚÛÜŪŮÝŸŽŻàáâãäåāăćčďèéêëēėìíîïīñòóôõöŕřśšťùúûüūůžż') {
       expect(Math.abs(font.glyphForCodePoint(char.codePointAt(0)).bbox.minY), `${format} ${char} baseline`).toBeLessThan(2);
