@@ -78,6 +78,7 @@ left out — they live in CLAUDE.md, not here.
 | [0066](0066-published-specimen-contextual-alternates.md) | Preserve natural variation in published font samples | Accepted |
 | [0067](0067-first-download-maker-reviews.md) | Ask once for a maker review with separate public-display permission | Accepted |
 | [0068](0068-admin-usage-and-member-adoption.md) | Show usage trends and member adoption without uploading unpublished work | Accepted |
+| [0069](0069-complete-descenders-and-serif-spacing.md) | Recover crossing descenders and preserve complete serif spacing through export | Accepted |
 
 ## Format
 

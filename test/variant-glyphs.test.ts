@@ -86,4 +86,20 @@ describe('builder variant glyphs', () => {
     expect(Math.abs(exportBottom(false)), 'fixture exposes accumulated rounding drift').toBeGreaterThan(3);
     expect(exportBottom(true)).toBe(0);
   });
+
+  it('preserves fitted horizontal bounds through CFF serialization', () => {
+    const curves = Array.from({ length: 20 }, (_, i) => {
+      const x = 10 + i * 0.12, y = i * 3;
+      return `C${x + 0.04} ${y + 1} ${x + 0.08} ${y + 2} ${x + 0.12} ${y + 3}`;
+    }).join(' ');
+    const g = { ...A, paths: [`M10 0 ${curves} L90 100 L10 100 Z`], cellW: 100, cellH: 110, baselineYInCell: 100 };
+    const drift = (quantizeX: boolean) => {
+      const font = eng.buildFontForStyle([g], { ...OPTS, quantizeX });
+      const before = font.charToGlyph('a').getBoundingBox();
+      const after = eng.opentype.parse(font.toArrayBuffer()).charToGlyph('a').getBoundingBox();
+      return Math.max(Math.abs(before.x1 - after.x1), Math.abs(before.x2 - after.x2));
+    };
+    expect(drift(false), 'fixture exposes accumulated horizontal rounding drift').toBeGreaterThan(3);
+    expect(drift(true)).toBe(0);
+  });
 });

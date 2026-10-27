@@ -123,6 +123,7 @@ async function generateFonts(payload) {
     useCellWidth, tightAdvance, sideBearingPct, outlinesFormat: 'cff', features, isItalic,
     spaceAdvance: payload.spaceAdvance,
     quantizeY: payload.quantizeY,
+    quantizeX: payload.quantizeX,
   });
 
   /* Phase 6 (v0.8.42): optical sidebearing optimization. When the

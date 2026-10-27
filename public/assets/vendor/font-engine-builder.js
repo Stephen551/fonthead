@@ -381,7 +381,9 @@
         const xFont = x * scale + shiftX;
         const xSlanted = isItalic ? xFont + yFont * italicTan : xFont;
         return [
-          Math.round(xSlanted * 100) / 100,
+          // Preserve fitted side bearings through CFF's integer relative
+          // deltas, which otherwise accumulate horizontal contour drift.
+          opts.quantizeX ? Math.round(xSlanted) : Math.round(xSlanted * 100) / 100,
           /* CFF writes integer relative curve deltas. Rounding those deltas
              independently accumulates drift across a contour. For aligned
              builds, quantize absolute Y first so the writer preserves it. */

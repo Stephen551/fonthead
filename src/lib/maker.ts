@@ -9,6 +9,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { fixSfntChecksums } from './sfnt';
 import { alignGlyphBaselines, type BaselineBounds } from './baseline';
+import { recoverRowExtent } from './row-extent';
 import { hasStraightUprightStems } from './spacing';
 
 const w = () => window as any;
@@ -447,8 +448,9 @@ async function rowToGlyphs(
     if (x1 <= x0) continue;
     const cx0 = Math.max(0, x0 - pad);
     const cx1 = Math.min(W, x1 + pad);
-    const cy0 = Math.max(0, y0 - pad);
-    const cy1 = Math.min(H, y1 + pad);
+    const extent = recoverRowExtent(data, W, H, cx0, cx1, y0, y1, ownerFn, i);
+    const cy0 = Math.max(0, extent.top - pad);
+    const cy1 = Math.min(H, extent.bottom + pad);
     const map = TC.mapCellToGlyph(cx0, cy0, cx1, cy1, baselineAbs);
     const scale = opts.fineDetail && sourceImg ? detailScale(cy1 - cy0) : 1;
     let svg: string;
@@ -462,7 +464,7 @@ async function rowToGlyphs(
       // probe, corpus green); -40 pulled the edge back further (7px) but thinned
       // the connectors past reach and the joins broke (joinGap median 127).
       const ssThreshold = Math.max(40, opts.threshold - 24);
-      const ssCell = supersampleMonoCell(sourceImg, cx0, cy0, cx1, cy1, scale, ssThreshold, opts.invert, ownerFn, i);
+      const ssCell = supersampleMonoCell(sourceImg, cx0, cy0, cx1, cy1, scale, ssThreshold, opts.invert, extent.owner, i);
       // turdsize is an AREA in trace pixels; at scale x the same physical speck
       // covers scale^2 more pixels, so an unscaled threshold stops culling the
       // flecks it culls at native resolution (judged: stray dots at seams).
@@ -478,7 +480,7 @@ async function rowToGlyphs(
         1 / scale,
       );
     } else {
-      const cell = TC.extractCellBinary(data, W, cx0, cx1, cy0, cy1, ownerFn, i);
+      const cell = TC.extractCellBinary(data, W, cx0, cx1, cy0, cy1, extent.owner, i);
       svg = await TC.traceCellBitmap(cell, opts.turdsize, opts.optcurve, opts.alphamax, opts.opttolerance);
     }
     const paths = TC.extractPathDFromSvg(svg);
@@ -1734,10 +1736,15 @@ export function trimGlyphOverhangs(
   if (upright) {
     // Keep the entire serif/diagonal inside the advance. Re-anchor every
     // glyph so the source sheet's cell widths cannot leave uneven spacing.
+    // A native-resolution silhouette drops subpixel hairline serifs. Use the
+    // actual curve bounds for bearings; raster bounds remain for classification.
     return { script: false, upright: true, trimmed: 0, glyphs: glyphs.map((g, i) => {
       const span = ink[i];
-      return span ? { ...g, paths: g.paths.map(p => translatePathX(p, padPx - span.first)),
-        cellW: span.last - span.first + 1 + padPx * 2 } : g;
+      if (!span) return g;
+      const path = w().svgPathToOpentypePath(g.paths.join(' '), (x: number, y: number) => [x, y], false);
+      const bb = path.getBoundingBox();
+      return { ...g, paths: g.paths.map(p => translatePathX(p, padPx - bb.x1)),
+        cellW: bb.x2 - bb.x1 + padPx * 2 };
     }) };
   }
   const conservative = profiles.map((prof, i) =>
@@ -3772,7 +3779,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // survive (the engine default is 0.28em)
     if (fit.script) spaceAdvance = 0.38;
     // diagnostics hook (harmless), mirrors __lastBuild
-    (globalThis as unknown as { __lastTrim?: object }).__lastTrim = { script: fit.script, trimmed: fit.trimmed };
+    (globalThis as unknown as { __lastTrim?: object }).__lastTrim = { script: fit.script, trimmed: fit.trimmed, upright: !!fit.upright };
   }
   const payload = {
     glyphs: glyphsIn.map((g) => ({
@@ -3789,6 +3796,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     style: styleOut,
     upm: opts.upm ?? 1000,
     quantizeY: !opts.connect && opts.autoBaseline !== false,
+    quantizeX: uprightSpacing,
     ...flags,
     spaceAdvance,
     formats: opts.formats ?? ['otf', 'ttf', 'woff2'],
