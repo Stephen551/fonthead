@@ -109,10 +109,11 @@
     // base outlines only, no layer glyphs, no COLR/CPAL — so it renders in the
     // app's text colour instead of being forced to the single palette colour.
     const colorMode = palette && palette.colors && palette.colors.length >= 2;
-    const boundsGlyphs = chars.map(c => ({ paths: [c.baseD], baselineYInCell: c.baselineYInCell }));
-    const { maxAsc, maxDesc } = measureGlyphBounds(boundsGlyphs);
+    const boundsGlyphs = chars.map(c => ({ char: c.char, paths: [c.baseD], baselineYInCell: c.baselineYInCell }));
+    const { maxAsc, maxAscAll, maxDesc } = measureGlyphBounds(boundsGlyphs);
     const scale = (upm * 0.80) / maxAsc;
-    const ascender = Math.ceil(upm * 0.80);
+    // Accented glyphs never set the scale; the ascender grows to fit them.
+    const ascender = Math.ceil(maxAscAll > maxAsc ? Math.max(upm * 0.80, maxAscAll * scale) : upm * 0.80);
     const descender = -Math.max(50, Math.ceil(maxDesc * scale * 1.05));
 
     const otGlyphs = [
@@ -211,10 +212,11 @@
     const family = opts.familyName || 'Untitled Color';
     const sideBearingPct = 0.05;
 
-    const boundsGlyphs = chars.map(c => ({ paths: [c.baseD], baselineYInCell: c.baselineYInCell }));
-    const { maxAsc, maxDesc } = measureGlyphBounds(boundsGlyphs);
+    const boundsGlyphs = chars.map(c => ({ char: c.char, paths: [c.baseD], baselineYInCell: c.baselineYInCell }));
+    const { maxAsc, maxAscAll, maxDesc } = measureGlyphBounds(boundsGlyphs);
     const scale = (upm * 0.80) / maxAsc;
-    const ascender = Math.ceil(upm * 0.80);
+    // Accented glyphs never set the scale; the ascender grows to fit them.
+    const ascender = Math.ceil(maxAscAll > maxAsc ? Math.max(upm * 0.80, maxAscAll * scale) : upm * 0.80);
     const descender = -Math.max(50, Math.ceil(maxDesc * scale * 1.05));
 
     const otGlyphs = [
