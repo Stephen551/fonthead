@@ -314,7 +314,9 @@
     const variantGlyphs = []; // natural-variation .cvNN sheets, appended unicode-less after the bases
     for (const g of glyphs) {
       if (g.variantSuffix) { variantGlyphs.push(g); continue; }
-      const cp = g.char.codePointAt(0);
+      // Key by the NFC code point, as glyphName does: a decomposed é must not
+      // land on U+0065 and silently replace the plain e.
+      const cp = g.char.normalize('NFC').codePointAt(0);
       byCodepoint.set(cp, g);
     }
 

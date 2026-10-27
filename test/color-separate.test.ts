@@ -72,6 +72,18 @@ describe('separateGlyph', () => {
     expect(inkAt(i.union, w, 65, 10)).toBe(true);
   });
 
+  it('keeps the minor part of multi-part symbols such as ¡ ¿ ÷ © and ŀ', () => {
+    const w = 60, h = 120;
+    for (const char of ['¡', '¿', '÷', 'ŀ', '©']) {
+      const d = blank(w, h);
+      rect(d, w, 25, 10, 35, 20, RED);   // dot / inner mark, well under half the body
+      rect(d, w, 25, 35, 35, 110, RED);  // stem / outer body
+      const g = CC.separateGlyph(d, w, h, palette2, char);
+      expect(inkAt(g.union, w, 30, 15), char).toBe(true);
+      expect(g.strayDropped, char).toBe(false);
+    }
+  });
+
   it('never culls two big halves (a mis-slice to flag, not delete)', () => {
     const w = 80, h = 100;
     const data = blank(w, h);
