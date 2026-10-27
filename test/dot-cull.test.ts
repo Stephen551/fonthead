@@ -32,6 +32,14 @@ const CELL_H = 370; // the field sheet's a-m row band + pad
 const subCount = (out: Array<{ d: string }>) => out.reduce((n, p) => n + p.d.split(/(?=M)/).filter((s) => s.trim()).length, 0);
 
 describe('cullForeignTopTails: docked marks survive', () => {
+  it('preserves declared accents beyond the normal dot gap and beside ascenders', () => {
+    const upper = entry(sub(80, 0, 100, 20), sub(50, 100, 180, 300));
+    expect(subCount(cullForeignTopTails(upper, CELL_H, 'é'))).toBe(2);
+    expect(subCount(cullForeignTopTails(upper, CELL_H, 'e'))).toBe(1);
+    const side = entry(sub(205, 0, 225, 35), sub(50, 6, 180, 300));
+    expect(subCount(cullForeignTopTails(side, CELL_H, 'ď'))).toBe(2);
+    expect(subCount(cullForeignTopTails(side, CELL_H, 'd'))).toBe(1);
+  });
   it('keeps an i dot that rides the band top (field geometry: share 0.195, gap 2.2% of cellH)', () => {
     // dot y 6-75 over stem y 83-288 — the dot is the row's tallest ink
     const out = cullForeignTopTails(entry(sub(20, 6, 89, 75), sub(6, 83, 102, 288)), CELL_H);

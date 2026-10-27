@@ -442,6 +442,7 @@
    * outline of all ink -> the cmap-mapped fallback base glyph.
    * `char` (optional) enables the single-shape stray-island cull. */
   function separateGlyph(data, w, h, palette, char) {
+    const accented = !!char && /^[A-Za-z][\u0300-\u036f]+$/.test(char.normalize('NFD'));
     const bg = palette.bg || { r: 255, g: 255, b: 255 };
     const bgLab = rgbToLab(bg.r, bg.g, bg.b);
     const bgD2 = (palette.bgDist || 20) * (palette.bgDist || 20);
@@ -474,7 +475,7 @@
     // bottom edge of the cell (the row above's bottom/shadow, or the row below's
     // top), which the island cull can't catch because it's joined to the glyph.
     // Skipped for glyphs that legitimately carry a detached top/bottom mark.
-    if (char && !MULTI_PART.has(char)) {
+    if (char && !MULTI_PART.has(char) && !accented) {
       const width = new Int32Array(h);
       for (let y = 0; y < h; y++) { let c = 0; const off = y * w; for (let x = 0; x < w; x++) if (union[off + x]) c++; width[y] = c; }
       const edge = detectEdgeBleed(width, h);
@@ -494,7 +495,7 @@
     // disconnected drop-shadow bits) from the silhouette AND the colour layers,
     // keeping every component that's a real share of the largest — so i/j dots
     // and punctuation survive. Cleans the trace without touching the letter.
-    const keep = keepLargeComponents(union, w, h);
+    const keep = keepLargeComponents(union, w, h, accented ? { frac: 0, absMin: 1 } : undefined);
     for (let p = 0; p < N; p++) {
       if (!union[p] || keep[p]) continue;
       union[p] = 0; totalInk--;
@@ -512,27 +513,39 @@
     // to flag, not bleed to silently delete.
     let strayDropped = false;
     if (char && !MULTI_PART.has(char)) {
-      const lab = new Int32Array(N).fill(-1), area = [], st = [];
+      const lab = new Int32Array(N).fill(-1), area = [], boxes = [], st = [];
       let nl = 0;
       for (let s = 0; s < N; s++) {
         if (!union[s] || lab[s] >= 0) continue;
         const id = nl++; lab[s] = id; st.length = 0; st.push(s); let sz = 0;
+        let x0 = w, x1 = 0, y0 = h, y1 = 0;
         while (st.length) {
           const p = st.pop(); sz++;
           const x = p % w, y = (p / w) | 0;
+          x0 = Math.min(x0, x); x1 = Math.max(x1, x + 1); y0 = Math.min(y0, y); y1 = Math.max(y1, y + 1);
           if (x > 0 && union[p - 1] && lab[p - 1] < 0) { lab[p - 1] = id; st.push(p - 1); }
           if (x < w - 1 && union[p + 1] && lab[p + 1] < 0) { lab[p + 1] = id; st.push(p + 1); }
           if (y > 0 && union[p - w] && lab[p - w] < 0) { lab[p - w] = id; st.push(p - w); }
           if (y < h - 1 && union[p + w] && lab[p + w] < 0) { lab[p + w] = id; st.push(p + w); }
         }
         area[id] = sz;
+        boxes[id] = { x0, x1, y0, y1 };
       }
       if (nl > 1) {
         let big = 0, bigA = -1; for (let id = 0; id < nl; id++) if (area[id] > bigA) { bigA = area[id]; big = id; }
+        const main = boxes[big], bodyH = main.y1 - main.y0, margin = (main.x1 - main.x0) * 0.25;
+        const marks = accented ? [...char.normalize('NFD')].slice(1) : [];
+        const below = /[\u0316-\u0333\u0339-\u033c\u0345]/;
+        const aboveMark = marks.some(c => !below.test(c)), belowMark = marks.some(c => below.test(c));
+        const validMark = boxes.map(b => accented && (
+          ((b.x1 >= main.x0 - margin && b.x0 <= main.x1 + margin) &&
+            ((aboveMark && b.y1 <= main.y0 + 1 && main.y0 - b.y1 <= bodyH * 0.65) ||
+             (belowMark && b.y0 >= main.y1 - 1 && b.y0 - main.y1 <= bodyH * 0.65))) ||
+          (/[ďťľĽ]/.test(char) && b.x0 >= main.x1 - 1 && b.x0 - main.x1 <= bodyH * 0.4 && b.y1 <= main.y0 + bodyH * 0.45 && b.y0 >= main.y0 - bodyH * 0.65)));
         for (let p = 0; p < N; p++) {
           if (!union[p]) continue;
           const id = lab[p];
-          if (id !== big && area[id] < 0.5 * bigA) {
+          if (id !== big && area[id] < 0.5 * bigA && !validMark[id]) {
             union[p] = 0; totalInk--; strayDropped = true;
             for (let k = 0; k < K; k++) if (perColor[k][p]) { perColor[k][p] = 0; counts[k]--; }
           }

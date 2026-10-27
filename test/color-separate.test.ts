@@ -26,6 +26,25 @@ const palette2 = { colors: [{ r: 224, g: 32, b: 32 }, { r: 30, g: 79, b: 194 }],
 const inkAt = (union: Uint8ClampedArray, w: number, x: number, y: number) => union[(y * w + x) * 4] === 0;
 
 describe('separateGlyph', () => {
+  it('retains tiny upper and lower accents in the union and color layers', () => {
+    const w = 80, h = 100, data = blank(w, h);
+    rect(data, w, 20, 30, 60, 80, RED);
+    rect(data, w, 25, 5, 27, 7, BLUE);
+    rect(data, w, 50, 5, 52, 7, BLUE);
+    for (const char of ['é', 'ñ', 'ü', 'ǘ']) {
+      const g = CC.separateGlyph(data, w, h, palette2, char);
+      for (const [x, y] of [[25, 5], [50, 5]]) expect(inkAt(g.union, w, x, y), char).toBe(true);
+      expect(g.layers).toHaveLength(2);
+      expect(g.strayDropped).toBe(false);
+    }
+    const lower = blank(w, h);
+    rect(lower, w, 20, 30, 60, 80, RED);
+    rect(lower, w, 38, 90, 40, 92, BLUE);
+    rect(lower, w, 75, 5, 77, 7, BLUE);
+    const c = CC.separateGlyph(lower, w, h, palette2, 'ç');
+    expect(inkAt(c.union, w, 38, 90)).toBe(true);
+    expect(inkAt(c.union, w, 75, 5)).toBe(false);
+  });
   it('splits a two-color glyph into two layers', () => {
     const w = 80, h = 100;
     const data = blank(w, h);

@@ -80,6 +80,7 @@ left out — they live in CLAUDE.md, not here.
 | [0068](0068-admin-usage-and-member-adoption.md) | Show usage trends and member adoption without uploading unpublished work | Accepted |
 | [0069](0069-complete-descenders-and-serif-spacing.md) | Recover crossing descenders and preserve complete serif spacing through export | Accepted |
 | [0070](0070-measured-spacing-and-swashed-k-baseline.md) | Measure automatic spacing and anchor swashed lowercase k on its stem | Accepted |
+| [0071](0071-accented-latin-extraction-and-baselines.md) | Preserve Latin accents, canonical Unicode mapping and body baselines | Accepted |
 
 ## Format
 

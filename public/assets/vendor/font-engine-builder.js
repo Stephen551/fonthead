@@ -132,7 +132,12 @@
     '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four',
     '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
   };
-  function glyphName(ch) { return SPECIAL_NAMES[ch] || ch; }
+  function glyphName(ch) {
+    if (SPECIAL_NAMES[ch]) return SPECIAL_NAMES[ch];
+    if (/^[A-Za-z]$/.test(ch)) return ch;
+    const cp = ch.normalize('NFC').codePointAt(0);
+    return (cp <= 0xffff ? 'uni' : 'u') + cp.toString(16).toUpperCase().padStart(4, '0');
+  }
 
   /* Walk a tokenized path and emit opentype.Path commands via the
      supplied transform fn (handles per-glyph Y-flip + scale +

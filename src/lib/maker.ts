@@ -11,6 +11,7 @@ import { fixSfntChecksums } from './sfnt';
 import { alignGlyphBaselines, type BaselineBounds } from './baseline';
 import { recoverRowExtent } from './row-extent';
 import { chooseAutoSpacing, hasStraightUprightStems, type SpacingSample } from './spacing';
+import { latinAccent, charsetCharacters, validateCharset, mergeAccentBands } from './accents';
 
 const w = () => window as any;
 
@@ -147,7 +148,7 @@ export const ROW_CHARS = SAMPLE_CHAR_LINES;
 export function parseCharset(text: string): string[] {
   return text
     .split(/\r?\n/)
-    .map((l) => l.trimEnd())
+    .map((l) => l.trimEnd().normalize('NFC'))
     .filter((l) => l.length > 0);
 }
 
@@ -215,6 +216,19 @@ function pickRanges(
   override: SlicerKind = 'auto',
 ): { ranges: number[][]; ownerFn: any; slicer: PickedSlicer; forced: boolean; naturalCount: number } {
   const TC = w().TracerCore;
+  // A side caron (ď/ť) can form its own horizontal ink run. Keep the largest
+  // inter-letter gaps, rather than counting that small mark as another cell.
+  if ((override === 'auto' || override === 'whitespace') && [...chars].some(c => latinAccent(c))) {
+    const runs: number[][] = TC.sliceRowByWhitespace(data, W, y0, y1);
+    if (runs.length > expected && expected > 0) {
+      const gaps = runs.slice(1).map((r, i) => ({ i, size: r[0] - runs[i][1] }));
+      const cuts = gaps.sort((a, b) => b.size - a.size).slice(0, expected - 1);
+      if (cuts.length === expected - 1 && cuts.every(c => c.size >= Math.max(2, (y1 - y0) * 0.08))) {
+        const edges = [runs[0][0], ...cuts.sort((a, b) => a.i - b.i).map(c => Math.round((runs[c.i][1] + runs[c.i + 1][0]) / 2)), runs[runs.length - 1][1]];
+        return { ranges: edges.slice(1).map((x, i) => [edges[i], x]), ownerFn: null, slicer: 'whitespace', forced: false, naturalCount: expected };
+      }
+    }
+  }
   // naturalCount = how many cells the NATURAL (non-forced) slicers found. When a
   // row's letters run together (a connected cursive drawn as one line) this is
   // far below expected even though the forced cut still returns `expected` cells
@@ -235,7 +249,7 @@ function pickRanges(
     return { ranges: owned.ranges, ownerFn: owned.ownerFn, slicer: 'ownership', forced: false, naturalCount: owned.ranges.length };
   }
   // auto cascade: prefer the natural cut, fall back to a count-forced one
-  const symbols = /[^A-Za-z0-9 ]/.test(chars);
+  const symbols = /[^\p{L}\p{N} ]/u.test(chars);
   if (symbols) {
     const comp = TC.sliceRowByComponents(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
     if (comp.ranges.length === expected) return { ranges: comp.ranges, ownerFn: comp.ownerFn, slicer: 'components', forced: false, naturalCount: comp.ranges.length };
@@ -348,6 +362,7 @@ function supersampleMonoCell(
 export function cullForeignTopTails<T extends { d: string; bb: { minX: number; maxX: number; minY: number; maxY: number }; area: number }>(
   paths: T[],
   cellH: number,
+  char = '',
 ): T[] {
   const estimateBBox = w().estimateBBox;
   if (!estimateBBox) return paths;
@@ -365,6 +380,8 @@ export function cullForeignTopTails<T extends { d: string; bb: { minX: number; m
   if (subs.length < 2) return paths;
   const total = subs.reduce((s, x) => s + x.area, 0);
   if (total <= 0) return paths;
+  const accent = latinAccent(char);
+  const main = subs.reduce((a, b) => a.area > b.area ? a : b).bb;
   // A DOCKED mark is a small piece hugging x-overlapping ink just beyond it
   // (an i/j dot floating over its stem, a !-dot under its bar): a legitimate
   // detached mark, never a foreign tail. The zonal gates alone can't tell them
@@ -385,6 +402,16 @@ export function cullForeignTopTails<T extends { d: string; bb: { minX: number; m
   const keptSubs = subs.filter((p, i) => {
     const b = p.bb;
     if (!b) return true;
+    if (accent && main) {
+      const h = main.maxY - main.minY, margin = (main.maxX - main.minX) * 0.25;
+      const overlaps = b.maxX >= main.minX - margin && b.minX <= main.maxX + margin;
+      if (overlaps && ((accent.above && b.maxY <= main.minY + 1 && main.minY - b.maxY <= h * 0.65)
+        || (accent.below && b.minY >= main.maxY - 1 && b.minY - main.maxY <= h * 0.65))) return true;
+      // The caron on ď/ť/ľ is drawn beside the ascender, like an apostrophe.
+      if (/[ďťľĽ]/.test(char) && b.minX >= main.maxX - 1 && b.minX - main.maxX <= h * 0.4
+        && b.maxY <= main.minY + h * 0.45 && b.minY >= main.minY - h * 0.65) return true;
+      if (!overlaps && p.area < (main.maxX - main.minX) * h * 0.05) return false;
+    }
     const inside = subs.some(
       (o, j) =>
         j !== i && !!o.bb && b.minX >= o.bb.minX - 1 && b.maxX <= o.bb.maxX + 1 && b.minY >= o.bb.minY - 1 && b.maxY <= o.bb.maxY + 1,
@@ -429,7 +456,8 @@ async function rowToGlyphs(
   sourceImg?: HTMLImageElement | ImageBitmap | null,
 ): Promise<{ glyphs: Glyph[]; cells: (Glyph | null)[]; slicer: PickedSlicer; forced: boolean; cellCount: number; naturalCount: number }> {
   const TC = w().TracerCore;
-  const expected = chars.length;
+  const characters = charsetCharacters(chars);
+  const expected = characters.length;
   const { ranges, ownerFn, slicer, forced, naturalCount } = pickRanges(data, W, y0, y1, expected, chars, override);
   const cellCount = ranges.length;
   const baselineAbs = TC.detectBaselineInRow(data, W, y0, y1);
@@ -443,7 +471,8 @@ async function rowToGlyphs(
   // Keep empty slots so a failed trace cannot shift the preview's labels.
   const cells: (Glyph | null)[] = Array(expected).fill(null);
   for (let i = 0; i < expected; i++) {
-    const ch = chars[i];
+    const ch = characters[i];
+    const turdsize = latinAccent(ch) ? 0 : opts.turdsize;
     const [x0, x1] = use[i];
     if (x1 <= x0) continue;
     const cx0 = Math.max(0, x0 - pad);
@@ -473,7 +502,7 @@ async function rowToGlyphs(
       // threshold leaves visible straight facets there (judged at hero size).
       svg = await TC.traceCellBitmap(
         ssCell,
-        opts.turdsize * scale * scale,
+        turdsize * scale * scale,
         opts.optcurve,
         Math.max(opts.alphamax, 1.15),
         opts.opttolerance,
@@ -481,11 +510,11 @@ async function rowToGlyphs(
       );
     } else {
       const cell = TC.extractCellBinary(data, W, cx0, cx1, cy0, cy1, extent.owner, i);
-      svg = await TC.traceCellBitmap(cell, opts.turdsize, opts.optcurve, opts.alphamax, opts.opttolerance);
+      svg = await TC.traceCellBitmap(cell, turdsize, opts.optcurve, opts.alphamax, opts.opttolerance);
     }
     const paths = TC.extractPathDFromSvg(svg);
     let keep = filterFilledGlyphPaths(paths, rowH, map.baselineYInCell);
-    keep = cullForeignTopTails(keep, cy1 - cy0);
+    keep = cullForeignTopTails(keep, cy1 - cy0, ch);
     if (keep.length === 0) continue;
     const glyph: Glyph = {
       char: ch,
@@ -979,6 +1008,7 @@ export async function traceSheet(
   onProgress?: Progress,
   sessionRole: 'base' | 'variation' = 'base',
 ): Promise<TraceResult> {
+  rowChars = validateCharset(rowChars);
   if (sessionRole === 'variation' && !_monoSession) throw new Error('trace the base sheet before its variations');
   const TC = w().TracerCore;
   const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
@@ -1021,6 +1051,7 @@ export async function traceSheet(
     bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, wFloor);
     bands = mergeSliverBands(TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
   }
+  bands = mergeAccentBands(bands, rowChars);
   const lines = rowChars.filter((r) => r.length > 0);
   const rowWarning =
     bands.length !== lines.length
@@ -1034,13 +1065,14 @@ export async function traceSheet(
     onProgress?.('trace', `row ${i + 1}/${n} · contours`);
     const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], opts, 'auto', img);
     rowGlyphs.push(r.glyphs);
-    rowInfo.push({ index: i, chars: lines[i], slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: lines[i].length, glyphCount: r.glyphs.length, cells: r.cells });
+    rowInfo.push({ index: i, chars: lines[i], slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: charsetCharacters(lines[i]).length, glyphCount: r.glyphs.length, cells: r.cells });
     // Connected-letters guard: a row whose letters run together (a cursive drawn
     // as one unbroken line) has no whitespace for the slicer to cut on, so the
     // NATURAL count collapses far below the charset even though the forced cut
     // still returns `expected` cells sliced at arbitrary minima (garbled). The
     // maker joins SEPARATE letters; it cannot split a fused row.
-    if (lines[i].length >= 4 && r.naturalCount <= Math.max(1, Math.ceil(lines[i].length * 0.4))) fusedRows.push(i + 1);
+    const expected = charsetCharacters(lines[i]).length;
+    if (expected >= 4 && r.naturalCount <= Math.max(1, Math.ceil(expected * 0.4))) fusedRows.push(i + 1);
   }
   const glyphs = rowGlyphs.flat();
   const connectedWarning = fusedRows.length
@@ -1089,7 +1121,7 @@ export async function editMonoRow(
     const r = await rowToGlyphs(s.data, s.W, s.H, band[0], band[1], chars, opts, slicer, s.sourceImg);
     s.rowGlyphs[rowIndex] = r.glyphs;
     s.opts = opts;
-    s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: chars.length, glyphCount: r.glyphs.length, cells: r.cells };
+    s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: charsetCharacters(chars).length, glyphCount: r.glyphs.length, cells: r.cells };
     if (!s.rowGlyphs.flat().length) throw new Error('no glyphs left after re-slicing this row');
     const glyphs = base.rowGlyphs.flat();
     const result = await buildFont(
@@ -1774,7 +1806,10 @@ export function trimGlyphOverhangs(
   // explicit flourish fitting retains its historical three-stem threshold.
   const strictUpright = hasStraightUprightStems(stems, xHeight);
   const upright = strictUpright || (!!opts.autoSpacing && hasStraightUprightStems(stems, xHeight, 2));
-  if (upright) {
+  // An accent supplement has no x-height/stem reference alphabet. Preserve
+  // complete margins instead of guessing that its serifs are script tails.
+  const accentOnly = xIndex < 0 && glyphs.some(g => latinAccent(g.char));
+  if (upright || accentOnly) {
     // Keep the entire serif/diagonal inside the advance. Re-anchor every
     // glyph so the source sheet's cell widths cannot leave uneven spacing.
     // A native-resolution silhouette drops subpixel hairline serifs. Use the
@@ -3600,7 +3635,31 @@ function measureBaselineBounds(g: Glyph): BaselineBounds | null {
     }
     if (stem.commands.length) stemBottom = stem.getBoundingBox().y2;
   }
-  return { top: bb.y1, bottom: bb.y2, bodyTop, stemBottom };
+  // Find the largest vertical ink band, then use exact curve extrema for its
+  // top. A detached acute/diaeresis must not become the base letter's top.
+  const bands: [number, number][] = [];
+  if (prof) {
+    let start = -1;
+    for (let y = 0; y <= prof.rowLeft.length; y++) {
+      const ink = y < prof.rowLeft.length && Number.isFinite(prof.rowLeft[y]);
+      if (ink && start < 0) start = y;
+      if (!ink && start >= 0) { bands.push([start, y]); start = -1; }
+    }
+  }
+  const largest = bands.sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]))[0];
+  let baseTop = bb.y1, baseBottom = bb.y2;
+  if (largest) {
+    const boxes = g.paths.flatMap(d => d.split(/(?=M)/)).filter(Boolean).map(d => {
+      const p = w().svgPathToOpentypePath(d, (x: number, y: number) => [x, y], false);
+      return p.getBoundingBox();
+    }).filter(b => b.y2 > largest[0] && b.y1 < largest[1]);
+    if (boxes.length) {
+      const main = boxes.reduce((a, b) => (a.x2 - a.x1) * (a.y2 - a.y1) > (b.x2 - b.x1) * (b.y2 - b.y1) ? a : b);
+      baseTop = main.y1;
+      baseBottom = main.y2;
+    }
+  }
+  return { top: bb.y1, bottom: bb.y2, bodyTop, stemBottom, baseTop, baseBottom };
 }
 
 /** Build font files from traced glyphs via the worker, then correct table
@@ -4136,7 +4195,16 @@ export async function buildColorFontFromImage(
   const res = await w().ColorMaker.buildColorFromImage(img, {
     mode,
     familyName: family || 'Color Font',
-    charLines: charLines.filter((l) => l.length > 0),
+    charLines: validateCharset(charLines),
+    resolveRows: mergeAccentBands,
+    alignAccents: (chars: any[]) => {
+      const glyphs = chars.map(c => ({ ...c, italic: false, paths: [c.baseD] }));
+      const aligned = alignGlyphBaselines(glyphs, measureBaselineBounds, { accentsOnly: true });
+      // Color's existing row placement remains for ordinary letters. Only
+      // accented cells use the body anchor, on every assemble/edit.
+      return chars.map((c, i) => latinAccent(c.char)
+        ? { ...c, baselineYInCell: aligned.glyphs[i].baselineYInCell, quantizeY: true } : c);
+    },
     K: colorOpts.K,
     stops: colorOpts.stops,
     bgDist: colorOpts.bgDist,

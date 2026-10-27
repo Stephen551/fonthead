@@ -717,11 +717,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       fineAutoRef.current = medRowH > 0 && medRowH < AUTO_FINE_ROWH;
       if (!fineTouched && fineAutoRef.current !== fineDetail) setFineDetail(fineAutoRef.current);
       const charLines =
-        armed && (isColor || armed.length === cellsPerRow.length) ? armed : guessCharsetFromRows(cellsPerRow);
+        armed && (isColor || armed.length === cellsPerRow.length || armed.some(l => /[^\x00-\x7f]/.test(l))) ? armed : guessCharsetFromRows(cellsPerRow);
       setCharsetText(charLines.join('\n'));
       buildSourceRef.current = 'upload';
       await run(() => Promise.resolve(img), charLines);
-      setDetectedRows(geom.rows.length);
+      if (isColor) setDetectedRows(geom.rows.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not read that image');
       setPhase('error');
@@ -964,7 +964,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             onChange={(e) => setCharsetText(e.target.value)}
           />
           <div className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 6, lineHeight: 1.5 }}>
-            Match these rows to what is on your sheet, top to bottom. The maker maps row by row.
+            Match these rows to your sheet, top to bottom and left to right. Include accented letters such as éñüç as one character each. Use a sheet without headings or divider lines.
           </div>
         </div>
 

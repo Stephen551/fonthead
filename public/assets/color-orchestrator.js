@@ -405,7 +405,8 @@
     // 'stray' review flag and survives a re-trace.
     rec.stray = !!sep.strayDropped;
     if (sep.totalInk === 0) { rec.status = 'empty'; rec.flags = ['empty']; rec.baseD = null; rec.layers = []; return; }
-    const baseD = await traceMask(sep.union, cell.w, cell.h, rec.turd, outScale);
+    const turd = /^[A-Za-z][\u0300-\u036f]+$/.test(rec.char.normalize('NFD')) ? 0 : rec.turd;
+    const baseD = await traceMask(sep.union, cell.w, cell.h, turd, outScale);
     if (!baseD) { rec.status = 'empty'; rec.flags = ['empty']; rec.baseD = null; rec.layers = []; return; }
     const cellMap = TracerCore.mapCellToGlyph(cx0, cy0, cx1, cy1, rec.baselineAbs);
     rec.baseD = baseD; rec.cellW = cellMap.cellW; rec.baselineYInCell = cellMap.baselineYInCell;
@@ -426,7 +427,7 @@
     rec.insetD = null;
     if (ctx.mode !== 'gradient') {
       const layers = [];
-      for (const l of sep.layers) { const d = await traceMask(l.mask, cell.w, cell.h, rec.turd, outScale); if (d) layers.push({ paletteIndex: l.paletteIndex, d }); }
+      for (const l of sep.layers) { const d = await traceMask(l.mask, cell.w, cell.h, turd, outScale); if (d) layers.push({ paletteIndex: l.paletteIndex, d }); }
       rec.layers = layers;
     } else {
       rec.layers = [];
@@ -507,6 +508,7 @@
 
     const union = unionInkBinary(workData, w, h, pal);
     let rows = TracerCore.detectRowsInBinary(union, w, h);
+    if (typeof cfg.resolveRows === 'function') rows = cfg.resolveRows(rows, cfg.charLines);
     // If the default (empty-scanline) detector disagrees with the expected row
     // count, retry with the expected-count-aware profile detector — it recovers
     // rows bridged by drop shadows / tall scripts. Keep the default if the retry
@@ -621,13 +623,14 @@
   function assemble(session) {
     const recs = session.records.filter(function (r) { return r.status === 'ok' && r.baseD; });
     if (!recs.length) throw new Error('No usable glyphs — re-trace or include some.');
-    const chars = recs.map(function (r) {
+    let chars = recs.map(function (r) {
       return {
         char: r.char, baseD: r.baseD, insetD: r.insetD, layers: r.layers,
         cellW: r.cellW, cellH: r.cellH, baselineYInCell: r.baselineYInCell,
         bodyMinX: r.bodyMinX, bodyMaxX: r.bodyMaxX,
       };
     });
+    if (typeof session.buildOpts.alignAccents === 'function') chars = session.buildOpts.alignAccents(chars);
     const buildOpts = typeof session.buildOpts.resolveSideBearing === 'function'
       ? Object.assign({}, session.buildOpts, { sideBearing: session.buildOpts.resolveSideBearing(chars) })
       : session.buildOpts;
@@ -765,7 +768,7 @@
     const charLinesRaw = (opts.charLines && opts.charLines.length) ? opts.charLines : DEFAULT_CHAR_LINES;
     // Split each row string into chars, drop spaces (matches the source's
     // `[...l].filter(ch=>ch!==' ')` and `expectedRowCount` line-filtering).
-    const charLines = charLinesRaw.map(l => [...l].filter(ch => ch !== ' '));
+    const charLines = charLinesRaw.map(l => [...l.normalize('NFC')].filter(ch => ch !== ' '));
     const expectedRows = charLines.filter(l => l.length).length;
 
     // ---- draw image -> RGBA ----
@@ -773,7 +776,7 @@
     const w = px.w, h = px.h, colorData = px.data;
 
     // ---- analyze: palette (+ shadow strip) + rows ----
-    const ana = analyze(colorData, w, h, { K, bgDist, mode, expectedRows });
+    const ana = analyze(colorData, w, h, { K, bgDist, mode, expectedRows, resolveRows: opts.resolveRows, charLines: charLines.map(l => l.join('')) });
     if (!ana.rows.length) throw new Error('No character rows detected — ensure dark characters on a light background, or raise bgDist.');
 
     // ---- gradient mode: sample the fire gradient up front (analyze does this) ----
@@ -805,6 +808,7 @@
       unitsPerEm: unitsPerEm,
       sideBearing: sideBearing,
       resolveSideBearing: opts.resolveSideBearing,
+      alignAccents: opts.alignAccents,
       kern: kern,
       gradientAngle: gradientAngle,
       outline: outline,

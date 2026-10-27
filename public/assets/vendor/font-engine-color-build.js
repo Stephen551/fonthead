@@ -145,9 +145,11 @@
       const advanceUnits = Math.max(1, Math.round(inkWidthUnits + sideBearing * 2));
       const shiftX = sideBearing - inkMinX * scale;
       const baseY = c.baselineYInCell;
+      // Aligned accents need absolute integer Y values: CFF's rounding of
+      // relative curve deltas otherwise moves the foot off its chosen baseline.
       const transform = (x, y) => [
         Math.round((x * scale + shiftX) * 100) / 100,
-        Math.round((-(y - baseY) * scale) * 100) / 100,
+        c.quantizeY ? Math.round(-(y - baseY) * scale) : Math.round((-(y - baseY) * scale) * 100) / 100,
       ];
 
       const baseName = (glyphName(c.char).replace(/[^a-zA-Z0-9_.]/g, '_') || 'glyph');
@@ -245,7 +247,7 @@
       const baseY = c.baselineYInCell;
       const transform = (x, y) => [
         Math.round((x * scale + shiftX) * 100) / 100,
-        Math.round((-(y - baseY) * scale) * 100) / 100,
+        c.quantizeY ? Math.round(-(y - baseY) * scale) : Math.round((-(y - baseY) * scale) * 100) / 100,
       ];
       const baseName = (glyphName(c.char).replace(/[^a-zA-Z0-9_.]/g, '_') || 'glyph');
       const basePath = svgPathToOpentypePath(c.baseD, transform, false);
