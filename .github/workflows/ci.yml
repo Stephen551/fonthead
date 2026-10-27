@@ -24,7 +24,9 @@ jobs:
         run: npm test
 
   e2e:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where Playwright 1.60 cannot
+    # install Chromium, so the job failed before any test ran.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
