@@ -400,7 +400,11 @@
    * an i/j dot, the two marks of a colon, the dot over a "!" etc. are never
    * mistaken for neighbour-row bleed. Everything else is normally one connected
    * shape, so a second disconnected blob there is junk. */
-  const MULTI_PART = new Set(['i', 'j', '!', '?', ':', ';', '"', '=', '%']);
+  const MULTI_PART = new Set(['i', 'j', '!', '?', ':', ';', '"', '=', '%',
+    // Non-ASCII symbols and letters whose minor part is under half the body:
+    // the dot of ¡/¿/÷/ŀ, the C/R inside ©/®, the small rings of ‰.
+    '¡', '¿', '÷', '±', '©', '®', '™', '‰', '‱', '…', '“', '”', '„', '«', '»',
+    'ŀ', 'Ŀ', 'ĳ', 'ﬁ', 'ﬃ']);
 
   /* detectEdgeBleed(width, h) -> { top, bot }  (scanline window to KEEP)
    * Neighbour-row bleed sits as a short ink strip fused to the very top or bottom
