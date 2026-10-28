@@ -1,9 +1,9 @@
 import type { Page } from '@playwright/test';
 
 /** Measure exported outlines and shaped advances independently of the maker's
- * source-space trim/kerning code. All 52 × 52 letter pairs, with GPOS applied. */
-export async function auditAlphabet(page: Page, font: any) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+ * source-space trim/kerning code. All pairs in the supplied alphabet (A–Z/a–z
+ * by default), with GPOS applied. */
+export async function auditAlphabet(page: Page, font: any, chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz') {
   const glyphs = [...chars].map(c => {
     const g = font.glyphForCodePoint(c.codePointAt(0));
     return { c, path: g.path.toSVG(), advance: g.advanceWidth, bbox: g.bbox };

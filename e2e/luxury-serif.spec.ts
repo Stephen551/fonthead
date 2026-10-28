@@ -43,8 +43,14 @@ test('luxury serif keeps the y hook, complete hairline bearings and working kern
     const kerned = font.layout('AVATAR To VOGUE', ['kern']).positions.reduce((n: number, p: any) => n + p.xAdvance, 0);
     const plain = [...'AVATAR To VOGUE'].reduce((n, c) => n + font.glyphForCodePoint(c.codePointAt(0)!).advanceWidth, 0);
     expect(kerned).toBeLessThan(plain - 30);
+    for (const pair of ['V,', 'V.']) {
+      const run = font.layout(pair, ['kern']);
+      expect(run.positions[0].xAdvance, `${format} ${pair} tucks below the upper arm`)
+        .toBeLessThan(run.glyphs[0].advanceWidth - 100);
+      expect(run.positions[1].yOffset, `${format} punctuation stays on its baseline`).toBe(0);
+    }
   }
-  const audit = await auditAlphabet(page, fonts[2]);
+  const audit = await auditAlphabet(page, fonts[2], 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz,.;:');
   writeFileSync(test.info().outputPath('alphabet-audit.json'), JSON.stringify(audit, null, 2));
   expect(Math.abs(audit.stemBottoms.k), 'Quick: k stem rests on the baseline').toBeLessThanOrEqual(2);
   expect(fonts[2].glyphForCodePoint(107).bbox.minY, 'k swash descends below its stem').toBeLessThan(-50);

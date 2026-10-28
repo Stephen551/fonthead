@@ -297,6 +297,11 @@
     if (allLetters) {
       const letters = Array.from(present).filter(c => /^[A-Za-z]$/.test(c));
       for (const l of letters) for (const r of letters) add(l, r);
+      // Low punctuation belongs beside the lower ink, not outside a V/T's
+      // widest upper arm. Measure its actual baseline-registered silhouette;
+      // the same minimum-gap floor also protects taller colons/semicolons.
+      const punctLetters = Array.from(present).filter(c => /^\p{L}$/u.test(c));
+      for (const l of punctLetters) for (const r of ',.;:…') add(l, r);
     }
     return pairs;
   }
