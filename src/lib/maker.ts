@@ -11,7 +11,8 @@ import { fixSfntChecksums } from './sfnt';
 import { alignGlyphBaselines, type BaselineBounds } from './baseline';
 import { recoverRowExtent } from './row-extent';
 import { chooseAutoSpacing, hasStraightUprightStems, type SpacingSample } from './spacing';
-import { latinAccent, charsetCharacters, validateCharset, mergeAccentBands, hasCombiningMark } from './accents';
+import { latinAccent, charsetCharacters, validateCharset, mergeAccentBands, hasCombiningMark, isExpectedAccentMark } from './accents';
+import { assignAccentMarks, type AccentOwnership } from './accent-marks';
 
 const w = () => window as any;
 
@@ -344,6 +345,14 @@ function filterFilledGlyphPaths(paths: string[], rowH: number, cellBaselineLocal
   return keep;
 }
 
+function accentOwnershipForRows(data: Uint8ClampedArray, W: number, H: number, bands: number[][], lines: string[], slicers?: SlicerKind[]): AccentOwnership | null {
+  if (bands.length !== lines.length || !lines.some(line => charsetCharacters(line).some(c => latinAccent(c)))) return null;
+  return assignAccentMarks(data, W, H, lines.map((chars, i) => ({
+    band: bands[i], chars,
+    ranges: pickRanges(data, W, bands[i][0], bands[i][1], charsetCharacters(chars).length, chars, slicers?.[i] ?? 'auto').ranges,
+  })));
+}
+
 // Fine-detail supersample for the mono path. The mono cell is already 1-bit, so
 // (unlike color) we must resample the cell region from the ORIGINAL source
 // image, then threshold at the higher resolution, mirroring binarizeFull's hard
@@ -460,11 +469,7 @@ export function cullForeignTopTails<T extends { d: string; bb: { minX: number; m
     if (accent && main) {
       const h = main.maxY - main.minY, margin = (main.maxX - main.minX) * 0.25;
       const overlaps = b.maxX >= main.minX - margin && b.minX <= main.maxX + margin;
-      if (overlaps && ((accent.above && b.maxY <= main.minY + 1 && main.minY - b.maxY <= h * 0.65)
-        || (accent.below && b.minY >= main.maxY - 1 && b.minY - main.maxY <= h * 0.65))) return true;
-      // The caron on ď/ť/ľ is drawn beside the ascender, like an apostrophe.
-      if (/[ďťľĽ]/.test(char) && b.minX >= main.maxX - 1 && b.minX - main.maxX <= h * 0.4
-        && b.maxY <= main.minY + h * 0.45 && b.minY >= main.minY - h * 0.65) return true;
+      if (isExpectedAccentMark(char, b, main)) return true;
       if (!overlaps && p.area < (main.maxX - main.minX) * h * 0.05) return false;
     }
     const inside = subs.some(
@@ -509,6 +514,8 @@ async function rowToGlyphs(
   opts: TraceOpts,
   override: SlicerKind = 'auto',
   sourceImg?: HTMLImageElement | ImageBitmap | null,
+  accentMarks?: AccentOwnership | null,
+  rowIndex = 0,
 ): Promise<{ glyphs: Glyph[]; cells: (Glyph | null)[]; slicer: PickedSlicer; forced: boolean; cellCount: number; naturalCount: number }> {
   const TC = w().TracerCore;
   const characters = charsetCharacters(chars);
@@ -530,11 +537,13 @@ async function rowToGlyphs(
     const turdsize = latinAccent(ch) ? 0 : opts.turdsize;
     const [x0, x1] = use[i];
     if (x1 <= x0) continue;
-    const cx0 = Math.max(0, x0 - pad);
-    const cx1 = Math.min(W, x1 + pad);
+    let cx0 = Math.max(0, x0 - pad);
+    let cx1 = Math.min(W, x1 + pad);
     const extent = recoverRowExtent(data, W, H, cx0, cx1, y0, y1, ownerFn, i);
-    const cy0 = Math.max(0, extent.top - pad);
-    const cy1 = Math.min(H, extent.bottom + pad);
+    const original = { x0: cx0, x1: cx1, top: Math.max(0, extent.top - pad), bottom: Math.min(H, extent.bottom + pad), owner: extent.owner };
+    const owned = accentMarks?.extend(rowIndex, i, original) ?? original;
+    cx0 = owned.x0; cx1 = owned.x1;
+    const cy0 = owned.top, cy1 = owned.bottom;
     const map = TC.mapCellToGlyph(cx0, cy0, cx1, cy1, baselineAbs);
     const scale = opts.fineDetail && sourceImg ? detailScale(cy1 - cy0) : 1;
     let svg: string;
@@ -548,7 +557,7 @@ async function rowToGlyphs(
       // probe, corpus green); -40 pulled the edge back further (7px) but thinned
       // the connectors past reach and the joins broke (joinGap median 127).
       const ssThreshold = Math.max(40, opts.threshold - 24);
-      const ssCell = supersampleMonoCell(sourceImg, cx0, cy0, cx1, cy1, scale, ssThreshold, opts.invert, extent.owner, i);
+      const ssCell = supersampleMonoCell(sourceImg, cx0, cy0, cx1, cy1, scale, ssThreshold, opts.invert, owned.owner, i);
       // turdsize is an AREA in trace pixels; at scale x the same physical speck
       // covers scale^2 more pixels, so an unscaled threshold stops culling the
       // flecks it culls at native resolution (judged: stray dots at seams).
@@ -564,7 +573,7 @@ async function rowToGlyphs(
         1 / scale,
       );
     } else {
-      const cell = TC.extractCellBinary(data, W, cx0, cx1, cy0, cy1, extent.owner, i);
+      const cell = TC.extractCellBinary(data, W, cx0, cx1, cy0, cy1, owned.owner, i);
       svg = await TC.traceCellBitmap(cell, turdsize, opts.optcurve, opts.alphamax, opts.opttolerance);
     }
     const paths = TC.extractPathDFromSvg(svg);
@@ -1114,12 +1123,13 @@ export async function traceSheet(
       ? `detected ${bands.length} rows but your charset has ${lines.length} lines. Glyphs are probably misaligned; edit the charset to match your sheet.`
       : '';
   const n = Math.min(bands.length, lines.length);
+  const accentMarks = accentOwnershipForRows(bin.data, bin.w, bin.h, bands, lines);
   const rowGlyphs: Glyph[][] = [];
   const rowInfo: MonoRowInfo[] = [];
   const fusedRows: number[] = [];
   for (let i = 0; i < n; i++) {
     onProgress?.('trace', `row ${i + 1}/${n} · contours`);
-    const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], opts, 'auto', img);
+    const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], opts, 'auto', img, accentMarks, i);
     rowGlyphs.push(r.glyphs);
     rowInfo.push({ index: i, chars: lines[i], slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: charsetCharacters(lines[i]).length, glyphCount: r.glyphs.length, cells: r.cells });
     // Connected-letters guard: a row whose letters run together (a cursive drawn
@@ -1176,7 +1186,8 @@ export async function editMonoRow(
   try {
     const band = s.bands[rowIndex];
     const chars = s.lines[rowIndex];
-    const r = await rowToGlyphs(s.data, s.W, s.H, band[0], band[1], chars, opts, slicer, s.sourceImg);
+    const accentMarks = accentOwnershipForRows(s.data, s.W, s.H, s.bands, s.lines, s.rowInfo.map((r, i) => i === rowIndex ? slicer : r.slicer));
+    const r = await rowToGlyphs(s.data, s.W, s.H, band[0], band[1], chars, opts, slicer, s.sourceImg, accentMarks, rowIndex);
     s.rowGlyphs[rowIndex] = r.glyphs;
     s.opts = opts;
     s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: charsetCharacters(chars).length, glyphCount: r.glyphs.length, cells: r.cells };

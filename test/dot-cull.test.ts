@@ -32,6 +32,11 @@ const CELL_H = 370; // the field sheet's a-m row band + pad
 const subCount = (out: Array<{ d: string }>) => out.reduce((n, p) => n + p.d.split(/(?=M)/).filter((s) => s.trim()).length, 0);
 
 describe('cullForeignTopTails: docked marks survive', () => {
+  it('keeps a side caron that overlaps the right edge of a t crossbar', () => {
+    const side = entry(sub(31, 2, 42, 21), sub(0, 9, 34, 67));
+    expect(subCount(cullForeignTopTails(side, 92, 'ť'))).toBe(2);
+    expect(subCount(cullForeignTopTails(side, 92, 't'))).toBe(1);
+  });
   it('preserves declared accents beyond the normal dot gap and beside ascenders', () => {
     const upper = entry(sub(80, 0, 100, 20), sub(50, 100, 180, 300));
     expect(subCount(cullForeignTopTails(upper, CELL_H, 'é'))).toBe(2);

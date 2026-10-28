@@ -94,6 +94,7 @@ test('Extended Latin prompt arms its own paired charset and supplement controls 
   await expect(page.locator('[data-preset="latin-ext"]')).toBeVisible();
   await page.locator('[data-preset="latin-ext"]').click();
   await expect(page.locator('#gen-prompt')).toContainText('Attach your first alphabet sheet');
+  await expect(page.locator('#gen-prompt')).toContainText('a full letter height of blank space between rows');
   const stored = await page.evaluate(()=>({base:localStorage.getItem('fh-gen-charset'),supp:JSON.parse(localStorage.getItem('fh-gen-charset-supplement')!)}));
   expect(stored.base).toBe(before);
   expect(stored.supp).toEqual(ACCENT_ROWS);

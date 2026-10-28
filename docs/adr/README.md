@@ -83,6 +83,7 @@ left out — they live in CLAUDE.md, not here.
 | [0071](0071-accented-latin-extraction-and-baselines.md) | Preserve Latin accents, canonical Unicode mapping and body baselines | Accepted |
 | [0072](0072-accents-never-set-the-font-scale.md) | Accented glyphs never set the font scale; the ascender grows to fit them | Accepted |
 | [0073](0073-extended-latin-supplement-sheet.md) | Separate Extended Latin supplements, base-first merging and body-size matching | Accepted |
+| [0074](0074-charset-owned-detached-accents.md) | Charset-owned marks across tight row cuts and overlapping side carons | Accepted |
 
 ## Format
 

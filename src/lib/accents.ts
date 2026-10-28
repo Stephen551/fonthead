@@ -7,6 +7,26 @@ export function latinAccent(char: string): { base: string; above: boolean; below
   return { base: parts[0], above: parts.slice(1).some(c => !below.test(c)), below: parts.slice(1).some(c => below.test(c)) };
 }
 
+/** The charset supplies the mark's role; geometry only checks whether this
+ * component can belong to that body. Side carons may overlap a t's crossbar
+ * horizontally while remaining disconnected from the actual ink. */
+export function isExpectedAccentMark(
+  char: string,
+  mark: { minX: number; maxX: number; minY: number; maxY: number },
+  body: { minX: number; maxX: number; minY: number; maxY: number },
+): boolean {
+  const accent = latinAccent(char);
+  if (!accent) return false;
+  const h = body.maxY - body.minY, width = body.maxX - body.minX;
+  const margin = Math.max(width * .25, h * .15);
+  const overlaps = mark.maxX >= body.minX - margin && mark.minX <= body.maxX + margin;
+  if (overlaps && ((accent.above && mark.maxY <= body.minY + 1 && body.minY - mark.maxY <= h * .65)
+    || (accent.below && mark.minY >= body.maxY - 1 && mark.minY - body.maxY <= h * .65))) return true;
+  return /[ďťľĽ]/.test(char) && mark.minX >= body.minX + width * .5
+    && (mark.minX + mark.maxX) / 2 >= body.maxX - h * .1 && mark.minX - body.maxX <= h * .4
+    && mark.maxY <= body.minY + h * .45 && mark.minY >= body.minY - h * .65;
+}
+
 /** Any character whose canonical decomposition carries a combining mark.
  * Such glyphs never set the font scale (ADR 0072). Must match isAccentedChar
  * in public/assets/vendor/font-engine-builder.js. */
