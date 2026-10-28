@@ -84,6 +84,7 @@ left out — they live in CLAUDE.md, not here.
 | [0072](0072-accents-never-set-the-font-scale.md) | Accented glyphs never set the font scale; the ascender grows to fit them | Accepted |
 | [0073](0073-extended-latin-supplement-sheet.md) | Separate Extended Latin supplements, base-first merging and body-size matching | Accepted |
 | [0074](0074-charset-owned-detached-accents.md) | Charset-owned marks across tight row cuts and overlapping side carons | Accepted |
+| [0075](0075-calligraphy-component-slicing.md) | Preserve overlapping calligraphy components and exclude foreign crop-padding ink | Accepted |
 
 ## Format
 

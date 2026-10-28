@@ -9,7 +9,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { fixSfntChecksums } from './sfnt';
 import { alignGlyphBaselines, type BaselineBounds } from './baseline';
-import { recoverRowExtent } from './row-extent';
+import { recoverRowExtent, guardRowPadding } from './row-extent';
 import { chooseAutoSpacing, hasStraightUprightStems, type SpacingSample } from './spacing';
 import { latinAccent, charsetCharacters, validateCharset, mergeAccentBands, hasCombiningMark, isExpectedAccentMark } from './accents';
 import { assignAccentMarks, type AccentOwnership } from './accent-marks';
@@ -324,6 +324,17 @@ function pickRanges(
     // Otherwise preserve the established fallback and its forced-cut warning.
     if (clean.length === expected) return { ranges: clean, ownerFn: null, slicer: 'whitespace', forced: false, naturalCount: clean.length };
   }
+  // Separate swashes can overlap horizontally without their ink touching.
+  // Keep whole components before resorting to vertical cuts through letters.
+  const comp = TC.sliceRowByComponents(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
+  if (comp.ranges.length === expected) return { ranges: comp.ranges, ownerFn: comp.ownerFn, slicer: 'components', forced: false, naturalCount: expected };
+  // Extra whitespace runs can be a detached hairline (the calligraphy v).
+  // Anchors still decide the assignment, but ownership preserves the full
+  // stroke and excludes neighboring ink. Keep the forced-cut diagnostic.
+  if (ws.length > expected) {
+    const owned = TC.sliceRowByAnchoredWithOwnership(data, W, y0, y1, expected, DEFAULT_TRACE.turdsize);
+    if (owned.ranges.length === expected) return { ranges: owned.ranges, ownerFn: owned.ownerFn, slicer: 'ownership', forced: true, naturalCount: ws.length };
+  }
   return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: true, naturalCount: ws.length };
 }
 
@@ -540,7 +551,8 @@ async function rowToGlyphs(
     let cx0 = Math.max(0, x0 - pad);
     let cx1 = Math.min(W, x1 + pad);
     const extent = recoverRowExtent(data, W, H, cx0, cx1, y0, y1, ownerFn, i);
-    const original = { x0: cx0, x1: cx1, top: Math.max(0, extent.top - pad), bottom: Math.min(H, extent.bottom + pad), owner: extent.owner };
+    const original = { x0: cx0, x1: cx1, top: Math.max(0, extent.top - pad), bottom: Math.min(H, extent.bottom + pad),
+      owner: guardRowPadding(data, W, H, extent.top, extent.bottom, extent.owner, i) };
     const owned = accentMarks?.extend(rowIndex, i, original) ?? original;
     cx0 = owned.x0; cx1 = owned.x1;
     const cy0 = owned.top, cy1 = owned.bottom;

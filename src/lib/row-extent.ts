@@ -1,3 +1,22 @@
+/** Crop padding is for antialiasing, not another row's disconnected ink.
+ * Connected ascenders/descenders have already expanded the recovered extent. */
+export function guardRowPadding(
+  data: Uint8ClampedArray, width: number, height: number, top: number, bottom: number,
+  owner: ((x: number, y: number) => number) | null, cell: number,
+): (x: number, y: number) => number {
+  return (x, y) => {
+    if (y >= top && y < bottom) return owner?.(x, y) ?? -1;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || xx >= width || yy < Math.max(0, top) || yy >= Math.min(height, bottom)) continue;
+      if (data[(yy * width + xx) * 4] !== 0) continue;
+      const assigned = owner?.(xx, yy) ?? -1;
+      if (assigned === -1 || assigned === cell) return cell;
+    }
+    return cell + 1;
+  };
+}
+
 /** Follow a row's connected ink past a horizontal valley cut. Other rows can
  * overlap vertically without touching this letter (for example y above 0–9).
  * Only components reaching the middle half of the cell may extend it. Detached
