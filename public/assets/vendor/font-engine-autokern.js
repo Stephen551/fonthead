@@ -317,6 +317,66 @@
     return glyphs.filter(function (g) { return !(g.variantSuffix && g.variantSuffix.indexOf('.jn') === 0); });
   }
 
+  /* Conservative vector envelopes at shared baseline-relative heights. A
+     Bezier stays inside its control-point hull; subdivision localizes that
+     hull without losing hairlines to rasterization. This lets a bottom curl
+     pass above a descender instead of treating both as full-height walls. */
+  function outlineBands(g, bandSize) {
+    if (!isFinite(g.baselineYInCell)) return null;
+    const bands = new Map();
+    let budget = 100000;
+    function segment(points, depth = 0) {
+      if (--budget < 0) throw new Error('outline band budget');
+      const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+      const lo = Math.min(...ys), hi = Math.max(...ys);
+      if (![...xs, lo, hi].every(Number.isFinite)) throw new Error('invalid outline');
+      if (hi - lo > bandSize && depth < 14) {
+        const left = [points[0]], right = [points[points.length - 1]];
+        let row = points;
+        while (row.length > 1) {
+          row = row.slice(1).map((p, i) => [(row[i][0] + p[0]) / 2, (row[i][1] + p[1]) / 2]);
+          left.push(row[0]); right.unshift(row[row.length - 1]);
+        }
+        segment(left, depth + 1); segment(right, depth + 1);
+        return;
+      }
+      const first = Math.floor((lo - g.baselineYInCell) / bandSize);
+      const last = Math.floor((hi - g.baselineYInCell) / bandSize);
+      if (last - first > 10000) throw new Error('outline band extent');
+      const l = Math.min(...xs), r = g.cellW - Math.max(...xs);
+      for (let i = first; i <= last; i++) {
+        const old = bands.get(i);
+        bands.set(i, { left: Math.min(old ? old.left : Infinity, l),
+          right: Math.min(old ? old.right : Infinity, r) });
+      }
+    }
+    try {
+      for (const d of g.paths) {
+        let current = [0, 0], start = null;
+        for (const [cmd, args] of tokenizePath(d)) {
+          const upper = cmd.toUpperCase(), relative = cmd !== upper;
+          const point = i => [args[i] + (relative ? current[0] : 0), args[i + 1] + (relative ? current[1] : 0)];
+          if (upper === 'M') {
+            if (start) segment([current, start]);
+            current = point(0); start = current;
+            continue;
+          }
+          let points;
+          if (upper === 'L') points = [current, point(0)];
+          else if (upper === 'H') points = [current, [args[0] + (relative ? current[0] : 0), current[1]]];
+          else if (upper === 'V') points = [current, [current[0], args[0] + (relative ? current[1] : 0)]];
+          else if (upper === 'C') points = [current, point(0), point(2), point(4)];
+          else if (upper === 'Q') points = [current, point(0), point(2)];
+          else if (upper === 'Z' && start) points = [current, start];
+          else return null; // Unsupported geometry retains the whole-envelope guard.
+          segment(points); current = points[points.length - 1];
+        }
+        if (start) segment([current, start]); // Filled paths close implicitly.
+      }
+    } catch (_) { return null; }
+    return bands.size ? bands : null;
+  }
+
   function analyzeAutoKern(glyphsIn, scale, strength, opts = {}) {
     const glyphs = withoutSeamAlts(glyphsIn);
     const byChar = new Map();
@@ -324,9 +384,10 @@
 
     // Decorated/alternate alphabets have thin details at arbitrary heights.
     // Baseline-row quantization can miss those even with supersampling. Keep
-    // their whole control-point envelope separated, including every variant
+    // vector envelopes separated at shared heights, including every variant
     // sharing this character's kerning pair. Ordinary optical fits opt out.
     const envelopes = new Map();
+    const bandSize = Math.max(0.25, 4 / scale);
     if (opts.protectBounds) for (const g of glyphs) {
       let min = Infinity, max = -Infinity;
       for (const d of g.paths) {
@@ -335,8 +396,17 @@
       }
       if (!isFinite(min) || !isFinite(max)) continue;
       const old = envelopes.get(g.char);
+      let bands = outlineBands(g, bandSize);
+      if (old) {
+        if (!old.bands || !bands) bands = null;
+        else for (const [i, b] of old.bands) {
+          const next = bands.get(i);
+          bands.set(i, { left: Math.min(next ? next.left : Infinity, b.left),
+            right: Math.min(next ? next.right : Infinity, b.right) });
+        }
+      }
       envelopes.set(g.char, { left: Math.min(old ? old.left : Infinity, min),
-        right: Math.min(old ? old.right : Infinity, g.cellW - max) });
+        right: Math.min(old ? old.right : Infinity, g.cellW - max), bands });
     }
 
     const targetGapPx = computeTargetGap(glyphs);
@@ -372,7 +442,16 @@
       if (minSlack < pullPx) pullPx = Math.max(0, minSlack);
       if (opts.protectBounds) {
         const le = envelopes.get(l), re = envelopes.get(r);
-        const slack = le && re ? le.right + re.left - 20 / scale : 0;
+        let clearance = le && re ? le.right + re.left : 0;
+        if (le && re && le.bands && re.bands) {
+          let shared = Infinity;
+          for (const [i, b] of le.bands) {
+            const other = re.bands.get(i);
+            if (other) shared = Math.min(shared, b.right + other.left);
+          }
+          if (isFinite(shared)) clearance = shared;
+        }
+        const slack = clearance - 20 / scale;
         pullPx = Math.min(pullPx, Math.max(0, slack));
       }
       const valueUnits = -Math.round(pullPx * scale);
