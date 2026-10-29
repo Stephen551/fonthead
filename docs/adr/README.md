@@ -87,6 +87,7 @@ left out — they live in CLAUDE.md, not here.
 | [0075](0075-calligraphy-component-slicing.md) | Preserve overlapping calligraphy components and exclude foreign crop-padding ink | Accepted |
 | [0076](0076-height-aware-decorative-kerning.md) | Compare decorative kerning clearance at shared heights while preserving flourishes | Accepted |
 | [0077](0077-detached-descender-terminals.md) | Retain detached ornamental terminals alongside their descenders | Accepted |
+| [0078](0078-repair-clipped-supplement-descenders.md) | Restore clipped supplement descenders from matching intact base letters | Accepted |
 
 ## Format
 

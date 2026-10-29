@@ -13,6 +13,7 @@ import { recoverRowExtent, guardRowPadding } from './row-extent';
 import { chooseAutoSpacing, hasStraightUprightStems, type SpacingSample } from './spacing';
 import { latinAccent, charsetCharacters, validateCharset, mergeAccentBands, hasCombiningMark, isExpectedAccentMark } from './accents';
 import { assignAccentMarks, type AccentOwnership } from './accent-marks';
+import { repairSupplementDescenders } from './supplement-repair';
 
 const w = () => window as any;
 
@@ -167,7 +168,15 @@ export function matchSupplementSize(
     };
   });
   const alignedBase = alignGlyphBaselines(base.filter(g => !g.variantSuffix), measure).glyphs;
-  return alignGlyphBaselines([...alignedBase, ...scaled], measure, { accentsOnly: true }).glyphs.slice(alignedBase.length);
+  const aligned = alignGlyphBaselines([...alignedBase, ...scaled], measure, { accentsOnly: true }).glyphs.slice(alignedBase.length);
+  const repaired = repairSupplementDescenders(alignedBase, aligned, paths => {
+    const path = w().svgPathToOpentypePath(paths.join(' '), (x: number, y: number) => [x, y], false);
+    if (!path.commands.length) return null;
+    const b = path.getBoundingBox();
+    return { minX: b.x1, minY: b.y1, maxX: b.x2, maxY: b.y2 };
+  });
+  (globalThis as unknown as { __lastSupplementRepairs?: object }).__lastSupplementRepairs = repaired.repairs;
+  return repaired.glyphs;
 }
 
 export interface FontResult {

@@ -2,14 +2,16 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import * as fontkit from 'fontkit';
 import { verifySfntChecksums } from '../src/lib/sfnt';
+import { bodyComponents } from './glyph-connectivity';
 
-test('ornamental supplement preserves detached y descender curls through exports and re-slicing', async ({ page }) => {
+test('ornamental supplement repairs clipped y descenders through exports and re-slicing', async ({ page }) => {
   test.setTimeout(240_000);
   await page.addInitScript(() => localStorage.setItem('fh-maker-tour-seen', '1'));
   await page.goto('/make');
   await page.locator('#supplement-file').setInputFiles('e2e/fixtures/ornamental-extended-latin-sheet.png');
   await page.locator('#sheet-file').setInputFiles('e2e/fixtures/ornate-serif-sheet.png');
   await expect(page.getByRole('button', { name: 'download otf', exact: true })).toBeVisible({ timeout: 150_000 });
+  expect(await page.evaluate(() => (window as any).__lastSupplementRepairs.map((r: any) => r.char))).toEqual(['ý', 'ÿ']);
   const exported = async (format: string) => {
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: `download ${format}`, exact: true }).click();
@@ -19,10 +21,10 @@ test('ornamental supplement preserves detached y descender curls through exports
     if (format !== 'woff2') expect(verifySfntChecksums(bytes).ok).toBe(true);
     const font: any = fontkit.create(bytes);
     expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(214);
-    for (const [char, count] of [['ý', 5], ['ÿ', 6]] as const) {
+    for (const [char, count] of [['ý', 3], ['ÿ', 4]] as const) {
       const glyph = font.glyphForCodePoint(char.codePointAt(0)!);
-      // Body, two tiny internal contours, above mark(s), and the separate
-      // bottom curl. Before the fix only that last contour was discarded.
+      expect(await bodyComponents(page, font, char, 'y'), `${format} ${char} has a connected tail`).toBe(1);
+      // The complete base y body and its counter, plus the original accent(s).
       expect(glyph.path.commands.filter((c: any) => c.command === 'moveTo'), `${format} ${char} curl`).toHaveLength(count);
       expect(glyph.bbox.minY, `${format} ${char} descends below its baseline`).toBeLessThan(-200);
     }
