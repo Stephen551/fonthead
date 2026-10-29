@@ -32,6 +32,10 @@ const CELL_H = 370; // the field sheet's a-m row band + pad
 const subCount = (out: Array<{ d: string }>) => out.reduce((n, p) => n + p.d.split(/(?=M)/).filter((s) => s.trim()).length, 0);
 
 describe('cullForeignTopTails: docked marks survive', () => {
+  it('keeps a detached bottom curl alongside an accented descender (ornamental sheet)', () => {
+    const paths = entry(sub(121, 7, 147, 33), sub(81, 43, 187, 189), sub(77, 158, 104, 189));
+    for (const char of ['ý', 'ÿ', 'y']) expect(subCount(cullForeignTopTails(paths, 191, char)), char).toBe(3);
+  });
   it('keeps a side caron that overlaps the right edge of a t crossbar', () => {
     const side = entry(sub(31, 2, 42, 21), sub(0, 9, 34, 67));
     expect(subCount(cullForeignTopTails(side, 92, 'ť'))).toBe(2);
@@ -63,6 +67,11 @@ describe('cullForeignTopTails: docked marks survive', () => {
 });
 
 describe('cullForeignTopTails: foreign tips still cull', () => {
+  it('does not rescue a bottom fragment far beside or below the descender', () => {
+    for (const fragment of [sub(30, 158, 50, 189), sub(77, 158, 104, 200)]) {
+      expect(subCount(cullForeignTopTails(entry(sub(81, 43, 187, 189), fragment), 201, 'ý'))).toBe(1);
+    }
+  });
   it('culls the breve-like tick above an x-height body (gap 27% of cellH)', () => {
     const out = cullForeignTopTails(entry(sub(40, 0, 100, 20), sub(0, 120, 300, 300)), CELL_H);
     expect(subCount(out)).toBe(1);

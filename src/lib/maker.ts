@@ -498,11 +498,18 @@ export function cullForeignTopTails<T extends { d: string; bb: { minX: number; m
     if (nearTop && shallowTop && small && !docked(b, i, true)) return false;
     // and the mirror: the row BELOW's ascender tip crossing UP through the
     // band bottom (the dash judged under a cap B). A comma or period IS its
-    // whole glyph (never small); a descender's own tail is connected ink; a
-    // !-style dot docks on the bar above it.
+    // whole glyph (never small); a !-style dot docks on the bar above it.
+    // An ornamental descender may end in a detached curl beside its stem.
+    // It shares the body's lower vertical span and ends at the same depth;
+    // a fragment from the next row extends below it or sits farther away.
     const nearBottom = b.maxY >= cellH * 0.94;
     const shallowBottom = b.minY >= cellH * 0.7;
-    if (nearBottom && shallowBottom && small && !docked(b, i, false)) return false;
+    const bodyH = main ? main.maxY - main.minY : 0;
+    const sideMargin = Math.max(1, bodyH * 0.06);
+    const alongsideBottom = main && b.minY >= main.minY + bodyH * 0.7
+      && b.minY < main.maxY && b.maxY <= main.maxY + 1
+      && b.minX >= main.minX - sideMargin && b.maxX <= main.maxX + sideMargin;
+    if (nearBottom && shallowBottom && small && !docked(b, i, false) && !alongsideBottom) return false;
     return true;
   });
   if (keptSubs.length === subs.length) return paths;

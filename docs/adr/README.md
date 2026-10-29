@@ -86,6 +86,7 @@ left out — they live in CLAUDE.md, not here.
 | [0074](0074-charset-owned-detached-accents.md) | Charset-owned marks across tight row cuts and overlapping side carons | Accepted |
 | [0075](0075-calligraphy-component-slicing.md) | Preserve overlapping calligraphy components and exclude foreign crop-padding ink | Accepted |
 | [0076](0076-height-aware-decorative-kerning.md) | Compare decorative kerning clearance at shared heights while preserving flourishes | Accepted |
+| [0077](0077-detached-descender-terminals.md) | Retain detached ornamental terminals alongside their descenders | Accepted |
 
 ## Format
 
