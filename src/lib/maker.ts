@@ -14,6 +14,7 @@ import { chooseAutoSpacing, hasStraightUprightStems, type SpacingSample } from '
 import { latinAccent, charsetCharacters, validateCharset, mergeAccentBands, hasCombiningMark, isExpectedAccentMark } from './accents';
 import { assignAccentMarks, type AccentOwnership } from './accent-marks';
 import { repairSupplementDescenders } from './supplement-repair';
+import { shortRowCharset, spacingProblems } from './maker-checks';
 
 const w = () => window as any;
 
@@ -866,6 +867,14 @@ const PUNCT_BANK = "!?@#$%^&*()-_+=[]{};:'\",.<>/\\|~`";
  *  detected row, so the row count always matches and letters/digits land exactly.
  *  Punctuation rows are sized to their detected cell count from the bank above. */
 export function guessCharsetFromRows(cellsPerRow: number[]): string[] {
+  const shortRows = shortRowCharset(cellsPerRow);
+  if (shortRows) return shortRows;
+  if (cellsPerRow.length === 2 && cellsPerRow[0] >= 22 && cellsPerRow[1] >= 8 && cellsPerRow[1] <= 12) {
+    return ['ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'];
+  }
+  if (cellsPerRow.length === 3 && cellsPerRow.slice(0, 2).every(n => n >= 11 && n <= 15) && cellsPerRow[2] >= 8 && cellsPerRow[2] <= 12) {
+    return ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', '0123456789'];
+  }
   const HALVES = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz'];
   const FULLS = ['ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'];
   const DIGITS = '0123456789';
@@ -893,6 +902,12 @@ export function guessCharsetFromRows(cellsPerRow: number[]): string[] {
     lines.push(DIGITS);
     i++;
   }
+  // The supplied template's one punctuation row has a known order, just like
+  // its letter rows. Other layouts remain a guess the user can correct.
+  if (i === n - 1 && cellsPerRow[i] === DEFAULT_CHAR_LINES[3].length) {
+    lines.push(DEFAULT_CHAR_LINES[3]);
+    return lines;
+  }
   // Recognize the standard seven-row generator template. Detached rays and
   // stars can add whitespace cells to its 17-symbol row; allowing those cells
   // to advance the punctuation bank mislabels both rows. The final 13-symbol
@@ -910,6 +925,34 @@ export function guessCharsetFromRows(cellsPerRow: number[]): string[] {
   }
   while (lines.length < n) lines.push(PUNCT_BANK.slice(0, 8));
   return lines.slice(0, n);
+}
+
+export interface BuiltFontChecks {
+  missing: string[];
+  spacing: string[];
+}
+
+/** Check the compiled font, not just the pre-build geometry. Excluded glyphs
+ * are deliberate edits; any other missing mapped character blocks publish. */
+export function inspectBuiltFont(bytes: Uint8Array, rows: string[], intentionalOverlap = false, excluded: string[] = []): BuiltFontChecks {
+  const font = w().opentype.parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  const expected = [...new Set(rows.join(''))].filter(c => !excluded.includes(c));
+  const missing = expected.filter(c => {
+    const glyph = font.charToGlyph(c);
+    return !glyph.index || !glyph.path.commands.length;
+  });
+  const metrics = [];
+  for (let i = 1; i < font.glyphs.length; i++) {
+    const glyph = font.glyphs.get(i);
+    if (!glyph.path.commands.length) {
+      if (glyph.unicode === 32 && !(glyph.advanceWidth > 0)) metrics.push({ char: 'space', advance: glyph.advanceWidth, left: 0, right: 0 });
+      continue;
+    }
+    const box = glyph.getBoundingBox();
+    metrics.push({ char: glyph.unicode ? String.fromCodePoint(glyph.unicode) : glyph.name,
+      advance: glyph.advanceWidth, left: box.x1, right: box.x2 });
+  }
+  return { missing, spacing: spacingProblems(metrics, font.unitsPerEm, intentionalOverlap) };
 }
 
 // Live mono build session: the binarized sheet plus per-row glyphs, kept so a

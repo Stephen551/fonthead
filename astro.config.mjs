@@ -35,6 +35,9 @@ function engineVersion() {
 // request time via Astro.locals.runtime.env. platformProxy surfaces them in dev.
 export default defineConfig({
   output: 'server',
+  // Four 10 MB source sheets, three 5 MB font files, a 2 MB share card,
+  // and multipart overhead. Each file is also checked by the publish action.
+  security: { actionBodySizeLimit: 60 * 1024 * 1024 },
   adapter: cloudflare({
     platformProxy: { enabled: true },
     imageService: 'compile',

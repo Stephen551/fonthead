@@ -9,6 +9,8 @@ import { rateLimit } from '../lib/ratelimit';
 import { editedFontMeta } from '../lib/fonts';
 import { containsBannedWord } from '../lib/banned-words';
 import { sendFeedbackEmail } from '../lib/email';
+import { MAX_SOURCE_SHEETS, prepareSourceSheets, sourceSheetKeys, storeFontPublication, type PublicationObject } from '../lib/source-sheets';
+import { mappingProblems } from '../lib/maker-checks';
 import { parseBugContext, formatBugContext, hasBugSubstance, MIN_BUG_SHEET_BYTES, MAX_BUG_SHEET_BYTES } from '../lib/bugreport';
 import { submitMakerReview } from './reviews';
 
@@ -342,6 +344,12 @@ export const server = {
       ttf: z.instanceof(File).optional(),
       // optional per-font social card (PNG), rendered client-side from the font
       ogImage: z.instanceof(File).optional(),
+      // Older clients can omit sources. The first file is always the base sheet.
+      sourceSheets: z.array(z.instanceof(File)).max(MAX_SOURCE_SHEETS).default([]),
+      supplementSheet: z.instanceof(File).optional(),
+      charset: z.string().max(2048).default(''),
+      mappingConfirmed: z.boolean().default(false),
+      spacingChecked: z.boolean().default(false),
       // the license the maker grants downloaders; defaults to OFL for older clients
       license: z.enum(['ofl', 'cc0', 'personal']).default('ofl'),
     }),
@@ -355,6 +363,10 @@ export const server = {
       const userId = session.user.id;
       await assertNotBanned(env, userId);
       await limit(env, userId, 'publish', 20, 3600);
+      const charset = input.charset.split(/\r?\n/).map(s => s.trimEnd()).filter(Boolean);
+      if (!input.mappingConfirmed || !input.spacingChecked || mappingProblems(charset).length) {
+        throw new ActionError({ code: 'BAD_REQUEST', message: 'Reload the maker, check the character mapping and spacing, then publish again.' });
+      }
       if (containsBannedWord(input.name) || (input.specimenWord && containsBannedWord(input.specimenWord))) {
         throw new ActionError({ code: 'BAD_REQUEST', message: "That name isn't allowed." });
       }
@@ -362,6 +374,13 @@ export const server = {
 
       const id = await uniqueFontId(env.DB, input.name);
       const keys = { otf: `fonts/${id}.otf`, ttf: `fonts/${id}.ttf`, woff2: `fonts/${id}.woff2` };
+
+      let sources: Awaited<ReturnType<typeof prepareSourceSheets>>;
+      try {
+        sources = await prepareSourceSheets(id, input.sourceSheets, input.supplementSheet);
+      } catch (error) {
+        throw new ActionError({ code: 'BAD_REQUEST', message: error instanceof Error ? error.message : 'Invalid source sheets.' });
+      }
 
       const otf = new Uint8Array(await input.otf.arrayBuffer());
       const woff2 = new Uint8Array(await input.woff2.arrayBuffer());
@@ -409,6 +428,9 @@ export const server = {
         builtWith: 'fonthead maker',
         license: input.license,
         og: hasOg,
+        sourceSheets: sources.sheets,
+        charset,
+        reviewed: { mapping: true, spacing: true },
         ...(isColor ? { colorMode: input.treat } : {}),
       };
       const word = (input.specimenWord || '').trim() || input.name;
@@ -416,21 +438,15 @@ export const server = {
       // Write R2 then D1 with rollback: if the row insert fails after any object
       // was written, delete those objects so a failed publish never orphans
       // binaries in the bucket.
-      const written: string[] = [];
+      const objects: PublicationObject[] = [
+        { key: keys.otf, bytes: otf, contentType: 'font/otf' },
+        { key: keys.woff2, bytes: woff2, contentType: 'font/woff2' },
+        ...sources.objects,
+      ];
+      if (ttf) objects.push({ key: keys.ttf, bytes: ttf, contentType: 'font/ttf' });
+      if (hasOg && ogBytes) objects.push({ key: `og/${id}.png`, bytes: ogBytes, contentType: 'image/png' });
       try {
-        await env.FONTS.put(keys.otf, otf, { httpMetadata: { contentType: 'font/otf' } });
-        written.push(keys.otf);
-        await env.FONTS.put(keys.woff2, woff2, { httpMetadata: { contentType: 'font/woff2' } });
-        written.push(keys.woff2);
-        if (ttf) {
-          await env.FONTS.put(keys.ttf, ttf, { httpMetadata: { contentType: 'font/ttf' } });
-          written.push(keys.ttf);
-        }
-        if (hasOg && ogBytes) {
-          await env.FONTS.put(`og/${id}.png`, ogBytes, { httpMetadata: { contentType: 'image/png' } });
-          written.push(`og/${id}.png`);
-        }
-        await env.DB.prepare(
+        await storeFontPublication(env.FONTS, objects, () => env.DB.prepare(
           `INSERT INTO fonts
              (id, owner_id, name, maker_handle, specimen_word, meta, visibility,
               glyph_count, otf_key, ttf_key, woff2_key, otf_size, ttf_size, woff2_size, votes_count)
@@ -452,9 +468,8 @@ export const server = {
             ttf ? ttf.length : null,
             woff2.length,
           )
-          .run();
+          .run());
       } catch (e) {
-        await Promise.allSettled(written.map((k) => env.FONTS.delete(k)));
         if (e instanceof ActionError) throw e;
         throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: 'Publish failed, nothing was saved. Try again.' });
       }
@@ -505,12 +520,13 @@ export const server = {
     handler: async ({ fontId }, ctx) => {
       const { env, email } = await requireUser(ctx);
       if (!isAdmin(env, email)) throw new ActionError({ code: 'FORBIDDEN', message: 'Not allowed.' });
-      const row = await env.DB.prepare('SELECT otf_key, ttf_key, woff2_key FROM fonts WHERE id = ?')
+      const row = await env.DB.prepare('SELECT otf_key, ttf_key, woff2_key, meta FROM fonts WHERE id = ?')
         .bind(fontId)
-        .first<{ otf_key: string | null; ttf_key: string | null; woff2_key: string | null }>();
+        .first<{ otf_key: string | null; ttf_key: string | null; woff2_key: string | null; meta: string }>();
       if (!row) throw new ActionError({ code: 'NOT_FOUND', message: 'No such font.' });
       await env.DB.prepare('DELETE FROM fonts WHERE id = ?').bind(fontId).run();
       const keys = [row.otf_key, row.ttf_key, row.woff2_key].filter((k): k is string => !!k);
+      keys.push(`og/${fontId}.png`, ...sourceSheetKeys(fontId, row.meta));
       await Promise.allSettled(keys.map((k) => env.FONTS.delete(k)));
       return { ok: true };
     },
@@ -524,10 +540,10 @@ export const server = {
     handler: async ({ fontId }, ctx) => {
       const { env, userId } = await requireUser(ctx);
       const row = await env.DB.prepare(
-        'SELECT owner_id, otf_key, ttf_key, woff2_key FROM fonts WHERE id = ?',
+        'SELECT owner_id, otf_key, ttf_key, woff2_key, meta FROM fonts WHERE id = ?',
       )
         .bind(fontId)
-        .first<{ owner_id: string | null; otf_key: string | null; ttf_key: string | null; woff2_key: string | null }>();
+        .first<{ owner_id: string | null; otf_key: string | null; ttf_key: string | null; woff2_key: string | null; meta: string }>();
       if (!row) throw new ActionError({ code: 'NOT_FOUND', message: 'No such font.' });
       if (row.owner_id !== userId) throw new ActionError({ code: 'FORBIDDEN', message: 'That is not your font.' });
       await limit(env, userId, 'delfont', 30, 3600);
@@ -537,6 +553,7 @@ export const server = {
       await env.DB.prepare('DELETE FROM fonts WHERE id = ?').bind(fontId).run();
       const keys = [row.otf_key, row.ttf_key, row.woff2_key].filter((k): k is string => !!k);
       keys.push(`og/${fontId}.png`); // the social card, if any (no-op delete otherwise)
+      keys.push(...sourceSheetKeys(fontId, row.meta));
       await Promise.allSettled(keys.map((k) => env.FONTS.delete(k)));
       return { ok: true };
     },
@@ -824,15 +841,16 @@ export const server = {
 
       // the user's fonts: rows to drop, plus R2 keys (binaries + social card) to purge
       const { results: myFonts } = await env.DB.prepare(
-        'SELECT id, otf_key, ttf_key, woff2_key FROM fonts WHERE owner_id = ?',
+        'SELECT id, otf_key, ttf_key, woff2_key, meta FROM fonts WHERE owner_id = ?',
       )
         .bind(userId)
-        .all<{ id: string; otf_key: string | null; ttf_key: string | null; woff2_key: string | null }>();
+        .all<{ id: string; otf_key: string | null; ttf_key: string | null; woff2_key: string | null; meta: string }>();
       const fontIds = (myFonts ?? []).map((f) => f.id);
       const r2keys: string[] = [];
       for (const f of myFonts ?? []) {
         for (const k of [f.otf_key, f.ttf_key, f.woff2_key]) if (k) r2keys.push(k);
         r2keys.push(`og/${f.id}.png`);
+        r2keys.push(...sourceSheetKeys(f.id, f.meta));
       }
       const urow = await env.DB.prepare('SELECT image FROM "user" WHERE id = ?')
         .bind(userId)

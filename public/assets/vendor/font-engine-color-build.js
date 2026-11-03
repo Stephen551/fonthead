@@ -55,7 +55,7 @@
   }
 
   // OpenType name-table fields from user metadata (style/version/designer/
-  // license), with A&C defaults. Used by both build paths.
+  // license), with Fonthead defaults. Used by both build paths.
   function nameFields(family, opts) {
     const style = (opts.styleName || 'Regular');
     const f = {
@@ -63,9 +63,10 @@
       fullName: family + ' ' + style,
       postScriptName: sanitizePostScriptName(family.replace(/\s+/g, '') + '-' + style.replace(/\s+/g, '')),
       version: (opts.version || '1.0'),
-      designer: opts.designer || 'A&C Meridian',
-      designerURL: 'https://acmeridian.co',
-      manufacturer: 'A&C Meridian Color Font Builder',
+      designer: opts.designer || 'Fonthead',
+      designerURL: 'https://fonthead.dev',
+      manufacturer: 'Fonthead',
+      manufacturerURL: 'https://fonthead.dev',
     };
     if (opts.license) f.license = opts.license;
     if (opts.copyright) f.copyright = opts.copyright;

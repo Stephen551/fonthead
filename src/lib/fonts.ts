@@ -1,5 +1,6 @@
 // fonthead.dev – font data access + specimen helpers.
 // Fonts live in D1; their binaries live in R2 and are served by /cdn/[...key].
+import type { SourceSheet } from './source-sheets';
 
 export interface FontMeta {
   treat: 'normal' | 'gradient' | 'flat' | 'variable';
@@ -18,6 +19,10 @@ export interface FontMeta {
   og?: boolean;
   // the license the maker chose at publish; older fonts without it read as OFL
   license?: 'ofl' | 'cc0' | 'personal';
+  // Original uploads are private R2 objects, retrievable through the dashboard.
+  sourceSheets?: SourceSheet[];
+  charset?: string[];
+  reviewed?: { mapping: boolean; spacing: boolean };
 }
 
 export interface FontRow {

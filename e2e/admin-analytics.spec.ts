@@ -41,6 +41,9 @@ test('admin analytics separate member uploads, samples and admin testing', async
     const dashboard = await page.goto('/admin?days=7');
     expect(dashboard?.headers()['cache-control']).toBe('private, no-store');
     await expect(page.getByRole('heading', { name: 'Is the maker working for people?' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Analytics & moderation', exact: true })).toBeVisible();
+    await expect(page.getByText(/^Maker reviews · latest/)).toBeVisible();
+    await expect(page.getByText(/^Bug reports · \d+ open/)).toBeVisible();
     const activity = page.getByRole('region', { name: 'Member activity table', exact: true });
     const row = activity.getByRole('row').filter({ hasText: memberName });
     await expect(row).toBeVisible();

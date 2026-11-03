@@ -12,11 +12,12 @@ import {
   makeTemplateSheet,
   downloadCanvasPng,
   classifyBuildError,
-  canvasToImage,
   fileToImage,
   detectGeometry,
   AUTO_FINE_ROWH,
   guessCharsetFromRows,
+  inspectBuiltFont,
+  type BuiltFontChecks,
   DEFAULT_TRACE,
   TRACE_PRESETS,
   DEFAULT_COLOR_OPTS,
@@ -39,6 +40,7 @@ import {
   type SlicerKind,
   type Glyph,
 } from '../lib/maker';
+import { mappingProblems, shortRowCharset } from '../lib/maker-checks';
 import BugReport from './BugReport';
 import ReviewPrompt from './ReviewPrompt';
 import { EXTENDED_LATIN_ROWS } from '../lib/charsets';
@@ -130,6 +132,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [kind, setKind] = useState<Kind>('mono');
   const [colrStatus, setColrStatus] = useState('');
   const [charsetText, setCharsetText] = useState(DEFAULT_CHAR_LINES.join('\n'));
+  const [mappingConfirmed, setMappingConfirmed] = useState(false);
+  const [mappingNotice, setMappingNotice] = useState('');
+  const [knownSample, setKnownSample] = useState(false);
+  const [fontChecks, setFontChecks] = useState<BuiltFontChecks | null>(null);
+  const builtRowsRef = useRef<string[]>([]);
+  const builtKindRef = useRef<Kind>('mono');
+  const sampleImagesRef = useRef(new WeakSet<HTMLImageElement | ImageBitmap>());
   const [warning, setWarning] = useState('');
   const [detectedRows, setDetectedRows] = useState<number | null>(null);
   const [report, setReport] = useState<GlyphReport[]>([]);
@@ -176,6 +185,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // the run() closure reads the latest without a re-render dependency).
   const [naturalVariation, setNaturalVariation] = useState(false);
   const variationImgsRef = useRef<(HTMLImageElement | ImageBitmap | null)[]>([null, null]);
+  // Associate exact uploads with decoded images; the successful build snapshots
+  // only the files it actually used, even if variation slots change afterward.
+  const sourceFilesRef = useRef(new WeakMap<HTMLImageElement | ImageBitmap, File>());
+  const builtSourceFilesRef = useRef<File[]>([]);
+  const builtSupplementFileRef = useRef<File | undefined>(undefined);
   const [variationNames, setVariationNames] = useState<(string | null)[]>([null, null]);
   const supplementImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
   const supplementFileRef = useRef<HTMLInputElement>(null);
@@ -200,6 +214,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [rowErr, setRowErr] = useState('');
   const [rowSlicerSel, setRowSlicerSel] = useState<Record<string, SlicerKind>>({});
   const traceOpts = { ...TRACE_PRESETS[preset], fineDetail };
+  const mappingErrors = mappingProblems(parseCharset(charsetText), sheet?.geom.rows.length);
+  const mappingChanged = kind !== builtKindRef.current || JSON.stringify(parseCharset(charsetText)) !== JSON.stringify(builtRowsRef.current);
+  const publishBlocked = phase !== 'done' || editBusy || rowBusy !== null || !mappingConfirmed || mappingChanged ||
+    mappingErrors.length > 0 || !fontChecks || fontChecks.missing.length > 0 || fontChecks.spacing.length > 0;
 
   const isColor = kind !== 'mono';
   const stages = isColor ? COLOR_STAGES : MONO_STAGES;
@@ -325,6 +343,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   async function run(
     getImage: () => Promise<HTMLImageElement | ImageBitmap>,
     charLinesOverride?: string[],
+    override?: { safeSpacing: boolean },
   ) {
     buildBusyRef.current = true;
     const buildSource = buildSourceRef.current;
@@ -335,6 +354,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       requestAnimationFrame(() => readoutRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     }
     setResult(null);
+    setMappingConfirmed(false);
+    setFontChecks(null);
+    setKnownSample(false);
     setStageIdx(-1);
     setError('');
     setWarning('');
@@ -352,9 +374,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     const rows = charLinesOverride ?? parseCharset(charsetText);
     const t0 = performance.now();
     const fam = family.trim() || 'Handmade';
+    const buildSpacing = override?.safeSpacing ? 4 : spacing;
+    const buildTrim = override?.safeSpacing ? false : trimFlourishes;
     const useSupplement = !isColor && !!supplementImgRef.current;
     try {
-      if (!rows.length) throw new Error('add at least one row of characters to the charset');
+      const errors = mappingProblems(rows);
+      if (errors.length) throw new Error(errors.join(' '));
       if (useSupplement && connect) throw new Error('Turn off connected cursive to use an accents sheet.');
       let res: FontResult;
       let count = 0;
@@ -362,13 +387,19 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       let warn = '';
       let rep: GlyphReport[] = [];
       let variantSheetCount = 0;
+      const buildSources: File[] = [];
+      let buildSupplement: File | undefined;
+      let sample = false;
       if (isColor) {
         await waitForColorEngine();
         const img = await getImage();
+        sample = sampleImagesRef.current.has(img);
+        const source = sourceFilesRef.current.get(img);
+        if (source) buildSources.push(source);
         lastImgRef.current = img;
         captureSheet(img);
         setStage(0, 'reading the sheet');
-        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, { ...colorOpts, fineDetail, spacingPct: spacing }, (step, message) =>
+        const cres = await buildColorFontFromImage(img, kind as ColorMode, fam, rows, { ...colorOpts, fineDetail, spacingPct: buildSpacing }, (step, message) =>
           setStage(COLOR_STEP_STAGE[step] ?? 1, message),
         );
         res = { otf: cres.otf, woff2: cres.woff2 };
@@ -393,6 +424,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       } else {
         await waitForEngine();
         const img = await getImage();
+        sample = sampleImagesRef.current.has(img);
+        const source = sourceFilesRef.current.get(img);
+        if (source) buildSources.push(source);
         lastImgRef.current = img;
         captureSheet(img);
         // the auto decision from the drop (ref, current for this build) unless
@@ -426,11 +460,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             tracingSheet++;
             const vtrace = await traceSheet(vimg, rows, effTraceOpts, (_step, message) =>
               setStage(2, `sheet ${tracingSheet}/${sheetCount} · ${message}`), 'variation');
+            if (vtrace.detectedRows !== rows.length) throw new Error(`A variation sheet has ${vtrace.detectedRows} rows, but the mapping has ${rows.length}. Use sheets with the same row layout.`);
             tracedRows += vtrace.rows.length;
             tracedDrawings += vtrace.glyphs.length;
             if (vtrace.glyphs.length) {
               variantSheets.push(vtrace.glyphs);
               sheetRows.push({ label: `Sheet ${sheetRows.length + 1} · variation`, rows: vtrace.rows });
+              const source = sourceFilesRef.current.get(vimg);
+              if (source) buildSources.push(source);
             }
           }
           if (variantSheets.length) {
@@ -439,6 +476,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           }
         }
         if (useSupplement) {
+          buildSupplement = sourceFilesRef.current.get(supplementImgRef.current!);
           const supplementRows = parseCharset(supplementCharsetRef.current);
           if (!supplementRows.length) throw new Error('Add at least one row to the accents charset.');
           const extra = await traceSheet(supplementImgRef.current!, supplementRows, effTraceOpts, (_step, message) =>
@@ -461,8 +499,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             family: fam,
             style: italic && !useConnect ? 'Italic' : 'Regular',
             formats: ['otf', 'ttf', 'woff2'],
-            spacingPct: spacing,
-            trimFlourishes: useConnect ? false : trimFlourishes,
+            spacingPct: buildSpacing,
+            trimFlourishes: useConnect ? false : buildTrim,
             connect: useConnect,
             smoothJoins: useConnect && smoothJoins,
             naturalVariation: useVariation,
@@ -472,11 +510,20 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         );
       }
       if (warn) setWarning(warn);
+      const checks = inspectBuiltFont(res.otf!, rows, !isColor && (connect || italic), rep.filter(g => g.status === 'excluded').map(g => g.char));
+      const trustedSample = sample && JSON.stringify(rows) === JSON.stringify(SAMPLE_CHAR_LINES);
+      builtRowsRef.current = rows.slice();
+      builtKindRef.current = kind;
+      setFontChecks(checks);
+      setKnownSample(trustedSample);
+      setMappingConfirmed(trustedSample);
       setReport(rep);
       setGlyphCount(count);
       setBuiltVariantCount(variantSheetCount);
       setStageIdx(stages.length);
       setResult(res);
+      builtSourceFilesRef.current = buildSources;
+      builtSupplementFileRef.current = buildSupplement;
       setElapsed((performance.now() - t0) / 1000);
       // verification hook (harmless)
       (window as any).__lastBuild = {
@@ -511,7 +558,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
 
   async function publish() {
     if (buildBusyRef.current) return;
-    if (!result?.otf || !result?.woff2) return;
+    if (!result?.otf || !result?.woff2 || publishBlocked) return;
     setPublishing(true);
     setPublishErr('');
     try {
@@ -522,9 +569,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       fd.set('license', license);
       fd.set('glyphCount', String(glyphCount));
       fd.set('treat', kind === 'mono' ? 'normal' : kind);
+      fd.set('charset', builtRowsRef.current.join('\n'));
+      fd.set('mappingConfirmed', 'true');
+      fd.set('spacingChecked', 'true');
       fd.set('otf', new File([result.otf as BlobPart], 'font.otf', { type: 'font/otf' }));
       fd.set('woff2', new File([result.woff2 as BlobPart], 'font.woff2', { type: 'font/woff2' }));
       if (result.ttf) fd.set('ttf', new File([result.ttf as BlobPart], 'font.ttf', { type: 'font/ttf' }));
+      for (const file of builtSourceFilesRef.current) fd.append('sourceSheets', file);
+      if (builtSupplementFileRef.current) fd.set('supplementSheet', builtSupplementFileRef.current);
       // a per-font share card, rendered from the built font (best-effort)
       const cardText = specimenWord.trim() || family.trim() || 'Handmade';
       const card = previewFam ? await renderOgCard(cardText, previewFam) : null;
@@ -629,6 +681,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             ? { left: editLeft, right: editRight, turd: editTurd }
             : { turd: editTurd };
       const cres = await editColorGlyph(action, editIdx, params);
+      setFontChecks(inspectBuiltFont(cres.otf, builtRowsRef.current, false, (cres.report || []).filter(g => g.status === 'excluded').map(g => g.char)));
+      setMappingConfirmed(false);
+      setKnownSample(false);
+      setPublishedId(null);
       setResult({ otf: cres.otf, woff2: cres.woff2 });
       setReport(cres.report || []);
       setColrStatus(cres.colrStatus);
@@ -671,6 +727,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setRowErr('');
     try {
       const r = await editMonoRow(rowIndex, slicer, family, traceOpts, spacing, connect ? false : trimFlourishes, connect, undefined, undefined, connect && smoothJoins, italic && !connect ? 'Italic' : 'Regular', sheetIndex);
+      setFontChecks(inspectBuiltFont(r.result.otf!, builtRowsRef.current, connect || italic));
+      setMappingConfirmed(false);
+      setKnownSample(false);
+      setPublishedId(null);
       setResult(r.result);
       setReport(r.report);
       setGlyphCount(r.glyphCount);
@@ -702,6 +762,10 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     if (buildBusyRef.current) return;
     buildSourceRef.current = 'sample';
     track('sample_try');
+    setMappingNotice('');
+    variationImgsRef.current = [null, null];
+    setVariationNames([null, null]);
+    setNaturalVariation(false);
     setEditIdx(null);
     setCharsetText(SAMPLE_CHAR_LINES.join('\n')); // the sample is exactly these 3 rows
     run(async () => {
@@ -710,7 +774,14 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       } catch {
         /* fall back to system font */
       }
-      return canvasToImage(isColor ? makeColorSampleSheet() : makeSampleSheet());
+      const canvas = isColor ? makeColorSampleSheet() : makeSampleSheet();
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('sample sheet render failed');
+      const file = new File([blob], 'sample-sheet.png', { type: 'image/png' });
+      const img = await fileToImage(file);
+      sourceFilesRef.current.set(img, file);
+      sampleImagesRef.current.add(img);
+      return img;
     }, SAMPLE_CHAR_LINES);
   };
 
@@ -735,11 +806,18 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
 
   const onFile = async (file: File | undefined, source: 'file' | 'camera' = 'file') => {
     if (!file) return;
+    setMappingConfirmed(false);
+    setKnownSample(false);
+    setFontChecks(null);
+    setResult(null);
+    setPublishedId(null);
+    setPhase('working');
     track('sheet_drop', source);
     try {
       if (isColor) await waitForColorEngine();
       else await waitForEngine();
       const img = await fileToImage(file);
+      sourceFilesRef.current.set(img, file);
       // If this sheet came from a generate preset, trace it against that preset's
       // exact charset (what the AI was asked to draw) instead of guessing the
       // characters from shapes. A mono sheet only uses it when the detected row
@@ -761,6 +839,16 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         armed && (isColor || armed.length === cellsPerRow.length || armed.some(l => /[^\x00-\x7f]/.test(l))) ? armed : guessCharsetFromRows(cellsPerRow);
       setCharsetText(charLines.join('\n'));
       buildSourceRef.current = 'upload';
+      setMappingNotice(shortRowCharset(cellsPerRow)
+        ? 'Short rows detected. Consecutive capitals are suggested. Check every row and replace each □ before building.'
+        : 'The maker assigns keys by position. Check the original shapes against the suggested keys before publishing.');
+      lastImgRef.current = img;
+      captureSheet(img);
+      if (mappingProblems(charLines).length) {
+        setDetectedRows(geom.rows.length);
+        setPhase('idle');
+        return;
+      }
       await run(() => Promise.resolve(img), charLines);
       if (isColor) setDetectedRows(geom.rows.length);
     } catch (e) {
@@ -793,6 +881,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       for (let slot = 0; slot < 2; slot++) {
         const f = list[slot + 1];
         variationImgsRef.current[slot] = f ? await fileToImage(f) : null;
+        if (f && variationImgsRef.current[slot]) sourceFilesRef.current.set(variationImgsRef.current[slot]!, f);
         names[slot] = f ? f.name : null;
       }
       setVariationNames(names);
@@ -822,6 +911,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     try {
       await waitForEngine();
       variationImgsRef.current[slot] = await fileToImage(file);
+      sourceFilesRef.current.set(variationImgsRef.current[slot]!, file);
       setVariationNames((n) => {
         const c = [...n];
         c[slot] = file.name;
@@ -851,6 +941,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         setSupplementCharset(supplementCharsetRef.current);
       }
       supplementImgRef.current = img;
+      sourceFilesRef.current.set(img, file);
       setSupplementName(file.name);
       if (lastImgRef.current) await run(() => Promise.resolve(lastImgRef.current!));
       else setPhase('idle');
@@ -1059,16 +1150,45 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             </span>
           </label>
           <textarea
+            id="maker-charset"
             className="fh-input"
             style={{ width: '100%', resize: 'vertical', minHeight: 92, fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.6, whiteSpace: 'pre', overflowWrap: 'normal' }}
             value={charsetText}
+            rows={Math.min(10, Math.max(4, parseCharset(charsetText).length))}
             spellCheck={false}
             aria-label="Charset, one row of characters per line"
-            onChange={(e) => setCharsetText(e.target.value)}
+            onChange={(e) => {
+              setCharsetText(e.target.value);
+              setMappingConfirmed(false);
+              setKnownSample(false);
+            }}
           />
           <div className="fh-mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 6, lineHeight: 1.5 }}>
             Match these rows to your sheet, top to bottom and left to right. Include accented letters such as éñüç as one character each. Use a sheet without headings or divider lines.
           </div>
+          {mappingNotice && <p className="fh-mono" role="status" style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ink-soft)' }}>{mappingNotice}</p>}
+          {sheet && (
+            <details open={!!shortRowCharset(sheet.geom.rows.map(r => r.cells.length))} style={{ marginTop: 12 }}>
+              <summary className="fh-mono" style={{ cursor: 'pointer', fontSize: 12, color: 'var(--ink)', padding: '12px 0', minHeight: 44 }}>Review letters against the sheet</summary>
+              <p className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.6 }}>Original shape above, assigned key below. Edit the charset rows if a key does not match.</p>
+              {sheet.geom.rows.map((row, ri) => {
+                const chars = Array.from(parseCharset(charsetText)[ri] || '');
+                return <div key={ri} style={{ marginTop: 12 }}>
+                  <div className="fh-mono" style={{ fontSize: 11, marginBottom: 6, color: 'var(--ink-soft)' }}>Row {ri + 1}: {row.cells.length} cells, {chars.length} keys</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    {row.cells.map(([x0, x1], ci) => <div key={ci} style={{ width: 44, border: '1px solid var(--line-2)', textAlign: 'center' }}>
+                      <svg role="img" aria-label={`Original shape in row ${ri + 1}, cell ${ci + 1}`} viewBox={`${x0 - 2} ${row.y0 - 2} ${x1 - x0 + 4} ${row.y1 - row.y0 + 4}`} style={{ display: 'block', width: 42, height: 48, background: '#fff' }}>
+                        <image href={sheet.url} width={sheet.w} height={sheet.h} />
+                      </svg>
+                      <span className="fh-mono" aria-label={`Row ${ri + 1}, cell ${ci + 1} maps to ${chars[ci] || 'unassigned'}`} style={{ display: 'block', fontSize: 14, padding: 4, color: !chars[ci] || chars[ci] === '□' ? 'var(--signal)' : 'var(--ink)' }}>{chars[ci] || '□'}</span>
+                    </div>)}
+                  </div>
+                </div>;
+              })}
+            </details>
+          )}
+          {sheet && mappingErrors.length > 0 && <p role="alert" className="fh-mono" style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--signal)' }}>{mappingErrors.join(' ')}</p>}
+          {sheet && <button className="fh-btn fh-btn--ghost" style={{ marginTop: 12 }} disabled={phase === 'working' || mappingErrors.length > 0} onClick={rebuild}>build with this mapping</button>}
         </div>
 
         <div style={{ marginTop: 22 }}>
@@ -1501,6 +1621,26 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
               {/* publish to the library */}
               <div style={{ marginTop: 22, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
                 <span className="fh-eyebrow" style={{ display: 'block', marginBottom: 12 }}>03 · publish to the library</span>
+                {!publishedId && (
+                  <div className="fh-mono" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 14 }}>
+                    {(mappingChanged || mappingErrors.length > 0) && <p role="alert" style={{ color: 'var(--signal)' }}>Check the charset rows and rebuild before publishing.</p>}
+                    {fontChecks && fontChecks.missing.length > 0 && <p role="alert" style={{ color: 'var(--signal)' }}>These mapped characters did not build: {fontChecks.missing.join(' ')}. Check their rows or remove them from the mapping and rebuild.</p>}
+                    {fontChecks && fontChecks.spacing.length > 0 && <div role="alert" style={{ color: 'var(--signal)' }}>
+                      <p>Spacing needs attention for {fontChecks.spacing.join(' ')}. Some letters extend far beyond the space given to them and may overlap.</p>
+                      <button className="fh-btn fh-btn--ghost" disabled={editBusy || rowBusy !== null} onClick={() => {
+                        const img = lastImgRef.current;
+                        if (!img) return;
+                        setSpacing(4);
+                        setTrimFlourishes(false);
+                        run(() => Promise.resolve(img), undefined, { safeSpacing: true });
+                      }}>use safe spacing</button>
+                    </div>}
+                    {knownSample ? <p style={{ color: 'var(--ink-soft)' }}>Built-in sample mapping verified.</p> : <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', color: 'var(--ink)' }}>
+                      <input type="checkbox" checked={mappingConfirmed} disabled={mappingChanged || mappingErrors.length > 0 || !fontChecks || fontChecks.missing.length > 0} onChange={e => setMappingConfirmed(e.target.checked)} style={{ marginTop: 4 }} />
+                      <span>I checked that each assigned key matches its letter on the sheet.</span>
+                    </label>}
+                  </div>
+                )}
                 {publishedId ? (
                   <div>
                     <p className="fh-mono" style={{ fontSize: 12.5, color: 'var(--ok)', margin: '0 0 12px' }}>
@@ -1560,10 +1700,13 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                         ))}
                       </div>
                       <a href="/licenses" target="_blank" rel="noopener" className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', textDecoration: 'underline', textUnderlineOffset: 3 }}>what these mean</a>
-                      <button className="fh-btn" onClick={publish} disabled={publishing || rowBusy !== null} style={{ marginLeft: 'auto' }}>
+                      <button className="fh-btn" onClick={publish} disabled={publishing || publishBlocked} style={{ marginLeft: 'auto' }}>
                         {publishing ? 'publishing…' : 'publish  →'}
                       </button>
                     </div>
+                    <p className="fh-mono" style={{ fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.6, margin: '12px 0 0' }}>
+                      Publishing saves your original sheets privately with this font. PNG, JPEG, or WebP, up to 10 MB each.
+                    </p>
                     {publishErr && (
                       <p role="alert" className="fh-mono" style={{ fontSize: 11.5, color: 'var(--signal)', marginTop: 10 }}>{publishErr}</p>
                     )}

@@ -49,6 +49,22 @@ describe('guessCharset', () => {
 });
 
 describe('guessCharsetFromRows (per-row cell counts)', () => {
+  it('keeps consecutive capitals on a short-row alphabet instead of inventing lowercase and digits', () => {
+    expect(guessCharsetFromRows([4, 4, 4, 4, 4, 4, 3])).toEqual([
+      'ABCD', 'EFGH', 'IJKL', 'MNOP', 'QRST', 'UVWX', 'YZ□',
+    ]);
+    expect(guessCharsetFromRows([9, 9, 8])).toEqual(['ABCDEFGHI', 'JKLMNOPQR', 'STUVWXYZ']);
+    expect(guessCharsetFromRows([10, 10, 6])).toEqual(['ABCDEFGHIJ', 'KLMNOPQRST', 'UVWXYZ']);
+    expect(guessCharsetFromRows([14, 12])).toEqual(['ABCDEFGHIJKLMN', 'OPQRSTUVWXYZ']);
+  });
+  it('recognizes uppercase alphabets followed by digits without inventing lowercase', () => {
+    expect(guessCharsetFromRows([26, 10])).toEqual(['ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789']);
+    expect(guessCharsetFromRows([13, 13, 10])).toEqual(['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', '0123456789']);
+  });
+  it('uses the standard punctuation order for a single default-sized row', () => {
+    expect(guessCharsetFromRows([13, 13, 13, 13, 10, 11])[5]).toBe(DEFAULT_CHAR_LINES[3]);
+    expect(guessCharsetFromRows([26, 26, 10, 11])[3]).toBe(DEFAULT_CHAR_LINES[3]);
+  });
   it('keeps the standard seven-row punctuation mapping when decorations add cells', () => {
     for (const cells of [[13, 13, 13, 13, 12, 20, 13], [13, 13, 12, 13, 10, 17, 13]]) {
       expect(guessCharsetFromRows(cells).slice(4)).toEqual([
