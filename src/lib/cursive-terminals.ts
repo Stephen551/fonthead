@@ -4,6 +4,10 @@ type Point = { x: number; y: number };
 export type Terminal = { points: Point[]; width: number; tangent: Point };
 type Terminals = { left: Terminal; right: Terminal };
 
+// Only a geometry mismatch can fall back to standard connected placement.
+// Tracer, worker and font validation failures must remain visible.
+export class UnsupportedJoinGeometry extends Error {}
+
 const median = (values: number[]) => values.slice().sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
 /** Follow an actual open stroke from its endpoint. Stop before a branch: bowls,
@@ -48,7 +52,7 @@ export function walkTerminal(mask: Uint8Array, width: number, height: number, st
   return points;
 }
 
-function measureTerminals(g: Glyph, xh: number, exitOnly = false): Terminals | null {
+function measureTerminals(g: Glyph, xh: number, compact: boolean, exitOnly = false): Terminals | null {
   const core = (window as any).SingleLineCore;
   const scale = Math.min(3, 120 / xh);
   const canvas = document.createElement('canvas');
@@ -77,8 +81,8 @@ function measureTerminals(g: Glyph, xh: number, exitOnly = false): Terminals | n
   }
   endpoints.sort((a, b) => a % canvas.width - b % canvas.width);
   if (endpoints.length < (exitOnly ? 1 : 2)) return null;
-  const read = (start: number, side: 'left' | 'right'): Terminal | null => {
-    const raw = walkTerminal(skeleton, canvas.width, canvas.height, start, 0.38 * xh * scale);
+  const read = (start: number, side: 'left' | 'right', reach: number): Terminal | null => {
+    const raw = walkTerminal(skeleton, canvas.width, canvas.height, start, reach * xh * scale);
     if (raw.length < 5) return null;
     const points = raw.map(p => ({ x: p.x / scale, y: p.y / scale }));
     const tip = points[0], attach = points[points.length - 1];
@@ -94,20 +98,38 @@ function measureTerminals(g: Glyph, xh: number, exitOnly = false): Terminals | n
     if ((side === 'left' ? -1 : 1) * tangent.x < 0.35) return null;
     return { points, width, tangent };
   };
-  const right = read(endpoints[endpoints.length - 1], 'right');
-  const left = exitOnly ? right : read(endpoints[0], 'left');
+  const readPair = (reach: number) => {
+    const right = read(endpoints[endpoints.length - 1], 'right', reach);
+    const left = exitOnly ? right : read(endpoints[0], 'left', reach);
+    return left && right ? { left, right } : null;
+  };
+  // A longer walk finds where a sweeping stroke leaves the body. Short or
+  // turning terminals can still use the original attachment closer to the tip.
+  const pair = (compact && !exitOnly ? readPair(0.78) : null) ?? readPair(0.38);
+  const right = pair?.right;
   if (exitOnly && right) {
     const inkRight = Math.max(...g.paths.map(d => (window as any).estimateBBox(d)?.maxX ?? 0));
     // A capital's low endpoint can be the beginning of a stem inside a wide
     // bowl. It is an exit only when it actually reaches the right edge.
-    if (inkRight - right.points[0].x > 0.25 * xh) return null;
+    if (inkRight - right.points[0].x > 0.25 * xh) {
+      if (!compact) return null;
+      // An upper loop may overhang a genuine low exit. Check for intervening
+      // ink in the joining band before allowing the next letter underneath.
+      const tip = right.points[0];
+      const x0 = Math.ceil((tip.x + 0.25 * xh) * scale);
+      const y0 = Math.max(0, Math.floor((tip.y - 0.25 * xh) * scale));
+      const y1 = Math.min(canvas.height, Math.ceil((tip.y + 0.25 * xh) * scale));
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < canvas.width; x++) if (mask[y * canvas.width + x]) return null;
+      }
+    }
   }
-  return left && right ? { left, right } : null;
+  return pair;
 }
 
 type Helpers = {
   xhPx: number;
-  fallback: Glyph[];
+  fallback: () => Glyph[];
   translatePathX: typeof translatePathX;
   synthesizeConnector: typeof synthesizeConnector;
 };
@@ -115,23 +137,23 @@ type Helpers = {
 /** An opt-in terminal model for thin scripts with two identifiable open tails.
  * Advances and both endpoint tangents are solved together. Applying the old
  * overlap kerning afterwards would undo this geometry and reopen the seams. */
-export async function smoothCursiveGlyphs(glyphs: Glyph[], helpers: Helpers): Promise<{
+export async function smoothCursiveGlyphs(glyphs: Glyph[], helpers: Helpers, compact = false): Promise<{
   glyphs: Glyph[]; rights: string[]; lefts: string[]; width: number; joinFrac: number;
 }> {
   if (!(window as any).SingleLineCore) throw new Error('smooth joins engine did not load. Reload and try again.');
   if (glyphs.some(g => g.variantSuffix)) throw new Error('smooth joins needs one alphabet sheet. Turn off natural variation.');
   const xh = helpers.xhPx;
   const lowercase = glyphs.filter(g => /^[a-z]$/.test(g.char));
-  if (lowercase.length < 4 || !(xh > 0)) throw new Error('smooth joins needs at least four lowercase letters with open connecting tails.');
+  if (lowercase.length < 4 || !(xh > 0)) throw new UnsupportedJoinGeometry('smooth joins needs at least four lowercase letters with open connecting tails.');
   const measured = new Map<string, Terminals>();
   for (const g of lowercase) {
-    const terminals = measureTerminals(g, xh);
-    if (!terminals) throw new Error(`could not safely identify both connecting tails on ${g.char}. Turn off smooth joins for this sheet.`);
+    const terminals = measureTerminals(g, xh, compact);
+    if (!terminals) throw new UnsupportedJoinGeometry(`could not safely identify both connecting tails on ${g.char}. Turn off smooth joins for this sheet.`);
     measured.set(g.char, terminals);
   }
   const widths = [...measured.values()].flatMap(t => [t.left.width, t.right.width]);
   const width = median(widths);
-  if (widths.some(w => w < width * 0.55 || w > width * 1.65)) throw new Error('smooth joins needs a fairly even pen width. Turn off smooth joins for this sheet.');
+  if (widths.some(w => w < width * 0.55 || w > width * 1.65)) throw new UnsupportedJoinGeometry('smooth joins needs a fairly even pen width. Turn off smooth joins for this sheet.');
   const tips = lowercase.flatMap(g => {
     const pair = measured.get(g.char)!;
     return [pair.left, pair.right].map(terminal => {
@@ -140,19 +162,21 @@ export async function smoothCursiveGlyphs(glyphs: Glyph[], helpers: Helpers): Pr
       return { height: (g.baselineYInCell - tip.y) / xh, slope: (near.y - tip.y) / (near.x - tip.x) };
     });
   });
-  const joinFrac = median(tips.map(t => t.height));
-  const slope = median(tips.map(t => t.slope).filter(Number.isFinite));
+  // After shortening the tails, their old tips can sit above both roots,
+  // forcing an up-down kink. Join the shorter strokes on a low rising line.
+  const joinFrac = compact ? 0.23 : median(tips.map(t => t.height));
+  const slope = compact ? -0.45 : median(tips.map(t => t.slope).filter(Number.isFinite));
   const output: Glyph[] = [];
   const rights = lowercase.map(g => g.char);
   const lefts = [...rights];
-  const fallback = new Map(helpers.fallback.map(g => [g.char, g]));
+  const fallback = new Map(helpers.fallback().map(g => [g.char, g]));
 
   for (const g of glyphs) {
     let terminals = measured.get(g.char);
     const isLower = /^[a-z]$/.test(g.char);
     // Capitals may supply an exit but never lose their opening stroke. A
     // capital without a clear right-hand exit keeps its complete ink width.
-    if (!terminals && /^[A-Z]$/.test(g.char)) terminals = measureTerminals(g, xh, true) ?? undefined;
+    if (!terminals && /^[A-Z]$/.test(g.char)) terminals = measureTerminals(g, xh, compact, true) ?? undefined;
     if (!terminals) {
       if (/^[A-Z]$/.test(g.char)) {
         const bounds = g.paths.map(d => (window as any).estimateBBox(d)).filter(Boolean);
@@ -171,11 +195,19 @@ export async function smoothCursiveGlyphs(glyphs: Glyph[], helpers: Helpers): Pr
     }
     if (!isLower) lefts.push(g.char);
     const inset = width * 0.45;
-    const entryX = terminals.left.points[0].x + inset;
-    const exitX = terminals.right.points[0].x - inset;
+    const left = terminals.left.points, right = terminals.right.points;
+    let entryX = left[0].x + inset;
+    let exitX = right[0].x - inset;
+    if (compact) {
+      const entryRoot = left[left.length - 1].x, exitRoot = right[right.length - 1].x;
+      // Keep room for the cubic to turn even on very short tails.
+      entryX = Math.min(entryX + (entryRoot - left[0].x) * 0.67, entryRoot - 1.35 * width);
+      if (isLower) exitX -= (right[0].x - exitRoot) * 0.47;
+      exitX = Math.max(exitX, exitRoot + 1.35 * width);
+    }
     const origin = isLower ? entryX : Math.min(...g.paths.map(d => (window as any).estimateBBox(d)?.minX ?? 0)) - 1;
     const base = { ...g, cellW: exitX - origin, paths: g.paths.map(d => helpers.translatePathX(d, -origin)) };
-    if (!(base.cellW > xh * 0.2)) throw new Error(`connecting tails on ${g.char} are too close. Turn off smooth joins for this sheet.`);
+    if (!(base.cellW > xh * 0.2)) throw new UnsupportedJoinGeometry(`connecting tails on ${g.char} are too close. Turn off smooth joins for this sheet.`);
     output.push(base);
     for (const suffix of isLower ? ['.jn01', '.jn02', '.jn03'] : ['.jn01']) {
       const canvas = document.createElement('canvas');
@@ -199,9 +231,9 @@ export async function smoothCursiveGlyphs(glyphs: Glyph[], helpers: Helpers): Pr
         const connector = helpers.synthesizeConnector(
           attach, { dx: terminal.tangent.x, dy: terminal.tangent.y },
           { x: side === 'left' ? entryX : exitX, y: g.baselineYInCell - joinFrac * xh },
-          { dx: direction, dy: slope * direction }, width, width * 0.2,
+          { dx: direction, dy: slope * direction }, width, width * (compact ? 0.38 : 0.2),
         );
-        if (!connector) throw new Error(`could not reconstruct the ${side} tail on ${g.char}. Turn off smooth joins for this sheet.`);
+        if (!connector) throw new UnsupportedJoinGeometry(`could not reconstruct the ${side} tail on ${g.char}. Turn off smooth joins for this sheet.`);
         replacements.push(connector.d);
       }
       ctx.fillStyle = '#000'; replacements.forEach(d => ctx.fill(new Path2D(d)));

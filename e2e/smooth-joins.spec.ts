@@ -6,7 +6,7 @@ import { verifySfntChecksums } from '../src/lib/sfnt';
 const fontkit: any = (fontkitNs as any).create ? fontkitNs : (fontkitNs as any).default;
 const CHARSET = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789', '.,!?:;\'"-&@#'];
 
-test('smooth joins builds the elegant sheet with continuous contextual strokes', async ({ page }) => {
+for (const mode of ['auto', 'smooth'] as const) test(`${mode} join fit exports continuous contextual strokes`, async ({ page }) => {
   test.setTimeout(240_000);
   await page.addInitScript((charset) => {
     localStorage.setItem('fh-maker-tour-seen', '1');
@@ -15,25 +15,28 @@ test('smooth joins builds the elegant sheet with continuous contextual strokes',
   await page.goto('/make');
   await page.getByRole('button', { name: 'advanced' }).click();
   await page.getByRole('button', { name: /connected cursive/ }).click();
-  const smooth = page.getByRole('button', { name: /smooth joins/ });
-  await smooth.focus();
-  await page.keyboard.press('Space');
-  await expect(smooth).toHaveAttribute('aria-pressed', 'true');
+  const smooth = page.getByLabel('Join style');
+  await expect(smooth).toHaveValue('auto');
+  if (mode === 'smooth') await smooth.selectOption('smooth');
   await page.locator('#font-name').fill('Elegant Script');
-  await page.locator('#sheet-file').setInputFiles('e2e/fixtures/elegant-script.png');
+  const sheet = mode === 'auto' ? 'black-script' : 'elegant-script';
+  await page.locator('#sheet-file').setInputFiles(`e2e/fixtures/${sheet}.png`);
   await page.waitForFunction(() => (window as any).__lastBuild || document.querySelector('[role="alert"]'), undefined, { timeout: 150_000 });
   expect(await page.getByRole('alert').allTextContents()).toEqual([]);
   await expect(page.getByRole('button', { name: 'download otf', exact: true })).toBeVisible({ timeout: 150_000 });
   const diag = await page.evaluate(() => (window as any).__lastSmooth);
   expect(diag.joined).toBe(26);
-  mkdirSync('test-results/elegant-export', { recursive: true });
+  expect(diag.compact).toBe(mode === 'auto');
+  if (mode === 'auto') await expect(page.getByText('Lowercase joins tightened and smoothed.', { exact: true })).toBeVisible();
+  const output = `test-results/${sheet}-export`;
+  mkdirSync(output, { recursive: true });
   const bytes: Record<string, Buffer> = {};
   for (const format of ['otf', 'ttf', 'woff2']) {
     const [download] = await Promise.all([
       page.waitForEvent('download'),
       page.getByRole('button', { name: `download ${format}`, exact: true }).click(),
     ]);
-    const path = `test-results/elegant-export/Elegant-Script.${format}`;
+    const path = `${output}/font.${format}`;
     await download.saveAs(path);
     bytes[format] = readFileSync(path);
     if (format !== 'woff2') expect(verifySfntChecksums(bytes[format]).errors).toEqual([]);
@@ -45,7 +48,13 @@ test('smooth joins builds the elegant sheet with continuous contextual strokes',
     expect(names('anna')).toEqual(['a.jn01', 'n.jn03', 'n.jn03', 'a.jn02']);
     expect(names('a n')).toEqual(['a', 'space', 'n']);
     expect(names('a,n')).toEqual(['a', 'comma', 'n']);
-    expect(names('El')).toEqual(['E.jn01', 'l.jn02']);
+    if (mode === 'smooth') expect(names('El')).toEqual(['E.jn01', 'l.jn02']);
+    if (mode === 'auto') {
+      // Standard connected placement used 5.86 em on this specimen.
+      const width = font.layout('Handmade').advanceWidth / font.unitsPerEm;
+      expect(width).toBeGreaterThan(4.3);
+      expect(width).toBeLessThan(5);
+    }
     expect(names('a')).toEqual(['a']);
   }
   const font = fontkit.create(bytes.otf);
@@ -87,14 +96,23 @@ test('smooth joins builds the elegant sheet with continuous contextual strokes',
   for (const width of [375, 768, 1280]) {
     await page.setViewportSize({ width, height: 1100 });
     await smooth.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `test-results/elegant-export/maker-${width}.png` });
+    await page.screenshot({ path: `${output}/maker-${width}.png` });
     await expect.poll(() => page.evaluate(() => ({
       width: innerWidth,
       // Scope this feature's layout guard to the maker. The existing global
       // sign-in navigation overflows at 768px independently of this control.
       overflow: [...document.querySelectorAll<HTMLElement>('.fh-maker-grid *')]
+        // Letter previews crop the full sheet inside a small SVG viewport.
+        // The viewport participates in layout; its clipped bitmap does not.
+        .filter(e => !(e instanceof SVGImageElement && e.ownerSVGElement && getComputedStyle(e.ownerSVGElement).overflow === 'hidden'))
         .filter(e => e.getBoundingClientRect().right > innerWidth + 1)
         .map(e => ({ tag: e.tagName, text: e.textContent?.slice(0, 60), right: e.getBoundingClientRect().right })),
     }))).toEqual({ width, overflow: [] });
+  }
+  if (mode === 'auto') {
+    await smooth.selectOption('standard');
+    await page.getByRole('button', { name: 'rebuild with these settings' }).click();
+    await expect(page.getByText('Standard cursive placement applied.', { exact: true })).toBeVisible({ timeout: 90_000 });
+    expect(await page.evaluate(() => (window as any).__lastSmooth)).toBeNull();
   }
 });

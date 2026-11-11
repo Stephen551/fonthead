@@ -181,6 +181,7 @@ export function matchSupplementSize(
 }
 
 export interface FontResult {
+  joinFit?: 'compact' | 'smooth' | 'standard';
   otf?: Uint8Array;
   ttf?: Uint8Array;
   woff?: Uint8Array;
@@ -1337,8 +1338,9 @@ export interface BuildOpts {
    *  forces an upright Regular style (the worker slants on the style name, and a
    *  slant voids the joins). */
   connect?: boolean;
-  /** Reconstruct measured terminal strokes with shared endpoints and tangents.
-   *  Opt-in for thin scripts; requires connect and a single alphabet sheet. */
+  /** Connected single-sheet builds automatically shorten and smooth long,
+   *  measurable terminals. False selects standard placement; true explicitly
+   *  requests smoothing even on a short-entry hand. */
   smoothJoins?: boolean;
   /** Seamless overlap as a fraction of x-height. 0 (default) is the consistent
    *  touch floor; a small positive value merges the strokes. */
@@ -3854,18 +3856,31 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   let connectBridged = false;
   let seamAltRights: string[] | undefined;
   let seamAltLefts: string[] | undefined;
-  const smoothJoins = !!opts.connect && !!opts.smoothJoins;
+  const compression = opts.connect && opts.smoothJoins !== true ? compressConnectorTails(glyphs) : null;
+  const autoFit = opts.smoothJoins === undefined && !opts.naturalVariation &&
+    !opts.seamAlternates && opts.connectOverlapPct === undefined && !glyphs.some(g => g.variantSuffix) &&
+    compression !== null && compression.medianEntry > TAIL_GATE_FRAC;
+  let fit: Awaited<ReturnType<typeof import('./cursive-terminals').smoothCursiveGlyphs>> | undefined;
   (globalThis as unknown as { __lastSmooth?: object | null }).__lastSmooth = null;
-  if (smoothJoins) {
+  if (opts.connect && (opts.smoothJoins || autoFit)) {
     if (opts.naturalVariation) throw new Error('smooth joins needs one alphabet sheet. Turn off natural variation.');
     onProgress?.('connect', 'smooth joins · measuring and rebuilding connecting strokes');
-    const { smoothCursiveGlyphs } = await import('./cursive-terminals');
-    const fit = await smoothCursiveGlyphs(glyphs, {
-      xhPx: faceMetrics(glyphs).xhPx,
-      fallback: connectGlyphs(glyphs).glyphs,
-      translatePathX,
-      synthesizeConnector,
-    });
+    const { smoothCursiveGlyphs, UnsupportedJoinGeometry } = await import('./cursive-terminals');
+    try {
+      fit = await smoothCursiveGlyphs(glyphs, {
+        xhPx: faceMetrics(glyphs).xhPx,
+        fallback: () => connectGlyphs(glyphs).glyphs,
+        translatePathX,
+        synthesizeConnector,
+      }, autoFit);
+    } catch (error) {
+      if (!autoFit || !(error instanceof UnsupportedJoinGeometry)) throw error;
+    }
+  }
+  const smoothJoins = !!fit;
+  let joinFit: FontResult['joinFit'];
+  if (fit) {
+    joinFit = autoFit ? 'compact' : 'smooth';
     glyphsIn = fit.glyphs;
     seamAltRights = fit.rights;
     seamAltLefts = fit.lefts;
@@ -3874,13 +3889,14 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     spaceAdvance = 0.35;
     styleOut = 'Regular';
     (globalThis as unknown as { __lastSmooth?: object }).__lastSmooth = {
-      joined: fit.rights.length, width: fit.width, joinFrac: fit.joinFrac,
+      joined: fit.rights.length, width: fit.width, joinFrac: fit.joinFrac, compact: autoFit,
     };
     (globalThis as unknown as { __lastConnect?: object }).__lastConnect = {
       joined: fit.lefts.length, broke: glyphs.length - fit.lefts.length, entryNorm: false,
     };
     (globalThis as unknown as { __lastSeamAlts?: object | null }).__lastSeamAlts = null;
-  } else if (opts.connect) {
+  } else if (compression) {
+    joinFit = 'standard';
     // Connected cursive. COMPOSES with natural variation: connectGlyphs runs on
     // the MERGED palette (it preserves variantSuffix), so the .cv01/.cv02 variant
     // glyphs get the same per-glyph connection advances as their bases and join
@@ -3891,23 +3907,14 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     flags.useCellWidth = true;
     flags.tightAdvance = false;
     onProgress?.('connect', opts.naturalVariation ? 'connected cursive · joining + cycling letters' : 'connected cursive · joining letters');
-    // A long-sweep hand (a flashy script) draws entry connectors so long they fold
-    // into the advance and the round letters float. Compress those over-long entry
-    // sweeps toward the body first, so the letters place tight. Gated to variation
-    // builds and self-gated on the hand's median entry tail, so a short-entry hand
-    // (and the calibrated non-variation corpus) is untouched.
-    // Compress over-long entry sweeps on ANY connect build (self-gated inside on the
-    // hand's median entry tail, so a short-entry hand is skipped whole). Broadened
-    // from variation-only so a single-sheet flashy upload is hardened too.
-    const comp = compressConnectorTails(glyphs);
     (globalThis as unknown as { __lastCompress?: object | null }).__lastCompress = {
-      compressed: comp.compressed,
-      medianEntry: comp.medianEntry,
+      compressed: compression.compressed,
+      medianEntry: compression.medianEntry,
     };
     // Lower abnormally-high exit flicks onto the entries' join line so each seam meets
     // flush (self-gated inside on the hand's exit-vs-entry mismatch, so a copperplate
     // whose exits already meet its entries is skipped byte-for-byte).
-    const snap = snapConnectorHeights(comp.glyphs);
+    const snap = snapConnectorHeights(compression.glyphs);
     (globalThis as unknown as { __lastSnap?: object | null }).__lastSnap = {
       snapped: snap.snapped,
       mismatch: snap.mismatch,
@@ -4104,7 +4111,7 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     }
   }
   await assertValid(otf);
-  return { otf, ttf, woff2, _hinting: raw._hinting };
+  return { otf, ttf, woff2, joinFit, _hinting: raw._hinting };
 }
 
 // ---- sample sheet + download ----------------------------------------------

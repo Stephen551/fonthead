@@ -169,7 +169,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // join. Mono only, off until explicitly enabled; replaces flourish overhang,
   // spacing, and italic when on.
   const [connect, setConnect] = useState(false);
-  const [smoothJoins, setSmoothJoins] = useState(false);
+  const [smoothJoins, setSmoothJoins] = useState<boolean | undefined>(undefined);
   // seam joins (ADR 0048, PARKED): the warp-based alternates failed the judge
   // panel twice (eyelets/pigtails lowering through the entry; needle whiskers
   // and cracks truncating at the seam), so the feature has NO user surface and
@@ -1257,9 +1257,16 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                     </p>
                     {connect && (
                       <div style={{ marginTop: 11 }}>
-                        <ToggleRow label="smooth joins" on={smoothJoins} onChange={setSmoothJoins} disabled={naturalVariation || variationNames.some(Boolean)} />
+                        <label htmlFor="join-fit">Join style </label>
+                        <select id="join-fit" className="fh-input" value={smoothJoins === undefined ? 'auto' : smoothJoins ? 'smooth' : 'standard'}
+                          onChange={(e) => setSmoothJoins(e.target.value === 'auto' ? undefined : e.target.value === 'smooth')}
+                          disabled={naturalVariation || variationNames.some(Boolean)}>
+                          <option value="auto">Automatic</option>
+                          <option value="standard">Standard placement</option>
+                          <option value="smooth">Smooth joins only</option>
+                        </select>
                         <p className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 7, lineHeight: 1.5 }}>
-                          smooths the connecting strokes in thin, even-pen scripts. Keeps the original word endings. Use one alphabet sheet with natural variation off.
+                          Automatic shortens long lowercase tails and smooths their joins when the strokes can be measured. Other scripts and variation sheets use standard placement.
                         </p>
                       </div>
                     )}
@@ -1409,6 +1416,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           )}
           {phase === 'done' && result && (
             <div>
+              {result.joinFit && <p className="fh-mono" style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
+                {{ compact: 'Lowercase joins tightened and smoothed.', smooth: 'Connecting strokes smoothed.', standard: 'Standard cursive placement applied.' }[result.joinFit]}
+              </p>}
               {/* type into your freshly made font: the concept the rest of the site
                   is built on, on the screen where you actually make the font */}
               <div
