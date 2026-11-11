@@ -5,8 +5,11 @@ import {
   traceSheet,
   buildFont,
   mergeVariantSheets,
+  matchVariantSheetScale,
   mergeSupplementSheet,
   matchSupplementSize,
+  isExtendedLatinSheet,
+  popLastVariantSheet,
   downloadFont,
   makeSampleSheet,
   makeTemplateSheet,
@@ -186,6 +189,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // main drop; the extra sheets live in variationImgsRef (kept off React state so
   // the run() closure reads the latest without a re-render dependency).
   const [naturalVariation, setNaturalVariation] = useState(false);
+  const naturalVariationRef = useRef(false);
+  const updateNaturalVariation = (on: boolean) => {
+    naturalVariationRef.current = on;
+    setNaturalVariation(on);
+  };
   const variationImgsRef = useRef<(HTMLImageElement | ImageBitmap | null)[]>([null, null]);
   // Associate exact uploads with decoded images; the successful build snapshots
   // only the files it actually used, even if variation slots change afterward.
@@ -208,7 +216,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // the live preview face + its blob URL, so each new build/edit tears down the last
   const previewRef = useRef<{ face: FontFace; url: string } | null>(null);
   // the source sheet + detected geometry, drawn back so the user can confirm the cut
-  const [sheet, setSheet] = useState<{ url: string; w: number; h: number; geom: SheetGeometry } | null>(null);
+  const [sheet, setSheet] = useState<{ url: string; w: number; h: number; rawW: number; rawH: number; geom: SheetGeometry } | null>(null);
   const sheetImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
   // mono per-row slicing: diagnostics + which row (if any) is being re-sliced
   const [monoSheets, setMonoSheets] = useState<{ label: string; rows: MonoRowInfo[] }[]>([]);
@@ -282,8 +290,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       detectedRows: detectedRows ?? undefined,
       glyphCount,
       flaggedCount,
-      sheetW: sheet?.w,
-      sheetH: sheet?.h,
+      sheetW: sheet?.rawW ?? sheet?.w,
+      sheetH: sheet?.rawH ?? sheet?.h,
       userAgent: navigator.userAgent,
       viewport: `${window.innerWidth}x${window.innerHeight}`,
       dpr: window.devicePixelRatio,
@@ -336,7 +344,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       const url = c.toDataURL('image/jpeg', 0.82);
       const armed = readArmedCharset();
       const geom = detectGeometry(img, isColor, isColor && armed ? armed.length : 0);
-      setSheet({ url, w: iw, h: ih, geom });
+      setSheet({ url, w: geom.w, h: geom.h, rawW: iw, rawH: ih, geom });
     } catch {
       /* overlay is a nicety, not a gate */
     }
@@ -384,7 +392,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     const fam = family.trim() || 'Handmade';
     const buildSpacing = override?.safeSpacing ? 4 : spacing;
     const buildTrim = override?.safeSpacing ? false : trimFlourishes;
-    const useSupplement = !isColor && !!supplementImgRef.current;
+    let useSupplement = !isColor && !!supplementImgRef.current;
     try {
       const errors = mappingProblems(rows);
       if (errors.length) throw new Error(errors.join(' '));
@@ -440,7 +448,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         // the auto decision from the drop (ref, current for this build) unless
         // the user has taken the toggle over
         const effTraceOpts = { ...traceOpts, fineDetail: fineTouched ? traceOpts.fineDetail : traceOpts.fineDetail || fineAutoRef.current };
-        const sheetCount = 1 + variationImgsRef.current.filter(Boolean).length + Number(useSupplement);
+        const useConnect = connect;
+        const useVariation = naturalVariationRef.current && variationImgsRef.current.some(Boolean);
+        const sheetCount = 1 + (useVariation ? variationImgsRef.current.filter(Boolean).length : 0) + Number(useSupplement);
         const trace = await traceSheet(img, rows, effTraceOpts, (step, message) =>
           setStage(STEP_STAGE[step] ?? 2, `sheet 1/${sheetCount} · ${message}`),
         );
@@ -452,13 +462,11 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         const sheetRows = [{ label: 'Sheet 1 · base alphabet', rows: trace.rows }];
         let tracedRows = trace.rows.length;
         let tracedDrawings = trace.glyphs.length;
-        const useConnect = connect;
         // natural variation: trace each extra sheet against the SAME charset and
         // merge into one glyph list (bases + .cv01/.cv02) before building, so a
-        // repeated letter cycles through its variants. Driven by whether variation
-        // sheets are actually loaded (not just the toggle), so a one-shot drop of
-        // all 3 sheets builds varied even before the toggle state propagates.
-        const useVariation = naturalVariation || variationImgsRef.current.some(Boolean);
+        // repeated letter cycles through its variants. Driven by naturalVariationRef
+        // so both one-shot multi-file drops and turning the toggle off take effect
+        // immediately without stale state closures.
         let glyphsForBuild = trace.glyphs;
         if (useVariation) {
           const variantSheets: Glyph[][] = [];
@@ -466,13 +474,57 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           for (const [slot, vimg] of variationImgsRef.current.entries()) {
             if (!vimg) continue;
             tracingSheet++;
-            const vtrace = await traceSheet(vimg, rows, effTraceOpts, (_step, message) =>
+            // If a second dropped sheet is actually an Extended Latin accents
+            // supplement (7 rows of 17-18 accented letters + 7 floating mark
+            // bands = 14 bands), promote it into the accents slot automatically
+            // instead of failing with a 14-vs-7 variation row mismatch.
+            if (!useSupplement && !useConnect && isExtendedLatinSheet(vimg, effTraceOpts, rows)) {
+              supplementImgRef.current = vimg;
+              variationImgsRef.current[slot] = null;
+              const promotedName = variationNames[slot] ?? 'accents-sheet';
+              setSupplementName(promotedName);
+              setVariationNames((prev) => {
+                const next = [...prev];
+                next[slot] = null;
+                return next;
+              });
+              if (!variationImgsRef.current.some(Boolean)) {
+                updateNaturalVariation(false);
+              }
+              if (!supplementCharsetEdited.current) {
+                const armedSupp = readArmedCharset('fh-gen-charset-supplement');
+                supplementCharsetRef.current = (armedSupp ?? EXTENDED_LATIN_ROWS).join('\n');
+                setSupplementCharset(supplementCharsetRef.current);
+              }
+              useSupplement = true;
+              warn = [warn, 'Detected an Extended Latin accents sheet in variation and moved it to the accents slot so all accented characters are included.'].filter(Boolean).join(' ');
+              continue;
+            }
+            let vtrace = await traceSheet(vimg, rows, effTraceOpts, (_step, message) =>
               setStage(2, `sheet ${tracingSheet}/${sheetCount} · ${message}`), 'variation');
-            if (vtrace.detectedRows !== rows.length) throw new Error(`A variation sheet has ${vtrace.detectedRows} rows, but the mapping has ${rows.length}. Use sheets with the same row layout.`);
+            let usedGlyphs = vtrace.glyphs;
+            if (vtrace.detectedRows !== rows.length) {
+              if (vtrace.glyphs.length) popLastVariantSheet();
+              const vgeom = detectGeometry(vimg, false);
+              const vGuessed = guessCharsetFromRows(vgeom.rows.map((r) => r.cells.length));
+              const sharedLines = vGuessed.filter((line, idx) => line === rows[idx]);
+              if (vGuessed.length === vtrace.detectedRows && sharedLines.length >= 2) {
+                vtrace = await traceSheet(vimg, vGuessed, effTraceOpts, (_step, message) =>
+                  setStage(2, `sheet ${tracingSheet}/${sheetCount} · ${message}`), 'variation');
+                const allowedChars = new Set(sharedLines.flatMap((line) => Array.from(line)));
+                usedGlyphs = vtrace.glyphs.filter((g) => allowedChars.has(g.char));
+                warn = [
+                  warn,
+                  `Variation sheet ${slot + 2} has ${vtrace.detectedRows} rows (${rows.length} on base); used its ${sharedLines.length} matching rows.`,
+                ].filter(Boolean).join(' ');
+              } else {
+                throw new Error(`A variation sheet has ${vtrace.detectedRows} rows, but the mapping has ${rows.length}. Use sheets with the same row layout.`);
+              }
+            }
             tracedRows += vtrace.rows.length;
-            tracedDrawings += vtrace.glyphs.length;
-            if (vtrace.glyphs.length) {
-              variantSheets.push(vtrace.glyphs);
+            tracedDrawings += usedGlyphs.length;
+            if (usedGlyphs.length) {
+              variantSheets.push(matchVariantSheetScale(trace.glyphs, usedGlyphs));
               sheetRows.push({ label: `Sheet ${sheetRows.length + 1} · variation`, rows: vtrace.rows });
               const source = sourceFilesRef.current.get(vimg);
               if (source) buildSources.push(source);
@@ -499,8 +551,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           tracedDrawings += extra.glyphs.length;
           sheetRows.push({ label: `Sheet ${sheetRows.length + 1} · accents`, rows: extra.rows });
         }
+        const activeSheetCount = sheetRows.length;
         setMonoSheets(sheetRows);
-        setTraceSummary(`${tracedRows} rows · ${tracedDrawings} drawings · ${sheetCount} ${sheetCount === 1 ? 'sheet' : 'sheets'}`);
+        setTraceSummary(`${tracedRows} rows · ${tracedDrawings} drawings · ${activeSheetCount} ${activeSheetCount === 1 ? 'sheet' : 'sheets'}`);
         res = await buildFont(
           glyphsForBuild,
           {
@@ -511,7 +564,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             trimFlourishes: useConnect ? false : buildTrim,
             connect: useConnect,
             smoothJoins: useConnect && smoothJoins,
-            naturalVariation: useVariation,
+            naturalVariation: variantSheetCount > 0,
             seamAlternates: typeof localStorage !== 'undefined' && localStorage.getItem('fh-test-seam-alts') === '1',
           },
           (step, message) => setStage(STEP_STAGE[step] ?? 3, `${step} · ${message}`),
@@ -770,7 +823,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     setMappingNotice('');
     variationImgsRef.current = [null, null];
     setVariationNames([null, null]);
-    setNaturalVariation(false);
+    updateNaturalVariation(false);
     setEditIdx(null);
     setCharsetText(SAMPLE_CHAR_LINES.join('\n')); // the sample is exactly these 3 rows
     run(async () => {
@@ -879,7 +932,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       buildBusyRef.current = false;
       return;
     }
-    setNaturalVariation(true);
+    updateNaturalVariation(true);
     try {
       await waitForEngine();
       const names: (string | null)[] = [null, null];
@@ -907,6 +960,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const onVariationFile = async (slot: number, file: File | undefined) => {
     if (!file || buildBusyRef.current) return;
     buildBusyRef.current = true;
+    updateNaturalVariation(true);
     // Invalidate the old export before decoding, so a loaded sheet can never
     // appear alongside a downloadable font built from the previous palette.
     setPhase('working');
@@ -928,6 +982,26 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       recordFailure(e instanceof Error ? e.message : 'could not read that image', 'upload');
     } finally {
       buildBusyRef.current = false;
+    }
+  };
+
+  const removeVariation = (slot: number) => {
+    if (buildBusyRef.current) return;
+    variationImgsRef.current[slot] = null;
+    setVariationNames((n) => {
+      const c = [...n];
+      c[slot] = null;
+      return c;
+    });
+    const input = typeof document !== 'undefined' ? (document.getElementById(`variation-file-${slot}`) as HTMLInputElement | null) : null;
+    if (input) input.value = '';
+    if (!variationImgsRef.current.some(Boolean)) {
+      updateNaturalVariation(false);
+    }
+    if (lastImgRef.current) rebuild();
+    else {
+      setResult(null);
+      setPhase('idle');
     }
   };
 
@@ -1293,35 +1367,50 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
                 )}
                 {!isColor && (
                   <div style={{ marginTop: 11 }}>
-                    <ToggleRow label="natural variation" on={naturalVariation} onChange={setNaturalVariation} disabled={connect && smoothJoins} />
+                    <ToggleRow label="natural variation" on={naturalVariation} onChange={updateNaturalVariation} disabled={connect && smoothJoins} />
                     <p className="fh-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 7, lineHeight: 1.5 }}>
                       cycles a repeated letter through a few versions of the same hand, so the type reads handwritten instead of typeset. Drop two more sheets of the same alphabet below. Works alongside connected cursive.
                     </p>
-                    {naturalVariation && (
+                    {(naturalVariation || variationNames.some(Boolean)) && (
                       <div style={{ marginTop: 10, display: 'grid', gap: 7 }}>
                         {[0, 1].map((slot) => (
-                          <label
-                            key={slot}
-                            className="fh-mono"
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              gap: 10,
-                              fontSize: 11.5,
-                              padding: '8px 11px',
-                              border: '1px dashed var(--line-2)',
-                              borderRadius: 3,
-                              cursor: 'pointer',
-                              color: 'var(--ink-soft)',
-                            }}
-                          >
-                            <span>variation {slot + 2}</span>
-                            <span style={{ color: variationNames[slot] ? 'var(--ink)' : 'var(--ink-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '58%' }}>
-                              {variationNames[slot] ?? 'choose a sheet'}
-                            </span>
-                            <input id={`variation-file-${slot}`} type="file" accept="image/*" disabled={phase === 'working' || rowBusy !== null} style={{ display: 'none' }} onChange={(e) => onVariationFile(slot, e.target.files?.[0] ?? undefined)} />
-                          </label>
+                          <div key={slot} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                            <label
+                              className="fh-mono"
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: 10,
+                                fontSize: 11.5,
+                                padding: '8px 11px',
+                                border: '1px dashed var(--line-2)',
+                                borderRadius: 3,
+                                cursor: 'pointer',
+                                color: 'var(--ink-soft)',
+                              }}
+                            >
+                              <span>variation {slot + 2}</span>
+                              <span style={{ color: variationNames[slot] ? 'var(--ink)' : 'var(--ink-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '58%' }}>
+                                {variationNames[slot] ?? 'choose a sheet'}
+                              </span>
+                              <input id={`variation-file-${slot}`} type="file" accept="image/*" disabled={phase === 'working' || rowBusy !== null} style={{ display: 'none' }} onChange={(e) => onVariationFile(slot, e.target.files?.[0] ?? undefined)} />
+                            </label>
+                            {variationNames[slot] && (
+                              <button
+                                type="button"
+                                className="fh-btn fh-btn--ghost"
+                                aria-label={`Remove variation ${slot + 2}`}
+                                disabled={phase === 'working' || rowBusy !== null}
+                                onClick={() => removeVariation(slot)}
+                                style={{ fontSize: 11, padding: '8px 10px', flexShrink: 0 }}
+                              >
+                                remove
+                              </button>
+                            )}
+                          </div>
                         ))}
                       </div>
                     )}

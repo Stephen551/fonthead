@@ -64,33 +64,270 @@
     return current;
   }
 
+  function detectDarkSheetInvert(d, w, h) {
+    const x0 = Math.floor(w * 0.2), x1 = Math.ceil(w * 0.8);
+    const y0 = Math.floor(h * 0.2), y1 = Math.ceil(h * 0.8);
+    const step = Math.max(1, Math.floor(Math.min(w, h) / 200));
+    let total = 0, darkBg = 0, midTone = 0, brightInk = 0;
+    for (let y = y0; y < y1; y += step) {
+      const rowOff = y * w * 4;
+      for (let x = x0; x < x1; x += step) {
+        const i = rowOff + x * 4;
+        if (d[i + 3] < 128) continue;
+        const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        total++;
+        if (lum <= 70) darkBg++;
+        else if (lum > 90 && lum < 150) midTone++;
+        else if (lum >= 160) brightInk++;
+      }
+    }
+    return (
+      total >= 64 &&
+      darkBg / total >= 0.65 &&
+      brightInk / total >= 0.015 &&
+      brightInk / total <= 0.35 &&
+      midTone / total < 0.20
+    );
+  }
+
+  function buildPaperField(d, w, h) {
+    const tileSize = Math.max(32, Math.round(Math.min(w, h) / 16));
+    const cols = Math.max(2, Math.ceil(w / tileSize));
+    const rows = Math.max(2, Math.ceil(h / tileSize));
+    const p85 = new Float32Array(cols * rows);
+    const hist = new Uint32Array(256);
+    const stride = tileSize > 96 ? 2 : 1;
+
+    for (let ty = 0; ty < rows; ty++) {
+      const y0 = ty * tileSize, y1 = Math.min(h, y0 + tileSize);
+      for (let tx = 0; tx < cols; tx++) {
+        const x0 = tx * tileSize, x1 = Math.min(w, x0 + tileSize);
+        hist.fill(0);
+        let count = 0;
+        for (let y = y0; y < y1; y += stride) {
+          const rowOff = y * w * 4;
+          for (let x = x0; x < x1; x += stride) {
+            const i = rowOff + x * 4;
+            if (d[i + 3] < 128) continue;
+            const lum = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+            hist[lum < 0 ? 0 : lum > 255 ? 255 : lum]++;
+            count++;
+          }
+        }
+        if (count === 0) {
+          p85[ty * cols + tx] = 255;
+          continue;
+        }
+        const target = Math.max(1, Math.ceil(count * 0.85));
+        let acc = 0, val = 255;
+        for (let b = 0; b < 256; b++) {
+          acc += hist[b];
+          if (acc >= target) { val = b; break; }
+        }
+        p85[ty * cols + tx] = val;
+      }
+    }
+
+    const dilated = new Float32Array(cols * rows);
+    for (let ty = 0; ty < rows; ty++) {
+      for (let tx = 0; tx < cols; tx++) {
+        let mx = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = ty + dy;
+          if (ny < 0 || ny >= rows) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = tx + dx;
+            if (nx < 0 || nx >= cols) continue;
+            const v = p85[ny * cols + nx];
+            if (v > mx) mx = v;
+          }
+        }
+        dilated[ty * cols + tx] = mx;
+      }
+    }
+
+    const smoothed = new Float32Array(cols * rows);
+    for (let ty = 0; ty < rows; ty++) {
+      for (let tx = 0; tx < cols; tx++) {
+        let sum = 0, n = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = ty + dy;
+          if (ny < 0 || ny >= rows) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = tx + dx;
+            if (nx < 0 || nx >= cols) continue;
+            sum += dilated[ny * cols + nx];
+            n++;
+          }
+        }
+        smoothed[ty * cols + tx] = sum / n;
+      }
+    }
+
+    const ix0 = Math.min(cols - 1, Math.floor(cols * 0.15));
+    const ix1 = Math.max(ix0 + 1, Math.ceil(cols * 0.85));
+    const iy0 = Math.min(rows - 1, Math.floor(rows * 0.15));
+    const iy1 = Math.max(iy0 + 1, Math.ceil(rows * 0.85));
+    let minInterior = 255, maxInterior = 0;
+    for (let ty = iy0; ty < iy1; ty++) {
+      for (let tx = ix0; tx < ix1; tx++) {
+        const v = smoothed[ty * cols + tx];
+        if (v < minInterior) minInterior = v;
+        if (v > maxInterior) maxInterior = v;
+      }
+    }
+    // Clean digital sheets (white/near-white paper everywhere) bypass completely
+    // so pixel output stays 100% identical to legacy hard thresholding.
+    if (minInterior >= 232 || maxInterior < 105) return null;
+    return {
+      grid: smoothed,
+      cols,
+      rows,
+      tileSize,
+      floor: Math.max(95, maxInterior * 0.42),
+    };
+  }
+
+  function stripPerimeterFrame(d, w, h) {
+    const N = w * h;
+    const visited = new Uint8Array(N);
+    const stack = [];
+    const comp = [];
+
+    function visitSeed(seed) {
+      if (visited[seed] || d[seed * 4] !== 0) return;
+      visited[seed] = 1;
+      stack.length = 0;
+      comp.length = 0;
+      stack.push(seed);
+      let minX = w, maxX = 0, minY = h, maxY = 0;
+      let topC = 0, botC = 0, leftC = 0, rightC = 0;
+      while (stack.length > 0) {
+        const idx = stack.pop();
+        comp.push(idx);
+        const px = idx % w;
+        const py = (idx - px) / w;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+        if (py === 0) topC++;
+        if (py === h - 1) botC++;
+        if (px === 0) leftC++;
+        if (px === w - 1) rightC++;
+
+        const yLo = py > 0 ? py - 1 : 0;
+        const yHi = py < h - 1 ? py + 1 : h - 1;
+        const xLo = px > 0 ? px - 1 : 0;
+        const xHi = px < w - 1 ? px + 1 : w - 1;
+        for (let ny = yLo; ny <= yHi; ny++) {
+          const rOff = ny * w;
+          for (let nx = xLo; nx <= xHi; nx++) {
+            const nIdx = rOff + nx;
+            if (!visited[nIdx] && d[nIdx * 4] === 0) {
+              visited[nIdx] = 1;
+              stack.push(nIdx);
+            }
+          }
+        }
+      }
+      const spanW = maxX - minX + 1;
+      const spanH = maxY - minY + 1;
+      const isFrame =
+        comp.length < N * 0.85 &&
+        ((topC >= w * 0.22 && spanW >= w * 0.25) ||
+          (botC >= w * 0.22 && spanW >= w * 0.25) ||
+          (leftC >= h * 0.22 && spanH >= h * 0.25) ||
+          (rightC >= h * 0.22 && spanH >= h * 0.25));
+      if (isFrame) {
+        for (let k = 0; k < comp.length; k++) {
+          const p4 = comp[k] * 4;
+          d[p4] = d[p4 + 1] = d[p4 + 2] = 255;
+        }
+      }
+    }
+
+    for (let x = 0; x < w; x++) {
+      visitSeed(x);
+      visitSeed((h - 1) * w + x);
+    }
+    for (let y = 1; y < h - 1; y++) {
+      visitSeed(y * w);
+      visitSeed(y * w + (w - 1));
+    }
+  }
+
+  function binarizeRgbaInPlace(d, w, h, threshold, invert, weight) {
+    const isColorProbe = threshold >= 230;
+    const autoInverted = !invert && !isColorProbe && w >= 64 && h >= 64 && detectDarkSheetInvert(d, w, h);
+    const effInvert = !!(invert || autoInverted);
+    const paperField = !effInvert && !isColorProbe && w >= 128 && h >= 128 ? buildPaperField(d, w, h) : null;
+    const t = threshold;
+
+    if (paperField) {
+      const { grid, cols, rows, tileSize, floor } = paperField;
+      for (let y = 0; y < h; y++) {
+        const fy = Math.max(0, Math.min(rows - 1, (y + 0.5) / tileSize - 0.5));
+        const ty0 = Math.floor(fy), ty1 = Math.min(rows - 1, ty0 + 1);
+        const wy = fy - ty0;
+        const rowOff = y * w * 4;
+        for (let x = 0; x < w; x++) {
+          const i = rowOff + x * 4;
+          if (d[i + 3] < 128) {
+            d[i] = d[i + 1] = d[i + 2] = 255;
+            d[i + 3] = 255;
+            continue;
+          }
+          let lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          const fx = Math.max(0, Math.min(cols - 1, (x + 0.5) / tileSize - 0.5));
+          const tx0 = Math.floor(fx), tx1 = Math.min(cols - 1, tx0 + 1);
+          const wx = fx - tx0;
+          const p00 = grid[ty0 * cols + tx0], p10 = grid[ty0 * cols + tx1];
+          const p01 = grid[ty1 * cols + tx0], p11 = grid[ty1 * cols + tx1];
+          const pTop = p00 + (p10 - p00) * wx;
+          const pBot = p01 + (p11 - p01) * wx;
+          const paper = Math.max(floor, pTop + (pBot - pTop) * wy);
+          lum = lum >= paper ? 255 : (lum * 255) / paper;
+          const v = lum < t ? 0 : 255;
+          d[i] = d[i + 1] = d[i + 2] = v;
+          d[i + 3] = 255;
+        }
+      }
+    } else {
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 128) {
+          d[i] = d[i + 1] = d[i + 2] = 255;
+          d[i + 3] = 255;
+          continue;
+        }
+        let lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        if (effInvert) lum = 255 - lum;
+        const v = lum < t ? 0 : 255;
+        d[i] = d[i + 1] = d[i + 2] = v;
+        d[i + 3] = 255;
+      }
+    }
+
+    if (weight !== 0) {
+      const adjusted = applyWeight(d, w, h, weight);
+      for (let i = 0; i < d.length; i++) d[i] = adjusted[i];
+    }
+    if (!isColorProbe && w >= 128 && h >= 128) {
+      stripPerimeterFrame(d, w, h);
+    }
+    return { autoInverted, illuminated: !!paperField };
+  }
+
   function binarizeFull(sourceImg, sourceWidth, sourceHeight, threshold, invert, weight) {
     const canvas = document.createElement('canvas');
     canvas.width = sourceWidth;
     canvas.height = sourceHeight;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(sourceImg, 0, 0);
+    ctx.drawImage(sourceImg, 0, 0, sourceWidth, sourceHeight);
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const d = imgData.data;
-    const t = threshold;
-    for (let i = 0; i < d.length; i += 4) {
-      if (d[i + 3] < 128) {
-        d[i] = d[i + 1] = d[i + 2] = 255;
-        d[i + 3] = 255;
-        continue;
-      }
-      let lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      if (invert) lum = 255 - lum;
-      const v = lum < t ? 0 : 255;
-      d[i] = d[i + 1] = d[i + 2] = v;
-      d[i + 3] = 255;
-    }
-    if (weight !== 0) {
-      const adjusted = applyWeight(d, canvas.width, canvas.height, weight);
-      for (let i = 0; i < d.length; i++) d[i] = adjusted[i];
-    }
-    ctx.putImageData(imgData, 0, 0);
-    return { dataUrl: canvas.toDataURL('image/png'), data: d, w: canvas.width, h: canvas.height };
+    const meta = binarizeRgbaInPlace(d, canvas.width, canvas.height, threshold, invert, weight);
+    return { dataUrl: '', data: d, w: canvas.width, h: canvas.height, autoInverted: meta.autoInverted, illuminated: meta.illuminated };
   }
 
   function detectRowsInBinary(binaryData, w, h) {
@@ -651,6 +888,6 @@
 
 
   global.TracerCore = {
-    morphologyStep, applyWeight, binarizeFull, detectRowsInBinary, detectBaselineInRow, sliceRowByWhitespace, sliceRowByAnchoredMinima, sliceRowByComponents, sliceRowByAnchoredWithOwnership, extractCellBinary, traceCellBitmap, extractPathDFromSvg, deskewRowBitmap, mapCellToGlyph,
+    morphologyStep, applyWeight, binarizeRgbaInPlace, binarizeFull, detectRowsInBinary, detectBaselineInRow, sliceRowByWhitespace, sliceRowByAnchoredMinima, sliceRowByComponents, sliceRowByAnchoredWithOwnership, extractCellBinary, traceCellBitmap, extractPathDFromSvg, deskewRowBitmap, mapCellToGlyph,
   };
 })(typeof self !== 'undefined' ? self : this);

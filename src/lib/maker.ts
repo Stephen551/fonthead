@@ -15,8 +15,58 @@ import { latinAccent, charsetCharacters, validateCharset, mergeAccentBands, hasC
 import { assignAccentMarks, type AccentOwnership } from './accent-marks';
 import { repairSupplementDescenders } from './supplement-repair';
 import { shortRowCharset, spacingProblems } from './maker-checks';
+import { EXTENDED_LATIN_ROWS } from './charsets';
 
 const w = () => window as any;
+
+function arrayMax(arr: ArrayLike<number>, start = 0, end = arr.length): number {
+  let m = -Infinity;
+  for (let i = start; i < end; i++) if (arr[i] > m) m = arr[i];
+  return m;
+}
+
+function arrayMin(arr: ArrayLike<number>, start = 0, end = arr.length): number {
+  let m = Infinity;
+  for (let i = start; i < end; i++) if (arr[i] < m) m = arr[i];
+  return m;
+}
+
+// Cap raw phone camera captures (>3200px long edge, e.g. 4080x1884 / 12MP) once
+// on first read so geometry probes, row tracing, and fine-detail supersampling
+// share one coordinate space while keeping 3000px Extended Latin sheets 1:1.
+const MAX_MONO_DIM = 3200;
+const _monoSourceCache = new WeakMap<object, HTMLCanvasElement>();
+
+function prepMonoSource(img: HTMLImageElement | ImageBitmap): {
+  src: HTMLImageElement | ImageBitmap | HTMLCanvasElement;
+  w: number;
+  h: number;
+} {
+  const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
+  const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
+  if (Math.max(iw, ih) <= MAX_MONO_DIM || typeof document === 'undefined') {
+    return { src: img, w: iw, h: ih };
+  }
+  let cached = _monoSourceCache.get(img as object);
+  if (!cached) {
+    const scale = MAX_MONO_DIM / Math.max(iw, ih);
+    const cw = Math.max(1, Math.round(iw * scale));
+    const ch = Math.max(1, Math.round(ih * scale));
+    const c = document.createElement('canvas');
+    c.width = cw;
+    c.height = ch;
+    const ctx = c.getContext('2d');
+    if (!ctx) return { src: img, w: iw, h: ih };
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.drawImage(img as CanvasImageSource, 0, 0, cw, ch);
+    cached = c;
+    _monoSourceCache.set(img as object, c);
+  }
+  return { src: cached, w: cached.width, h: cached.height };
+}
 
 /** Hard gate: run the engine's own validateFont; throw (drop the font) if it
  *  fails. Mirrors the source tool, which never ships a font that fails. */
@@ -117,6 +167,55 @@ export function mergeVariantSheets(sheets: Glyph[][]): Glyph[] {
     }
   }
   return out;
+}
+
+/** Normalize a variation sheet's pixel scale to the base sheet when the two
+ *  sheets were photographed or exported at substantially different resolutions
+ *  (>12% body-height difference). Leaves same-resolution natural handwriting
+ *  variation completely untouched. */
+export function matchVariantSheetScale(base: Glyph[], variant: Glyph[]): Glyph[] {
+  if (!base.length || !variant.length) return variant;
+  const est = typeof window !== 'undefined' ? w().estimateBBox : null;
+  const medianHeight = (glyphs: Glyph[], re: RegExp): number | null => {
+    const hs: number[] = [];
+    for (const g of glyphs) {
+      if (g.variantSuffix || !re.test(g.char)) continue;
+      if (est) {
+        let minY = Infinity, maxY = -Infinity;
+        for (const d of g.paths) {
+          const bb = est(d);
+          if (!bb) continue;
+          if (bb.minY < minY) minY = bb.minY;
+          if (bb.maxY > maxY) maxY = bb.maxY;
+        }
+        if (maxY > minY) hs.push(maxY - minY);
+      } else if (g.cellH > 0) {
+        hs.push(g.cellH);
+      }
+    }
+    if (hs.length < 3) return null;
+    hs.sort((a, b) => a - b);
+    const mid = hs.length >> 1;
+    return hs.length % 2 ? hs[mid] : (hs[mid - 1] + hs[mid]) / 2;
+  };
+  const bLower = medianHeight(base, /^[acemnorsuvwxz]$/);
+  const vLower = medianHeight(variant, /^[acemnorsuvwxz]$/);
+  const bCaps = medianHeight(base, /^[BEFHIKLMNPTXYZ]$/) ?? medianHeight(base, /^[A-Z]$/);
+  const vCaps = medianHeight(variant, /^[BEFHIKLMNPTXYZ]$/) ?? medianHeight(variant, /^[A-Z]$/);
+  const ratio =
+    bLower && vLower ? bLower / vLower : bCaps && vCaps ? bCaps / vCaps : null;
+  if (!ratio || !Number.isFinite(ratio) || (ratio >= 0.72 && ratio <= 1.38)) return variant;
+  return variant.map((g) => ({
+    ...g,
+    cellW: g.cellW * ratio,
+    cellH: g.cellH * ratio,
+    baselineYInCell: g.baselineYInCell * ratio,
+    paths: g.paths.map((d) =>
+      d.replace(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/gi, (n) =>
+        String(Math.round(Number(n) * ratio * 10000) / 10000),
+      ),
+    ),
+  }));
 }
 
 /** A supplement adds cmap entries, never alternates or replacements. */
@@ -349,9 +448,10 @@ function pickRanges(
   return { ranges: TC.sliceRowByAnchoredMinima(data, W, y0, y1, expected), ownerFn: null, slicer: 'anchored', forced: true, naturalCount: ws.length };
 }
 
-function filterFilledGlyphPaths(paths: string[], rowH: number, cellBaselineLocal: number) {
+export function filterFilledGlyphPaths(paths: string[], rowH: number, cellBaselineLocal: number) {
   const estimateBBox = w().estimateBBox;
   const minArea = rowH * rowH * 0.02;
+  const minTittleArea = Math.max(4, rowH * rowH * 0.00025);
   const scored = paths
     .map((p) => {
       const bb = estimateBBox(p);
@@ -359,10 +459,17 @@ function filterFilledGlyphPaths(paths: string[], rowH: number, cellBaselineLocal
       return { d: p, bb, area: (bb.maxX - bb.minX) * (bb.maxY - bb.minY) };
     })
     .filter(Boolean) as Array<{ d: string; bb: any; area: number }>;
-  let keep = scored.filter((p) => p.area >= minArea || p.bb.maxY < cellBaselineLocal * 0.65);
+  let keep = scored.filter(
+    (p) => p.area >= minArea || (p.bb.maxY < cellBaselineLocal * 0.65 && p.area >= minTittleArea),
+  );
   if (keep.length === 0 && scored.length > 0) {
-    const maxA = Math.max(...scored.map((p) => p.area));
+    let maxA = 0;
+    for (let i = 0; i < scored.length; i++) if (scored[i].area > maxA) maxA = scored[i].area;
     keep = scored.filter((p) => p.area >= maxA * 0.05);
+  }
+  if (keep.length > 64) {
+    const topSet = new Set([...keep].sort((a, b) => b.area - a.area).slice(0, 64));
+    keep = keep.filter((p) => topSet.has(p));
   }
   return keep;
 }
@@ -394,7 +501,7 @@ export function detailScale(cellH: number): number {
 export const AUTO_FINE_ROWH = 200;
 
 function supersampleMonoCell(
-  img: HTMLImageElement | ImageBitmap,
+  img: HTMLImageElement | ImageBitmap | HTMLCanvasElement,
   cx0: number,
   cy0: number,
   cx1: number,
@@ -404,6 +511,7 @@ function supersampleMonoCell(
   invert: boolean,
   ownerFn: ((x: number, y: number) => number) | null,
   cellIdx: number,
+  illuminated = false,
 ): { data: Uint8ClampedArray; w: number; h: number } {
   const cw = cx1 - cx0,
     ch = cy1 - cy0;
@@ -420,9 +528,29 @@ function supersampleMonoCell(
   ctx.drawImage(img as CanvasImageSource, cx0, cy0, cw, ch, 0, 0, ow, oh);
   const id = ctx.getImageData(0, 0, ow, oh);
   const d = id.data;
+  let cellPaper = 255;
+  if (illuminated && !invert && d.length >= 64) {
+    const hist = new Uint32Array(256);
+    let count = 0;
+    for (let p = 0; p < d.length; p += 16) {
+      const lum = Math.round(0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]);
+      hist[lum < 0 ? 0 : lum > 255 ? 255 : lum]++;
+      count++;
+    }
+    if (count > 0) {
+      const target = Math.max(1, Math.ceil(count * 0.85));
+      let acc = 0;
+      for (let b = 0; b < 256; b++) {
+        acc += hist[b];
+        if (acc >= target) { cellPaper = Math.max(95, b); break; }
+      }
+    }
+  }
+  const normPaper = illuminated && !invert && cellPaper < 232 ? cellPaper : 0;
   for (let p = 0; p < d.length; p += 4) {
     let lum = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
     if (invert) lum = 255 - lum;
+    else if (normPaper > 0) lum = lum >= normPaper ? 255 : (lum * 255) / normPaper;
     let v = lum < threshold ? 0 : 255;
     if (v === 0 && ownerFn) {
       const px = (p >> 2) % ow;
@@ -464,10 +592,24 @@ export function cullForeignTopTails<T extends { d: string; bb: { minX: number; m
     }
   });
   if (subs.length < 2) return paths;
-  const total = subs.reduce((s, x) => s + x.area, 0);
+  // On grainy / shadow-collapsed camera cells where Potrace emits hundreds or
+  // thousands of tiny grain subpaths in one compound <path>, pre-prune tiny
+  // specks before O(N^2) containment checks so tracing stays fast and bounded.
+  const workSubs =
+    subs.length > 80
+      ? (() => {
+          const speckFloor = Math.max(6, cellH * cellH * 0.0005);
+          const trimmed = subs.filter((s) => s.area >= speckFloor);
+          const pool = trimmed.length > 0 ? trimmed : subs;
+          if (pool.length <= 128) return pool;
+          const keepSet = new Set([...pool].sort((a, b) => b.area - a.area).slice(0, 128));
+          return pool.filter((s) => keepSet.has(s));
+        })()
+      : subs;
+  const total = workSubs.reduce((s, x) => s + x.area, 0);
   if (total <= 0) return paths;
   const accent = latinAccent(char);
-  const main = subs.reduce((a, b) => a.area > b.area ? a : b).bb;
+  const main = workSubs.reduce((a, b) => a.area > b.area ? a : b).bb;
   // A DOCKED mark is a small piece hugging x-overlapping ink just beyond it
   // (an i/j dot floating over its stem, a !-dot under its bar): a legitimate
   // detached mark, never a foreign tail. The zonal gates alone can't tell them
@@ -479,13 +621,13 @@ export function cullForeignTopTails<T extends { d: string; bb: { minX: number; m
   // x-height body they landed over. 0.12 leaves margin both ways.
   const DOCK_GAP = cellH * 0.12;
   const docked = (b: { minX: number; maxX: number; minY: number; maxY: number }, i: number, below: boolean) =>
-    subs.some((o, j) => {
+    workSubs.some((o, j) => {
       if (j === i || !o.bb) return false;
       if (Math.min(b.maxX, o.bb.maxX) - Math.max(b.minX, o.bb.minX) <= 0) return false;
       const gap = below ? o.bb.minY - b.maxY : b.minY - o.bb.maxY;
       return gap >= -1 && gap <= DOCK_GAP;
     });
-  const keptSubs = subs.filter((p, i) => {
+  const keptSubs = workSubs.filter((p, i) => {
     const b = p.bb;
     if (!b) return true;
     if (accent && main) {
@@ -494,7 +636,7 @@ export function cullForeignTopTails<T extends { d: string; bb: { minX: number; m
       if (isExpectedAccentMark(char, b, main)) return true;
       if (!overlaps && p.area < (main.maxX - main.minX) * h * 0.05) return false;
     }
-    const inside = subs.some(
+    const inside = workSubs.some(
       (o, j) =>
         j !== i && !!o.bb && b.minX >= o.bb.minX - 1 && b.maxX <= o.bb.maxX + 1 && b.minY >= o.bb.minY - 1 && b.maxY <= o.bb.maxY + 1,
     );
@@ -542,9 +684,10 @@ async function rowToGlyphs(
   chars: string,
   opts: TraceOpts,
   override: SlicerKind = 'auto',
-  sourceImg?: HTMLImageElement | ImageBitmap | null,
+  sourceImg?: HTMLImageElement | ImageBitmap | HTMLCanvasElement | null,
   accentMarks?: AccentOwnership | null,
   rowIndex = 0,
+  illuminated = false,
 ): Promise<{ glyphs: Glyph[]; cells: (Glyph | null)[]; slicer: PickedSlicer; forced: boolean; cellCount: number; naturalCount: number }> {
   const TC = w().TracerCore;
   const characters = charsetCharacters(chars);
@@ -587,7 +730,7 @@ async function rowToGlyphs(
       // probe, corpus green); -40 pulled the edge back further (7px) but thinned
       // the connectors past reach and the joins broke (joinGap median 127).
       const ssThreshold = Math.max(40, opts.threshold - 24);
-      const ssCell = supersampleMonoCell(sourceImg, cx0, cy0, cx1, cy1, scale, ssThreshold, opts.invert, owned.owner, i);
+      const ssCell = supersampleMonoCell(sourceImg, cx0, cy0, cx1, cy1, scale, ssThreshold, opts.invert, owned.owner, i, illuminated);
       // turdsize is an AREA in trace pixels; at scale x the same physical speck
       // covers scale^2 more pixels, so an unscaled threshold stops culling the
       // flecks it culls at native resolution (judged: stray dots at seams).
@@ -671,9 +814,8 @@ function reportForGlyphs(glyphs: Glyph[]): GlyphReport[] {
  *  which guesses the template from the detected layout). */
 export function detectLayout(img: HTMLImageElement | ImageBitmap): { rows: number; cells0: number } {
   const TC = w().TracerCore;
-  const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
-  const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
-  const bin = TC.binarizeFull(img, iw, ih, DEFAULT_TRACE.threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
+  const { src, w: iw, h: ih } = prepMonoSource(img);
+  const bin = TC.binarizeFull(src, iw, ih, DEFAULT_TRACE.threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
   const rows = TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][];
   let cells0 = 0;
   if (rows.length) {
@@ -736,12 +878,13 @@ const COLOR_GEOM_THRESHOLD = 240;
 // count is known (a generated preset) but drop shadows bridge the rows and defeat
 // the gap-based detector, so it would otherwise under-count them.
 function evenBands(data: ArrayLike<number>, w: number, h: number, n: number): number[][] {
+  const stride = data.length === w * h * 4 ? 4 : 1;
   let top = -1;
   let bot = -1;
   for (let y = 0; y < h; y++) {
     let has = false;
     for (let x = 0; x < w; x++)
-      if (data[y * w + x] === 0) {
+      if (data[(y * w + x) * stride] === 0) {
         has = true;
         break;
       }
@@ -763,8 +906,8 @@ export function detectGeometry(
   forceRows = 0,
 ): SheetGeometry {
   const TC = w().TracerCore;
-  const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
-  const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
+  const rawW = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
+  const rawH = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
   // A color sheet with no known row count: detect rows on the shadow-stripped
   // image via the color engine's own pass (palette + drop-shadow strip +
   // color-distance union), so pink drop shadows can't bridge the rows into one
@@ -795,8 +938,9 @@ export function detectGeometry(
       }
     }
   }
+  const { src, w: iw, h: ih } = isColor ? { src: img, w: rawW, h: rawH } : prepMonoSource(img);
   const threshold = isColor ? COLOR_GEOM_THRESHOLD : DEFAULT_TRACE.threshold;
-  const bin = TC.binarizeFull(img, iw, ih, threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
+  const bin = TC.binarizeFull(src, iw, ih, threshold, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
   let bands =
     forceRows >= 2
       ? evenBands(bin.data, bin.w, bin.h, forceRows)
@@ -804,11 +948,13 @@ export function detectGeometry(
   // Shadow-robust row pass for the mono probe (mirrors traceSheet): a soft
   // generator shadow bridges row gaps at the standard cutoff and the charset
   // guess then maps a 7-row sheet onto 4 lines. The dark-core read wins
-  // whenever it separates more rows.
-  if (!isColor && forceRows < 2) {
-    const strict = TC.binarizeFull(img, iw, ih, SHADOW_ROW_THRESHOLD, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
+  // whenever it separates fused rows without fragmenting already-even rows.
+  if (!isColor && forceRows < 2 && !bin.autoInverted) {
+    const strict = TC.binarizeFull(src, iw, ih, SHADOW_ROW_THRESHOLD, DEFAULT_TRACE.invert, DEFAULT_TRACE.weight);
     const strictBands = mergeSliverBands(TC.detectRowsInBinary(strict.data, strict.w, strict.h) as number[][]);
-    if (strictBands.length > bands.length) bands = strictBands;
+    if (strictBands.length > bands.length && !looksLikeRowFragmentation(bands, strictBands)) {
+      bands = strictBands;
+    }
     bands = splitBandsAtValleys(inkRowProfile(strict.data, strict.w, strict.h), bands);
   }
   const rows = bands.map(([y0, y1]) => {
@@ -967,11 +1113,18 @@ interface MonoSession {
   opts: TraceOpts;
   rowGlyphs: Glyph[][]; // traced glyphs, per row
   rowInfo: MonoRowInfo[];
-  sourceImg: HTMLImageElement | ImageBitmap; // kept for fine-detail re-slices
+  sourceImg: HTMLImageElement | ImageBitmap | HTMLCanvasElement; // kept for fine-detail re-slices
+  illuminated?: boolean;
   variantSheets: MonoSession[];
   supplementSheet?: MonoSession;
 }
 let _monoSession: MonoSession | null = null;
+
+export function popLastVariantSheet(): void {
+  if (_monoSession && _monoSession.variantSheets.length > 0) {
+    _monoSession.variantSheets.pop();
+  }
+}
 
 /** Trace a loaded image (alphabet sheet) into glyph objects, and report a
  *  row-mismatch warning when the detected row count differs from the charset
@@ -1002,9 +1155,34 @@ const VALLEY_FRAC = 0.25;
 const VALLEY_MIN_ROW = 40; // px — never produce a band shorter than this
 const VALLEY_EVEN_RATIO = 2.6; // guard: accept a split only if band heights stay plausibly even
 
+/** True when the strict (luminance 64) row pass fragmented already-clean rows
+ *  at lighter mid-strokes instead of separating shadow-bridged rows. */
+export function looksLikeRowFragmentation(
+  stdBands: number[][],
+  strictBands: number[][],
+  expectedRows = 0,
+): boolean {
+  if (strictBands.length <= stdBands.length) return false;
+  if (expectedRows > 0 && stdBands.length === expectedRows) return true;
+  if (stdBands.length < 5) return false;
+  const stdHs = stdBands.map(([a, b]) => b - a).sort((a, b) => a - b);
+  const medStd = stdHs[stdHs.length >> 1] || 1;
+  const maxStd = stdHs[stdHs.length - 1] || 1;
+  // A fused multi-row band is at least ~1.7x a normal row; uniform rows (<1.55x)
+  // are already separated, so jumping to 1.5x+ or >9 shorter bands is mid-row dropout.
+  if (maxStd > medStd * 1.55) return false;
+  const strictHs = strictBands.map(([a, b]) => b - a).sort((a, b) => a - b);
+  const medStrict = strictHs[strictHs.length >> 1] || 1;
+  return (
+    strictBands.length >= Math.ceil(stdBands.length * 1.5) ||
+    (strictBands.length > 9 && medStrict < medStd * 0.72)
+  );
+}
+
 /** Pure: split fused row bands at prominent ink-profile valleys. `inkRows` is
  *  the per-scanline ink pixel count for the whole image; bands are [y0,y1]. */
-export function splitBandsAtValleys(inkRows: number[], bands: number[][]): number[][] {
+export function splitBandsAtValleys(inkRows: number[], bands: number[][], maxBands = Infinity): number[][] {
+  if (bands.length >= maxBands) return bands;
   const smooth = (a: number[]) => a.map((_, i) => {
     let s = 0, n = 0;
     for (let k = -2; k <= 2; k++) {
@@ -1013,21 +1191,50 @@ export function splitBandsAtValleys(inkRows: number[], bands: number[][]): numbe
     }
     return s / n;
   });
-  const split = (y0: number, y1: number, out: number[][]) => {
+  const bestValley = (y0: number, y1: number): number => {
     const h = y1 - y0 + 1;
-    if (h < 2 * VALLEY_MIN_ROW) { out.push([y0, y1]); return; }
+    if (h < 2 * VALLEY_MIN_ROW) return -1;
     const prof = smooth(inkRows.slice(y0, y1 + 1));
-    const peak = Math.max(...prof);
-    if (peak <= 0) { out.push([y0, y1]); return; }
-    // deepest interior valley with real peaks on BOTH sides
+    const peak = arrayMax(prof);
+    if (peak <= 0) return -1;
     let best = -1, bestVal = Infinity;
     for (let i = VALLEY_MIN_ROW; i <= h - VALLEY_MIN_ROW; i++) {
       if (prof[i] < bestVal) {
-        const peakL = Math.max(...prof.slice(0, i));
-        const peakR = Math.max(...prof.slice(i + 1));
+        const peakL = arrayMax(prof, 0, i);
+        const peakR = arrayMax(prof, i + 1, prof.length);
         if (prof[i] <= VALLEY_FRAC * Math.min(peakL, peakR)) { best = i; bestVal = prof[i]; }
       }
     }
+    return best;
+  };
+
+  if (Number.isFinite(maxBands)) {
+    const cur = bands.map((b) => b.slice());
+    while (cur.length < maxBands) {
+      let pickIdx = -1, pickSplit = -1, pickH = -1;
+      for (let i = 0; i < cur.length; i++) {
+        const [y0, y1] = cur[i];
+        const h = y1 - y0 + 1;
+        if (h <= pickH) continue;
+        const v = bestValley(y0, y1);
+        if (v >= 0) {
+          pickIdx = i;
+          pickSplit = v;
+          pickH = h;
+        }
+      }
+      if (pickIdx < 0) break;
+      const [y0, y1] = cur[pickIdx];
+      cur.splice(pickIdx, 1, [y0, y0 + pickSplit - 1], [y0 + pickSplit + 1, y1]);
+    }
+    if (cur.length <= bands.length) return bands;
+    const hs = cur.map(([a, b]) => b - a + 1);
+    if (arrayMax(hs) / Math.max(1, arrayMin(hs)) > VALLEY_EVEN_RATIO) return bands;
+    return cur;
+  }
+
+  const split = (y0: number, y1: number, out: number[][]) => {
+    const best = bestValley(y0, y1);
     if (best < 0) { out.push([y0, y1]); return; }
     split(y0, y0 + best - 1, out);
     split(y0 + best + 1, y1, out);
@@ -1035,10 +1242,16 @@ export function splitBandsAtValleys(inkRows: number[], bands: number[][]): numbe
   const out: number[][] = [];
   for (const [y0, y1] of bands) split(y0, y1, out);
   if (out.length <= bands.length) return bands;
+  // Never split 5-9 already-uniform rows into 10-18 half-rows at thin mid-stems.
+  if (bands.length >= 5 && out.length > 9) {
+    const inHs = bands.map(([a, b]) => b - a + 1).sort((a, b) => a - b);
+    const medIn = inHs[inHs.length >> 1] || 1;
+    if (inHs[inHs.length - 1] <= medIn * 1.55) return bands;
+  }
   // even-spacing guard: a real alphabet sheet's rows are roughly even; a wild
   // height spread means the valleys cut through sparse glyph rows, not gaps.
   const hs = out.map(([a, b]) => b - a + 1);
-  if (Math.max(...hs) / Math.max(1, Math.min(...hs)) > VALLEY_EVEN_RATIO) return bands;
+  if (arrayMax(hs) / Math.max(1, arrayMin(hs)) > VALLEY_EVEN_RATIO) return bands;
   return out;
 }
 
@@ -1063,7 +1276,7 @@ export function mergeSliverBands(bands: number[][]): number[][] {
   const out = bands.map((b) => b.slice());
   if (out.length < 2) return out;
   const hs = out.map(([a, b]) => b - a);
-  const maxH = Math.max(...hs);
+  const maxH = arrayMax(hs);
   const tall = hs.filter((h) => h >= maxH * SLIVER_TALL_FRAC).sort((a, b) => a - b);
   const typical = tall[tall.length >> 1];
   const sliverH = typical * SLIVER_FRAC;
@@ -1082,6 +1295,165 @@ export function mergeSliverBands(bands: number[][]): number[][] {
     const into = gapAbove(pick) <= gapBelow(pick) ? pick - 1 : pick + 1;
     const lo = Math.min(pick, into);
     out.splice(lo, 2, [out[lo][0], out[lo + 1][1]]);
+  }
+}
+
+function sliceRunsInBand(data: Uint8ClampedArray | Uint8Array, w: number, y0: number, y1: number): number[][] {
+  const runs: number[][] = [];
+  let inInk = false, start = 0;
+  for (let x = 0; x < w; x++) {
+    let colInk = false;
+    for (let y = y0; y < y1; y++) {
+      if (data[(y * w + x) * 4] === 0) { colInk = true; break; }
+    }
+    if (colInk && !inInk) { inInk = true; start = x; }
+    else if (!colInk && inInk) { inInk = false; runs.push([start, x]); }
+  }
+  if (inInk) runs.push([start, w]);
+  return runs;
+}
+
+/** Pure: reconcile over-segmented row bands (e.g. 14 raw bands on a 7-row
+ *  sheet) back to `expectedLines.length` when the extra bands are either:
+ *  1. Printed AI reference captions above/below every letter row (dropped), or
+ *  2. Detached tittles, punctuation marks, or horizontal stroke-dropout halves
+ *     whose merged height still fits inside one row pitch (folded).
+ *  Leaves genuinely extra full-height letter rows untouched so real layout
+ *  mismatches still surface. */
+export function reconcileRowBands(
+  bands: number[][],
+  binaryData: Uint8ClampedArray | Uint8Array | null,
+  w: number,
+  expectedLines: string[],
+): number[][] {
+  const lines = expectedLines.filter((r) => r.length > 0);
+  const expected = lines.length;
+  if (expected < 2 || bands.length <= expected) return bands.map((b) => b.slice());
+
+  // 1. Alternating AI reference caption strips (e.g. 7 tall glyph bands + 7 tiny
+  //    multi-character label bands = 14 bands).
+  if (bands.length === 2 * expected && expected >= 4 && binaryData && w > 0) {
+    for (const captionFirst of [false, true]) {
+      const tall = Array.from({ length: expected }, (_, k) => bands[captionFirst ? 2 * k + 1 : 2 * k]);
+      const short = Array.from({ length: expected }, (_, k) => bands[captionFirst ? 2 * k : 2 * k + 1]);
+      const tallHs = tall.map(([a, b]) => b - a);
+      const sortedTall = [...tallHs].sort((a, b) => a - b);
+      const medTall = sortedTall[sortedTall.length >> 1] || 1;
+      if (tallHs.some((h) => h < medTall * 0.62 || h > medTall * 1.48)) continue;
+      if (short.some(([a, b]) => b - a < 3 || b - a > medTall * 0.34)) continue;
+
+      let gapsOk = true;
+      for (let k = 0; k < expected; k++) {
+        const pairGap = captionFirst ? tall[k][0] - short[k][1] : short[k][0] - tall[k][1];
+        if (pairGap < Math.max(2, medTall * 0.04) || pairGap > medTall * 0.70) {
+          gapsOk = false;
+          break;
+        }
+        if (k < expected - 1) {
+          const interGap = bands[2 * (k + 1)][0] - bands[2 * k + 1][1];
+          if (pairGap > interGap * 1.15) {
+            gapsOk = false;
+            break;
+          }
+        }
+      }
+      if (!gapsOk) continue;
+
+      let denseShortCount = 0;
+      let capDigitCaptionOk = false;
+      let hasCapOrDigitRow = false;
+      for (let k = 0; k < expected; k++) {
+        const runs = sliceRunsInBand(binaryData, w, short[k][0], short[k][1]).length;
+        if (runs >= 5) denseShortCount++;
+        if (/^[A-Z0-9]+$/.test(lines[k])) {
+          hasCapOrDigitRow = true;
+          if (runs >= 5) capDigitCaptionOk = true;
+        }
+      }
+      if (denseShortCount >= Math.ceil(expected * 0.7) && (!hasCapOrDigitRow || capDigitCaptionOk)) {
+        return tall.map((b) => b.slice());
+      }
+    }
+  }
+
+  // 2. Subordinate mark / fragment / split-half folding within a single row pitch.
+  const out = bands.map((b) => b.slice());
+  const totalSpan = out[out.length - 1][1] - out[0][0];
+  const expectedPitch = totalSpan / expected;
+  while (out.length > expected) {
+    const hsDesc = out.map(([a, b]) => b - a).sort((a, b) => b - a);
+    const topExpected = hsDesc.slice(0, expected);
+    const typicalH = topExpected[topExpected.length >> 1] || 1;
+    const maxGap = Math.max(typicalH * 0.45, expectedPitch * 0.25);
+    const maxMergedH = Math.max(typicalH * 1.65, expectedPitch * 0.92);
+
+    let bestIdx = -1;
+    let bestCost = Infinity;
+    for (let i = 0; i < out.length - 1; i++) {
+      const hA = out[i][1] - out[i][0];
+      const hB = out[i + 1][1] - out[i + 1][0];
+      const smallerH = Math.min(hA, hB);
+      const gap = out[i + 1][0] - out[i][1];
+      const mergedH = out[i + 1][1] - out[i][0];
+      if (gap > maxGap || mergedH > maxMergedH) continue;
+      if (smallerH > typicalH * 0.62 && mergedH > expectedPitch * 0.88) continue;
+      const cost = gap + smallerH * 0.35;
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0) break;
+    out.splice(bestIdx, 2, [out[bestIdx][0], out[bestIdx + 1][1]]);
+  }
+  return out;
+}
+
+/** Pure: recognize an Extended Latin supplement sheet (7 rows of 17-18 accented
+ *  letters, often 10-15 raw bands before accent folding) accidentally dropped
+ *  into an ASCII base sheet's variation slot. */
+export function matchesExtendedLatinLayout(
+  rawBands: number[][],
+  binaryData: Uint8ClampedArray | Uint8Array,
+  w: number,
+  baseRows: string[],
+): boolean {
+  const cleanBase = baseRows.filter((r) => r.length > 0);
+  if (cleanBase.some((r) => /[^\x00-\x7f]/.test(r))) return false;
+  const baseFirst5Max = cleanBase
+    .slice(0, 5)
+    .reduce((m, r) => Math.max(m, charsetCharacters(r).length), 0);
+  if (baseFirst5Max >= 16) return false;
+
+  const merged = reconcileRowBands(
+    mergeAccentBands(rawBands, EXTENDED_LATIN_ROWS),
+    binaryData,
+    w,
+    EXTENDED_LATIN_ROWS,
+  );
+  if (merged.length !== EXTENDED_LATIN_ROWS.length) return false;
+
+  const first5Cells = merged
+    .slice(0, 5)
+    .map(([y0, y1]) => mergeNarrowRuns(sliceRunsInBand(binaryData, w, y0, y1)).length);
+  const wideRows = first5Cells.filter((n) => n >= 15 && n <= 24).length;
+  const sorted = [...first5Cells].sort((a, b) => a - b);
+  return wideRows >= 4 && sorted[2] >= 16;
+}
+
+export function isExtendedLatinSheet(
+  img: HTMLImageElement | ImageBitmap,
+  opts: TraceOpts,
+  baseRows: string[],
+): boolean {
+  try {
+    const TC = w().TracerCore;
+    const { src, w: iw, h: ih } = prepMonoSource(img);
+    const bin = TC.binarizeFull(src, iw, ih, opts.threshold, opts.invert, opts.weight);
+    const rawBands = mergeSliverBands(TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
+    return matchesExtendedLatinLayout(rawBands, bin.data, bin.w, baseRows);
+  } catch {
+    return false;
   }
 }
 
@@ -1148,10 +1520,12 @@ export async function traceSheet(
   rowChars = validateCharset(rowChars);
   if (sessionRole !== 'base' && !_monoSession) throw new Error('trace the base sheet before adding another sheet');
   const TC = w().TracerCore;
-  const iw = (img as HTMLImageElement).naturalWidth ?? (img as ImageBitmap).width;
-  const ih = (img as HTMLImageElement).naturalHeight ?? (img as ImageBitmap).height;
+  const { src, w: iw, h: ih } = prepMonoSource(img);
+  const lines = rowChars.filter((r) => r.length > 0);
+  const hasAccents = lines.some((line) => charsetCharacters(line).some((c) => latinAccent(c)));
   onProgress?.('binarize', 'threshold · otsu adaptive');
-  let bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, opts.weight);
+  let bin = TC.binarizeFull(src, iw, ih, opts.threshold, opts.invert, opts.weight);
+  const effOpts = bin.autoInverted && !opts.invert ? { ...opts, invert: true } : opts;
   onProgress?.('slice', 'detecting rows + cells');
   let bands = mergeSliverBands(TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
   // Shadow-robust row detection (the mono twin of detectColorGeometry's
@@ -1159,23 +1533,25 @@ export async function traceSheet(
   // standard cutoff and bridges the row gaps (a Nano Banana sheet merged 7 rows
   // into 4, garbling the whole charset). Rows detected on the DARK CORE alone
   // (strict cutoff) cannot be shadow-bridged, and shadow merging only ever
-  // REDUCES the row count, so the pass that finds more rows is the true read.
-  // Cells still slice on the standard binarize (the fringe hugs strokes and the
-  // inter-letter gaps stay white). Both reads fold their slivers first: a light
-  // pen fragments at the dark-core cutoff, and fragments are not rows.
-  if (!opts.invert && opts.threshold > SHADOW_ROW_THRESHOLD) {
-    const strict = TC.binarizeFull(img, iw, ih, SHADOW_ROW_THRESHOLD, opts.invert, opts.weight);
-    const strictBands = mergeSliverBands(TC.detectRowsInBinary(strict.data, strict.w, strict.h) as number[][]);
-    if (strictBands.length > bands.length) bands = strictBands;
-    // and split any still-fused bands at profile valleys (tight leading leaves
-    // no empty scanline between rows; the dark-core profile keeps the valleys
-    // deep even where descenders interleave)
-    bands = splitBandsAtValleys(inkRowProfile(strict.data, strict.w, strict.h), bands);
+  // REDUCES the row count, so when the standard pass is under-counted, the dark
+  // core separates fused rows without fragmenting already-clean rows into 2x halves.
+  if (!effOpts.invert && effOpts.threshold > SHADOW_ROW_THRESHOLD) {
+    const strictCap = !hasAccents && lines.length > 0 ? lines.length : Infinity;
+    if (bands.length < strictCap) {
+      const strict = TC.binarizeFull(src, iw, ih, SHADOW_ROW_THRESHOLD, effOpts.invert, effOpts.weight);
+      const strictBands = mergeSliverBands(TC.detectRowsInBinary(strict.data, strict.w, strict.h) as number[][]);
+      if (strictBands.length > bands.length && !looksLikeRowFragmentation(bands, strictBands, hasAccents ? 0 : lines.length)) {
+        bands = strictBands;
+      }
+      if (bands.length < strictCap) {
+        bands = splitBandsAtValleys(inkRowProfile(strict.data, strict.w, strict.h), bands, strictCap);
+      }
+    }
   }
   {
     const hs = bands.map((b) => b[1] - b[0]).sort((a, b) => a - b);
     (globalThis as unknown as { __lastFine?: object }).__lastFine = {
-      fine: !!opts.fineDetail,
+      fine: !!effOpts.fineDetail,
       rowH: hs.length ? hs[Math.floor(hs.length / 2)] : 0,
     };
   }
@@ -1183,13 +1559,16 @@ export async function traceSheet(
   // break and fade at text size. If the hand reads too thin, re-binarize with a
   // bounded dilation (the engine's existing weight knob) so the strokes come out
   // solid. Gated, so a normal or bold hand never trips it and is left untouched.
-  const wFloor = strokeWeightFloor(bin.data, bin.w, bin.h, bands, opts.weight);
-  if (wFloor > opts.weight) {
-    bin = TC.binarizeFull(img, iw, ih, opts.threshold, opts.invert, wFloor);
+  const wFloor = strokeWeightFloor(bin.data, bin.w, bin.h, bands, effOpts.weight);
+  if (wFloor > effOpts.weight) {
+    bin = TC.binarizeFull(src, iw, ih, effOpts.threshold, effOpts.invert, wFloor);
     bands = mergeSliverBands(TC.detectRowsInBinary(bin.data, bin.w, bin.h) as number[][]);
   }
   bands = mergeAccentBands(bands, rowChars);
-  const lines = rowChars.filter((r) => r.length > 0);
+  if (bands.length > lines.length) {
+    bands = reconcileRowBands(bands, bin.data, bin.w, lines);
+  }
+  const illuminated = !!bin.illuminated;
   const rowWarning =
     bands.length !== lines.length
       ? `detected ${bands.length} rows but your charset has ${lines.length} lines. Glyphs are probably misaligned; edit the charset to match your sheet.`
@@ -1201,7 +1580,7 @@ export async function traceSheet(
   const fusedRows: number[] = [];
   for (let i = 0; i < n; i++) {
     onProgress?.('trace', `row ${i + 1}/${n} · contours`);
-    const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], opts, 'auto', img, accentMarks, i);
+    const r = await rowToGlyphs(bin.data, bin.w, bin.h, bands[i][0], bands[i][1], lines[i], effOpts, 'auto', src, accentMarks, i, illuminated);
     rowGlyphs.push(r.glyphs);
     rowInfo.push({ index: i, chars: lines[i], slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: charsetCharacters(lines[i]).length, glyphCount: r.glyphs.length, cells: r.cells });
     // Connected-letters guard: a row whose letters run together (a cursive drawn
@@ -1219,7 +1598,7 @@ export async function traceSheet(
   const report = reportForGlyphs(glyphs);
   // Variations belong to the base session. Replacing it here would make a row
   // edit silently switch to the last sheet and rebuild without the alternates.
-  const session: MonoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts, rowGlyphs, rowInfo, sourceImg: img, variantSheets: [] };
+  const session: MonoSession = { data: bin.data, W: bin.w, H: bin.h, bands, lines, opts: effOpts, rowGlyphs, rowInfo, sourceImg: src, illuminated, variantSheets: [] };
   if (sessionRole === 'variation') {
     if (glyphs.length) _monoSession!.variantSheets.push(session);
   } else if (sessionRole === 'supplement') {
@@ -1256,16 +1635,17 @@ export async function editMonoRow(
   const prevInfo = s.rowInfo[rowIndex];
   const prevOpts = s.opts;
   try {
+    const effOpts = s.opts.invert && !opts.invert ? { ...opts, invert: true } : opts;
     const band = s.bands[rowIndex];
     const chars = s.lines[rowIndex];
     const accentMarks = accentOwnershipForRows(s.data, s.W, s.H, s.bands, s.lines, s.rowInfo.map((r, i) => i === rowIndex ? slicer : r.slicer));
-    const r = await rowToGlyphs(s.data, s.W, s.H, band[0], band[1], chars, opts, slicer, s.sourceImg, accentMarks, rowIndex);
+    const r = await rowToGlyphs(s.data, s.W, s.H, band[0], band[1], chars, effOpts, slicer, s.sourceImg, accentMarks, rowIndex, !!s.illuminated);
     s.rowGlyphs[rowIndex] = r.glyphs;
-    s.opts = opts;
+    s.opts = effOpts;
     s.rowInfo[rowIndex] = { index: rowIndex, chars, slicer: r.slicer, forced: r.forced, cellCount: r.cellCount, expected: charsetCharacters(chars).length, glyphCount: r.glyphs.length, cells: r.cells };
     if (!s.rowGlyphs.flat().length) throw new Error('no glyphs left after re-slicing this row');
     let glyphs = base.rowGlyphs.flat();
-    let merged = mergeVariantSheets([glyphs, ...base.variantSheets.map(sheet => sheet.rowGlyphs.flat())]);
+    let merged = mergeVariantSheets([glyphs, ...base.variantSheets.map(sheet => matchVariantSheetScale(glyphs, sheet.rowGlyphs.flat()))]);
     if (base.supplementSheet) {
       if (connect) throw new Error('Turn off connected cursive to use an accents sheet.');
       merged = mergeSupplementSheet(merged, matchSupplementSize(glyphs, base.supplementSheet.rowGlyphs.flat()));
