@@ -11,31 +11,36 @@ const sections = [
     body: [
       'The maker runs on your device. Tracing your alphabet sheet, building the font, and compressing it all happen in your browser. Your source image and the font you build do not leave your computer unless you choose to publish, or choose to attach your sheet to a problem report.',
       'Usage counters described below do not include your sheet, font file, font name, or preview text.',
-      'If you report a problem from the maker, the report includes your build settings and your browser type. Your sheet is only included if you tick the box to attach it. Only the fonthead team sees an attached sheet, and it is deleted once the report is closed.',
+      'If you report a problem from the maker, the report includes your note, optional reply email, build settings, error message, and browser details. Your sheet is only included if you tick the box to attach a downscaled copy. Only the Fonthead team sees an attached sheet, and it is deleted once the report is closed or if you delete your account.',
+      'Your browser also saves a few local preferences on your device (such as light or dark theme, prompt-helper character sets, and whether you have already seen the maker tour, review prompt, or support card). Clearing browser storage resets them.',
     ],
   },
   {
     h: 'What we store',
     body: [
-      'With an account, we keep your email, your display name, your handle, an avatar if you add one, and the fonts you publish (their files and details like the name and license). We also keep your votes and favorites so the site works.',
-      'Publishing also saves the original alphabet sheets used to build your font, including variation sheets. These are stored privately and are not available on the public font page. The original files can include embedded image metadata. Deleting the font or your account removes its saved sheets.',
+      'With an account, we keep your email, display name, handle, optional bio and avatar, and the fonts you publish (their font files, social preview card, and details like the name, specimen word, and license). We also keep your votes and favorites so the site works.',
+      'Publishing also saves the original alphabet sheets used to build your font, including variation and accent sheets. These are stored privately and are not available on the public font page. The original files can include embedded image metadata (such as camera EXIF data). Deleting the font or your account removes its saved sheets.',
       'If you send a maker review, we store your rating, optional review text, and whether you allowed public display. Reviews are private to the Fonthead team unless you separately give permission to show your rating and review anonymously on Fonthead. If you are signed in, the review is linked to your account for account deletion. Your sheet and font are not attached.',
-      'We save a flag in your browser after showing the review prompt so we do not ask on every download. Clearing browser storage or using another browser can make the prompt appear again.',
+      'If you report a font or a maker for moderation, we store the report reason and, while your account exists, your account ID as the reporter.',
       'We do not collect more than we need to run the library.',
     ],
   },
   {
-    h: 'Signing in',
+    h: 'Signing in and email',
     body: [
-      'We use a session cookie to keep you signed in. If you sign in with Google, Google shares your email and name with us so we can create or link your account. We do not get your Google password, and we do not post anything to your Google account.',
+      'We use a session cookie to keep you signed in, and active session records store your sign-in time, IP address, and browser user-agent until you sign out, the session expires, or you delete your account.',
+      'If you sign in with Google, Google shares your email and name with us so we can create or link your account. We do not get your Google password, and we do not post anything to your Google account.',
+      'Account confirmation links, password-reset links, support messages, and problem-report notifications are sent through Resend, our transactional email provider. If you leave an email address on the support form or a problem report, we only use it to write back to you.',
     ],
   },
   {
-    h: 'Hosting and analytics',
+    h: 'Hosting, analytics, and rate limits',
     body: [
-      'The site runs on Cloudflare, which stores the data above on our behalf. We use a privacy-respecting page-view counter to see how many people visit. It does not follow you across other sites and does not build a profile of you.',
-      'We count maker visits, builds, errors, downloads, and publishes by day. When you are signed in, we also keep daily counts of maker visits, builds, and download clicks with your account, distinguishing sample sheets from your own uploads. Only the Fonthead team can see this activity, to understand whether the maker works and whether people return. Account deletion removes these linked counts. Anonymous usage is counted without a visitor identifier.',
-      'We do not run ad trackers, and we do not sell your data.',
+      'The site runs on Cloudflare, which hosts the application, database, and file storage on our behalf. To protect forms and actions from abuse and to avoid counting repeated clicks on the same font download, we keep short-lived counters keyed by IP address in Cloudflare storage that expire automatically within a couple of hours.',
+      "On live fonthead.dev pages, we use Cloudflare Web Analytics (which uses no cookies) and Google Analytics 4 (gtag.js). Google Analytics sets first-party _ga cookies in your browser and sends page-view and navigation data (such as the page URL, referrer, browser and device details, and IP-derived approximate location) to Google so we can understand traffic and how people find the site. Google Ads, remarketing, and cross-site advertising hosts are not enabled and are blocked by the site's Content Security Policy. You can block Google Analytics with a content blocker or Google's browser opt-out add-on, or clear _ga cookies in your browser settings.",
+      'Inside our own database, we count maker visits, builds, errors, downloads, and publishes by day. When you are signed in, we also keep daily counts of maker visits, builds, and download clicks with your account, distinguishing sample sheets from your own uploads. Only the Fonthead team can see this activity, to understand whether the maker works and whether people return. Account deletion removes these linked counts. Anonymous maker funnel counts are stored as daily totals without a visitor identifier.',
+      'If a font build fails, the maker sends the error message (with URLs stripped), font type, and whether you used your own sheet or the sample. The team can see these details and the time of the failure in the admin dashboard. The failure record has no account or visitor identifier.',
+      'We do not run ad networks, and we do not sell your data.',
     ],
   },
 ];
@@ -43,14 +48,14 @@ const sections = [
 
 <Base
   title="Privacy · fonthead.dev"
-  description="What stays on your device, what fonthead stores when you have an account, and how to get your data removed."
+  description="What stays on your device, what fonthead stores when you have an account, how analytics and cookies work, and how to get your data removed."
   active="library"
 >
   <div style="background:var(--paper);min-height:100vh;">
     <header class="fh-pad" style="padding:48px 0 28px;border-bottom:1px solid var(--line);">
       <p class="fh-eyebrow">fonthead.dev</p>
       <h1 class="fh-mono" style="font-size:34px;font-weight:700;letter-spacing:-.01em;margin:10px 0 6px;">Privacy</h1>
-      <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);max-width:60ch;">What stays on your device, what we store when you have an account, and how to get your data removed. Plain language, not legal advice.</p>
+      <p class="fh-mono" style="font-size:12px;color:var(--ink-faint);max-width:60ch;">What stays on your device, what we store when you have an account, how analytics and cookies work, and how to get your data removed. Plain language, not legal advice.</p>
     </header>
 
     <div class="fh-pad" style="max-width:760px;padding:8px 0 48px;">
@@ -66,7 +71,7 @@ const sections = [
       <section style="padding:26px 0;">
         <h2 style="font-size:16px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px;">Deleting your account</h2>
         <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;margin:0;max-width:62ch;">
-          You can delete your account yourself from your <a href="/account" style="color:var(--ink);">account page</a>. It removes your account and everything tied to it: your profile, your published fonts, and your votes and favorites. It cannot be undone.
+          You can delete your account yourself from your <a href="/account" style="color:var(--ink);">account page</a>. It removes your account and everything tied to it: your profile and avatar, active sessions, published fonts and their saved source sheets, votes, favorites, maker reviews, problem reports and attached sheets, and signed-in activity counts. Moderation reports you filed on other content have your account unlinked. For questions about your data, reach us through the <a href="/support" style="color:var(--ink);">support page</a>. Account deletion cannot be undone.
         </p>
       </section>
     </div>
