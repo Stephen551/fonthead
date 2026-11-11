@@ -27,6 +27,10 @@ everyone makes. Built under the A&C Meridian quality bar: made, not generated.
 ```bash
 npm run dev              # astro dev with local D1/R2/KV via platformProxy
 npm run build            # astro build (outputs the Worker + assets to dist/)
+npm run check            # generate Cloudflare bindings and check Astro/TypeScript
+npm test                 # unit regressions
+npm run test:e2e         # browser flows and real font exports
+npm run test:corpus      # monochrome + color typographic corpus
 npm run preview          # wrangler dev on the built Worker (prod-like, local bindings)
 npm run deploy           # astro build && wrangler deploy
 npm run cf-typegen       # regenerate worker-configuration.d.ts after wrangler.jsonc edits
@@ -48,7 +52,7 @@ in `wrangler secret put` for production. Never committed.
 
 - `/` — the library: cycling daily-feature hero, popular/new sort, the wall.
 - `/f/[id]` — a font's page: type-into specimen, glyph set, metadata, downloads.
-- `/make` — the maker (M1 stub; the tracer engine arrives in M2).
+- `/make` — the alphabet-sheet maker with tracing, font preview, and export.
 - `/sign-in`, `/account` — accounts (Better Auth).
 - `/api/auth/[...all]` — Better Auth handler.
 - `/cdn/[...key]` — serves font binaries from R2.

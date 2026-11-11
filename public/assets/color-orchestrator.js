@@ -503,7 +503,7 @@
       const clean = new Uint8ClampedArray(colorData), bg = pal.bg;
       for (let p = 0; p < w * h; p++) { if (shadowMask[p]) { const i = p * 4; clean[i] = bg.r; clean[i + 1] = bg.g; clean[i + 2] = bg.b; clean[i + 3] = 255; } }
       workData = clean; shadowRemoved = true;
-      pal = ColorCore.detectPalette(workData, w, h, K, { bgDist });
+      pal = ColorCore.detectPalette(workData, w, h, K, { bgDist, edgeColors: pal.colors });
     } else { workData = colorData; shadowRemoved = false; }
 
     const union = unionInkBinary(workData, w, h, pal);

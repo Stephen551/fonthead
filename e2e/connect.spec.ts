@@ -114,6 +114,29 @@ async function medianJoinGap(page: Page, otf: Uint8Array): Promise<number> {
 }
 
 test.describe('connected-cursive mode', () => {
+  for (const face of [
+    { name: 'classic', sheet: SHEET, bridged: false, space: 0.3 },
+    { name: 'bridged', sheet: 'e2e/fixtures/corpus/connected-cursive-handmade.png', bridged: true, space: 0.38 },
+  ]) {
+    test(`${face.name} cursive preserves its word-space advance in the export`, async ({ page }) => {
+      await page.goto('/make');
+      await page.getByRole('button', { name: 'advanced' }).click();
+      await page.getByRole('button', { name: /connected cursive/ }).click();
+      await page.locator('#sheet-file').setInputFiles(face.sheet);
+      await buildDone(page);
+      const otf = await captureOtf(page);
+      const metrics = await page.evaluate((b64) => {
+        const w = window as any;
+        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        const font = w.opentype.parse(bytes.buffer);
+        return { bridged: w.__lastConnect.entryNorm, upm: font.unitsPerEm, space: font.charToGlyph(' ').advanceWidth };
+      }, Buffer.from(otf).toString('base64'));
+      expect(metrics.bridged, 'exercised the intended placement path').toBe(face.bridged);
+      expect(metrics.space, 'word space survives font assembly').toBe(Math.round(metrics.upm * face.space));
+      assertValidFont(otf, (await lastBuild(page)).glyphCount);
+    });
+  }
+
   test('a cursive sheet stays unconnected until explicitly enabled', async ({ page }) => {
     await page.goto('/make');
     await page.getByRole('button', { name: 'advanced' }).click();

@@ -7,7 +7,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "wrangler dev",
-    "check": "astro check",
+    "check": "npm run cf-typegen && astro check --minimumSeverity warning",
     "deploy": "astro build && wrangler deploy",
     "cf-typegen": "wrangler types",
     "db:apply:local": "wrangler d1 migrations apply DB --local",
@@ -33,8 +33,10 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.10",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^22.20.5",
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
     "@vitest/coverage-v8": "^4.1.8",

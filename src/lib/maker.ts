@@ -4001,10 +4001,9 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     // A bridged face's letter daylight sits at the hand's natural pitch (wider
     // than the bare connector gap), so the word break must widen with it or
     // words run together visually (judged: uneven, undersized word gaps).
-    if (fit.entryNorm) spaceAdvance = 0.38;
     // connected runs read denser than upright; a touch more than the 0.28em
     // default keeps word breaks visible without gapping the join rhythm
-    spaceAdvance = 0.3;
+    spaceAdvance = fit.entryNorm ? 0.38 : 0.3;
     // the worker slants on the STYLE NAME; a slant adds span to every advance
     // and shears every glyph, un-meeting the joins, so force upright here
     styleOut = 'Regular';

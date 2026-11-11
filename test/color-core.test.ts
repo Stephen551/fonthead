@@ -50,6 +50,69 @@ describe('detectPalette', () => {
     expect(pal.colors[0].r).toBeGreaterThan(150); // red is the bigger area
   });
 
+  it('does not turn anti-aliased paper edges into a third ink color', () => {
+    const w = 400, h = 200;
+    const data = blank(w, h);
+    // A real ink core with a partially covered paper edge on each side.
+    for (const [x, color] of [[20, RED], [200, BLUE]] as const) {
+      rect(data, w, x, 40, x + 100, 140, color);
+      const fringe = color.map(c => Math.round(c * 0.35 + 255 * 0.65)) as RGB;
+      rect(data, w, x - 2, 38, x + 102, 40, fringe);
+      rect(data, w, x - 2, 140, x + 102, 142, fringe);
+      rect(data, w, x - 2, 40, x, 140, fringe);
+      rect(data, w, x + 100, 40, x + 102, 140, fringe);
+    }
+    expect(CC.detectPalette(data, w, h, 3, {}).colors).toHaveLength(2);
+  });
+
+  it('keeps a small third ink color with a solid core', () => {
+    const w = 400, h = 200;
+    const data = blank(w, h);
+    rect(data, w, 20, 40, 120, 140, RED);
+    rect(data, w, 200, 40, 300, 140, BLUE);
+    rect(data, w, 340, 40, 352, 52, [21, 145, 70]);
+    expect(CC.detectPalette(data, w, h, 3, {}).colors).toHaveLength(3);
+  });
+
+  it('does not turn an outline/fill blend into a third pigment', () => {
+    const w = 400, h = 200;
+    const data = blank(w, h);
+    rect(data, w, 20, 40, 120, 140, [20, 20, 20]);
+    rect(data, w, 200, 40, 300, 140, [247, 160, 30]);
+    rect(data, w, 120, 40, 122, 140, [134, 90, 25]);
+    expect(CC.detectPalette(data, w, h, 3, {}).colors).toHaveLength(2);
+  });
+
+  it('keeps a thin third pigment alongside wider strokes', () => {
+    const w = 400, h = 200;
+    const data = blank(w, h);
+    rect(data, w, 20, 40, 120, 140, RED);
+    rect(data, w, 200, 40, 300, 140, BLUE);
+    rect(data, w, 340, 40, 341, 140, [21, 145, 70]);
+    expect(CC.detectPalette(data, w, h, 3, {}).colors).toHaveLength(3);
+  });
+
+  it('recognizes composited foreground edges after removing a shadow', () => {
+    const w = 400, h = 200;
+    const data = blank(w, h);
+    rect(data, w, 20, 40, 120, 140, [224, 52, 31]);
+    rect(data, w, 200, 40, 300, 140, [240, 165, 28]);
+    rect(data, w, 120, 40, 122, 140, [184, 52, 36]);
+    rect(data, w, 300, 40, 302, 140, [235, 204, 148]);
+    const opts = { edgeColors: [{ r: 58, g: 58, b: 58 }] };
+    expect(CC.detectPalette(data, w, h, 3, opts).colors).toHaveLength(2);
+    rect(data, w, 340, 40, 341, 140, [21, 145, 70]);
+    expect(CC.detectPalette(data, w, h, 3, opts).colors).toHaveLength(3);
+  });
+
+  it('falls back for a sheet made entirely from thin strokes', () => {
+    const w = 400, h = 200;
+    const data = blank(w, h);
+    rect(data, w, 20, 40, 21, 140, RED);
+    rect(data, w, 200, 40, 201, 140, BLUE);
+    expect(CC.detectPalette(data, w, h, 3, {}).colors).toHaveLength(2);
+  });
+
   it('collapses a monochrome sheet to one color (mono)', () => {
     const w = 300, h = 150;
     const data = blank(w, h);
@@ -75,6 +138,22 @@ describe('detectPalette', () => {
 });
 
 describe('detectShadowMask', () => {
+  it('removes the anti-aliased paper fringe of an offset shadow', () => {
+    const w = 500, h = 120;
+    const data = blank(w, h);
+    for (let i = 0; i < 4; i++) {
+      const x = 30 + i * 110;
+      drawH(data, w, x + 5, 35, DARK);
+      rect(data, w, x + 35, 35, x + 36, 75, [185, 185, 185]);
+      drawH(data, w, x, 30, [40, 160, 200]);
+    }
+    const pal = CC.detectPalette(data, w, h, 2, {});
+    const mask = CC.detectShadowMask(data, w, h, pal);
+    expect(mask).not.toBeNull();
+    expect(mask![50 * w + 65], 'partially covered shadow pixel').toBe(1);
+    expect(mask![50 * w + 30], 'real colored stroke survives').toBe(0);
+  });
+
   it('fires on an offset dark duplicate of the letters', () => {
     const w = 500, h = 120;
     const data = blank(w, h);

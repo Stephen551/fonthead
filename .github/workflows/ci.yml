@@ -47,6 +47,8 @@ jobs:
           printf 'BETTER_AUTH_SECRET=fonthead-ci-e2e-placeholder-secret\nBETTER_AUTH_URL=http://localhost:4321\n' > .dev.vars
       - name: e2e smoke
         run: npm run test:e2e
+      - name: color font regression corpus
+        run: npx playwright test -c playwright.corpus.config.ts corpus-color
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -55,9 +57,10 @@ jobs:
           pip install --quiet fonttools
           python -c "from fontTools.ttLib import TTFont; TTFont('e2e/built-sample.otf', checkChecksums=2); print('fontTools strict checksums: OK')"
           python -c "from fontTools.ttLib import TTFont; v=TTFont('e2e/built-variation.otf', checkChecksums=2); assert 'GSUB' in v, 'natural-variation font missing GSUB'; tags=[f.FeatureTag for f in v['GSUB'].table.FeatureList.FeatureRecord]; assert 'calt' in tags, 'natural-variation font missing calt'; print('natural variation GSUB calt: OK')"
+          python -c "from pathlib import Path; from fontTools.ttLib import TTFont; paths=list(Path('test-results').glob('corpus-color-color-corpus-*/*.otf')); assert len(paths)>=8, 'color exports missing'; fonts=[TTFont(p, checkChecksums=2) for p in paths]; [f.reader[tag] for f in fonts for tag in f.reader.keys()]; [f[tag] for f in fonts for tag in ('COLR','CPAL')]; print('color font table checksums and COLR/CPAL: OK')"
 
   deploy:
-    needs: build-and-test
+    needs: [build-and-test, e2e]
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:

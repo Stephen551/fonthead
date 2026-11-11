@@ -26,6 +26,18 @@ const palette2 = { colors: [{ r: 224, g: 32, b: 32 }, { r: 30, g: 79, b: 194 }],
 const inkAt = (union: Uint8ClampedArray, w: number, x: number, y: number) => union[(y * w + x) * 4] === 0;
 
 describe('separateGlyph', () => {
+  it('preserves detached punctuation ink even when its label was guessed', () => {
+    for (const char of ['&', '@', '#', '.', "'"]) {
+      const w = 80, h = 100;
+      const data = blank(w, h);
+      rect(data, w, 30, 20, 45, 60, RED);
+      rect(data, w, 33, 75, 42, 84, RED);
+      const g = CC.separateGlyph(data, w, h, palette2, char);
+      expect(g.strayDropped, `${char} retains the detached mark`).toBe(false);
+      expect(inkAt(g.union, w, 37, 79), `${char} dot remains ink`).toBe(true);
+    }
+  });
+
   it('retains tiny upper and lower accents in the union and color layers', () => {
     const w = 80, h = 100, data = blank(w, h);
     rect(data, w, 20, 30, 60, 80, RED);

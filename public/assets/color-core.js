@@ -45,6 +45,32 @@
   }
   function chroma(lab) { return Math.sqrt(lab[1] * lab[1] + lab[2] * lab[2]); }
 
+  // Canvas edges blend the pigment with paper in RGB. Compare against that
+  // coverage ramp so a pale edge is still recognized as its original ink.
+  function paperBlendDist2(r, g, b, bg, ink) {
+    const vr = ink.r - bg.r, vg = ink.g - bg.g, vb = ink.b - bg.b;
+    const dr = r - bg.r, dg = g - bg.g, db = b - bg.b;
+    const len2 = vr * vr + vg * vg + vb * vb;
+    const t = len2 ? Math.max(0, Math.min(1, (dr * vr + dg * vg + db * vb) / len2)) : 0;
+    return (dr - t * vr) ** 2 + (dg - t * vg) ** 2 + (db - t * vb) ** 2;
+  }
+
+  // Two successive coverage blends (ink over a shadow over paper) lie in
+  // the triangle spanned by those three surfaces.
+  function triangleBlendDist2(rgb, a, b, c) {
+    const u = [b.r - a.r, b.g - a.g, b.b - a.b];
+    const v = [c.r - a.r, c.g - a.g, c.b - a.b];
+    const d = [rgb.r - a.r, rgb.g - a.g, rgb.b - a.b];
+    const dot = (x, y) => x.reduce((s, n, i) => s + n * y[i], 0);
+    const uu = dot(u, u), uv = dot(u, v), vv = dot(v, v);
+    const det = uu * vv - uv * uv;
+    if (det <= 1e-6) return Infinity;
+    const x = (dot(d, u) * vv - dot(d, v) * uv) / det;
+    const y = (dot(d, v) * uu - dot(d, u) * uv) / det;
+    if (x < 0 || y < 0 || x + y > 1) return Infinity;
+    return d.reduce((s, n, i) => s + (n - x * u[i] - y * v[i]) ** 2, 0);
+  }
+
   // --- background detection (border flood) ------------------------------
   // The paper colour dominates the sheet border. Histogram the border
   // pixels (coarsely quantised), take the modal bucket, average the real
@@ -115,6 +141,8 @@
     const CAP = 6000;
     const stride = Math.max(1, Math.floor(total / CAP));
     const samples = [];
+    const solidSamples = [];
+    const sampleRGB = [], solidRGB = [];
     for (let p = 0; p < total; p += stride) {
       const i = p * 4;
       if (data[i + 3] < 128) continue;
@@ -122,12 +150,52 @@
       if (labDist2(lab, bgLab) <= bgD2) continue;        // background
       if (chroma(lab) < 6 && labDist2(lab, bgLab) < bgD2 * 4) continue; // halo gate
       samples.push(lab);
+      sampleRGB.push({ r: data[i], g: data[i + 1], b: data[i + 2] });
+      // Paper coverage at an anti-aliased edge is a tint, not another ink.
+      // Prefer locally coherent stroke interiors; a wholly thin/soft sheet
+      // without enough interiors retains the original sampling fallback.
+      const x = p % w, y = (p / w) | 0;
+      if (x < 2 || x >= w - 2 || y < 2 || y >= h - 2) continue;
+      const solid = [-2, 2, -2 * w, 2 * w].every(offset => {
+        const j = (p + offset) * 4;
+        return data[j + 3] >= 128 &&
+          (data[i] - data[j]) ** 2 + (data[i + 1] - data[j + 1]) ** 2 + (data[i + 2] - data[j + 2]) ** 2 <= 64;
+      });
+      if (solid) { solidSamples.push(lab); solidRGB.push(sampleRGB[sampleRGB.length - 1]); }
     }
     if (samples.length === 0) {
       return { colors: [], bg, bgDist, mono: true };
     }
 
-    let centers = kmeans(samples, K, 16);
+    let training = samples;
+    if (solidSamples.length >= Math.max(8, K)) {
+      const cores = kmeans(solidSamples, K, 16);
+      const inks = cores.map(c => {
+        let best = 0;
+        for (let i = 1; i < solidSamples.length; i++) if (labDist2(solidSamples[i], c) < labDist2(solidSamples[best], c)) best = i;
+        return solidRGB[best];
+      });
+      training = solidSamples.slice();
+      // Keep unsupported pigments (including thin accents); omit only colors
+      // explained by partial coverage of a known ink over the paper.
+      samples.forEach((lab, i) => {
+        const rgb = sampleRGB[i];
+        const surfaces = [bg, ...inks, ...(opts.edgeColors || [])];
+        let blend = false;
+        for (let a = 0; a < surfaces.length && !blend; a++) {
+          for (let b = a + 1; b < surfaces.length; b++) {
+            if (paperBlendDist2(rgb.r, rgb.g, rgb.b, surfaces[a], surfaces[b]) <= 64) { blend = true; break; }
+          }
+        }
+        // A stripped drop shadow can leave foreground pixels that were
+        // partially composited over it. They are edges, not a new pigment.
+        if (!blend && opts.edgeColors) {
+          blend = opts.edgeColors.some(edge => inks.some(ink => triangleBlendDist2(rgb, bg, edge, ink) <= 64));
+        }
+        if (!blend) training.push(lab);
+      });
+    }
+    let centers = kmeans(training, K, 16);
 
     // Merge centres that ended up perceptually identical (a monochrome or
     // near-monochrome sheet collapses K clusters into one) — spec section 9.
@@ -201,7 +269,10 @@
       const lab = rgbToLab(data[i], data[i + 1], data[i + 2]);
       if (labDist2(lab, bgLab) <= bgD2) continue;
       let best = 0, bd = Infinity;
-      for (let c = 0; c < colors.length; c++) { const d = labDist2(lab, colors[c].lab); if (d < bd) { bd = d; best = c; } }
+      for (let c = 0; c < colors.length; c++) {
+        const d = paperBlendDist2(data[i], data[i + 1], data[i + 2], bg, colors[c]);
+        if (d < bd) { bd = d; best = c; }
+      }
       if (best === candIdx) { dark[p] = 1; darkN++; } else { bright[p] = 1; brightN++; }
     }
     if (darkN < 50 || brightN < 50) return dbg(0, 'too few dark/bright px');
@@ -453,6 +524,9 @@
     const labs = palette.colors.map(c => c.lab || rgbToLab(c.r, c.g, c.b));
     const K = labs.length;
     const N = w * h;
+    // Punctuation labels may be guessed from a row's position. Its detached
+    // marks are real ink even when that guess names a normally connected mark.
+    const canCull = !!char && /^[A-Za-z0-9]$/.test(char) && !MULTI_PART.has(char);
 
     const union = new Uint8Array(N);
     const perColor = [];
@@ -479,7 +553,7 @@
     // bottom edge of the cell (the row above's bottom/shadow, or the row below's
     // top), which the island cull can't catch because it's joined to the glyph.
     // Skipped for glyphs that legitimately carry a detached top/bottom mark.
-    if (char && !MULTI_PART.has(char) && !accented) {
+    if (canCull) {
       const width = new Int32Array(h);
       for (let y = 0; y < h; y++) { let c = 0; const off = y * w; for (let x = 0; x < w; x++) if (union[off + x]) c++; width[y] = c; }
       const edge = detectEdgeBleed(width, h);
@@ -516,7 +590,7 @@
     // never fires when the glyph split into two big halves — that is a mis-slice
     // to flag, not bleed to silently delete.
     let strayDropped = false;
-    if (char && !MULTI_PART.has(char)) {
+    if (canCull || accented) {
       const lab = new Int32Array(N).fill(-1), area = [], boxes = [], st = [];
       let nl = 0;
       for (let s = 0; s < N; s++) {
