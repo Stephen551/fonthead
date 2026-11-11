@@ -5,7 +5,10 @@ import { ANALYTICS_EVENTS, ANALYTICS_LABELS, analyticsWindow, summarizeFunnel, s
 const env = Astro.locals.runtime.env;
 const range = analyticsWindow(Astro.url.searchParams.get('days'));
 type Member = { id: string; name: string; handle: string | null; last_day: string; builds: number; failures: number; downloads: number; sample_builds: number; first_build: string | null; last_build: string | null };
-const [funnel, members, started, totals, topFonts, reviews] = await Promise.all([
+const fontTypes = { mono: 'Monochrome', flat: 'Flat color', gradient: 'Gradient' };
+const sheetSources = { upload: 'Own sheet', sample: 'Sample sheet', unknown: 'Unknown' };
+type Failure = { created_at: string; kind: keyof typeof fontTypes; source: keyof typeof sheetSources; message: string };
+const [funnel, members, started, totals, topFonts, reviews, failures] = await Promise.all([
   env.DB.prepare('SELECT day, event, meta, count FROM funnel WHERE day BETWEEN ? AND ?').bind(range.previousStart, range.end).all<FunnelRow>(),
   env.DB.prepare(`SELECT u.id, u.name, u.handle, MAX(a.day) AS last_day,
     SUM(CASE WHEN a.event = 'build_ok' AND a.source = 'upload' THEN a.count ELSE 0 END) AS builds,
@@ -25,6 +28,9 @@ const [funnel, members, started, totals, topFonts, reviews] = await Promise.all(
     (SELECT COALESCE(SUM(downloads_count), 0) FROM fonts WHERE visibility = 'public') AS library_total`).bind(range.start, range.end, range.start, range.end).first<{ members: number; signups: number; public_fonts: number; published: number; library_total: number }>(),
   env.DB.prepare("SELECT id, name, downloads_count FROM fonts WHERE visibility = 'public' AND downloads_count > 0 ORDER BY downloads_count DESC, id LIMIT 5").all<{ id: string; name: string; downloads_count: number }>(),
   env.DB.prepare('SELECT COUNT(*) AS count, AVG(rating) AS rating FROM maker_reviews WHERE date(created_at) BETWEEN ? AND ?').bind(range.start, range.end).first<{ count: number; rating: number | null }>(),
+  env.DB.prepare(`SELECT created_at, kind, source, message FROM build_failures
+    WHERE created_at >= ? AND created_at < date(?, '+1 day')
+    ORDER BY created_at DESC, id DESC LIMIT 50`).bind(range.start, range.end).all<Failure>(),
 ]);
 const stats = summarizeFunnel(funnel.results, range);
 const activity = members.results;
@@ -83,6 +89,15 @@ const detail = (event: string) => [...(stats.breakdowns.get(event) ?? [])].sort(
       {topFonts.results.length ? <ol class="ranked">{topFonts.results.map(f => <li><a href={`/f/${f.id}`}>{f.name}</a><span class="fh-mono">{f.downloads_count}</span></li>)}</ol> : <p>No public font downloads yet.</p>}
     </article>
   </div>
+
+  <article class="panel failure-panel">
+    <h3>Recent build failures</h3>
+    <p class="note">Latest 50 in this period, newest first. Older versions of the maker recorded only a failure category.</p>
+    {failures.results.length ? <ol class="failure-list">{failures.results.map(f => <li>
+      <p><strong>{fontTypes[f.kind]}</strong> · {sheetSources[f.source]} · <time datetime={f.created_at.replace(' ', 'T') + 'Z'}>{f.created_at} UTC</time></p>
+      <p class="failure-message">{f.message}</p>
+    </li>)}</ol> : <p>No detailed failure reports in this period.</p>}
+  </article>
 
   <article class="panel member-panel">
     <h3>Member adoption</h3>
@@ -156,6 +171,10 @@ const detail = (event: string) => [...(stats.breakdowns.get(event) ?? [])].sort(
   .analytics .chart-caption { display:flex; justify-content:space-between; gap:8px; font-size:10px; flex-wrap:wrap; }
   .member-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin:18px 0; }
   .member-metrics strong { display:block; color:var(--ink); font-size:28px; }
+  .failure-panel { margin-bottom:22px; }
+  .failure-list { margin:0; padding:0; list-style:none; }
+  .failure-list li { border-top:1px solid var(--line); padding:4px 0; }
+  .analytics .failure-message { overflow-wrap:anywhere; color:var(--ink); }
   .table-scroll { overflow:auto; margin-top:16px; }
   table { width:100%; border-collapse:collapse; font-size:12px; text-align:left; }
   th,td { padding:10px 14px 10px 0; border-bottom:1px solid var(--line); white-space:nowrap; }

@@ -35,6 +35,21 @@ test('admin analytics separate member uploads, samples and admin testing', async
     await event(member, 'build_ok', 'upload');
     await event(member, 'build_fail', 'upload');
     await event(member, 'download', 'upload');
+    // Exercise both sources anonymously, from the actual maker through D1.
+    const maker = await anon.newPage();
+    await maker.addInitScript(() => localStorage.setItem('fh-maker-tour-seen', '1'));
+    await maker.goto('/make');
+    await maker.evaluate(() => { HTMLCanvasElement.prototype.toBlob = callback => callback(null); });
+    await maker.getByRole('button', { name: 'color · flat', exact: true }).click();
+    const waitForFailure = () => maker.waitForResponse(response =>
+      response.url().includes('/_actions/trackFunnel') && response.request().postDataJSON()?.event === 'build_fail');
+    const [sampleFailure] = await Promise.all([waitForFailure(), maker.getByRole('button', { name: 'try a sample sheet' }).click()]);
+    expect(sampleFailure.ok()).toBe(true);
+    await maker.getByRole('button', { name: 'monochrome', exact: true }).click();
+    const [uploadFailure] = await Promise.all([waitForFailure(), maker.locator('#sheet-file').setInputFiles({
+      name: 'private-sheet.png', mimeType: 'image/png', buffer: Buffer.from('invalid image'),
+    })]);
+    expect(uploadFailure.ok()).toBe(true);
     const page = await admin.newPage();
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -44,6 +59,11 @@ test('admin analytics separate member uploads, samples and admin testing', async
     await expect(page.getByRole('heading', { name: 'Analytics & moderation', exact: true })).toBeVisible();
     await expect(page.getByText(/^Maker reviews · latest/)).toBeVisible();
     await expect(page.getByText(/^Bug reports · \d+ open/)).toBeVisible();
+    const failures = page.locator('.failure-list li');
+    await expect(failures.nth(0)).toContainText('Monochrome · Own sheet');
+    await expect(failures.nth(0)).toContainText('could not read that image');
+    await expect(failures.nth(1)).toContainText('Flat color · Sample sheet');
+    await expect(failures.nth(1)).toContainText('sample sheet render failed');
     const activity = page.getByRole('region', { name: 'Member activity table', exact: true });
     const row = activity.getByRole('row').filter({ hasText: memberName });
     await expect(row).toBeVisible();

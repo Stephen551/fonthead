@@ -11,6 +11,7 @@ import { containsBannedWord } from '../lib/banned-words';
 import { sendFeedbackEmail } from '../lib/email';
 import { MAX_SOURCE_SHEETS, prepareSourceSheets, sourceSheetKeys, storeFontPublication, type PublicationObject } from '../lib/source-sheets';
 import { mappingProblems } from '../lib/maker-checks';
+import { buildFailureMessage } from '../lib/build-failure';
 import { parseBugContext, formatBugContext, hasBugSubstance, MIN_BUG_SHEET_BYTES, MAX_BUG_SHEET_BYTES } from '../lib/bugreport';
 import { submitMakerReview } from './reviews';
 
@@ -270,6 +271,10 @@ export const server = {
   trackFunnel: defineAction({
     input: z.object({
       event: z.enum(['make_view', 'sheet_drop', 'sample_try', 'grid_print', 'build_ok', 'build_fail', 'download', 'publish_ok']),
+      failure: z.object({
+        kind: z.enum(['mono', 'flat', 'gradient']),
+        message: z.string().min(1).max(1000),
+      }).optional(),
       source: z.enum(['upload', 'sample', 'unknown']).default('unknown'),
       meta: z
         .string()
@@ -277,18 +282,23 @@ export const server = {
         .regex(/^[\w+.-]*$/)
         .optional(),
     }),
-    handler: async ({ event, meta, source }, ctx) => {
+    handler: async ({ event, meta, source, failure }, ctx) => {
       try {
         const env = ctx.locals.runtime.env;
         const ip = ctx.request.headers.get('cf-connecting-ip') || 'anon';
         const fresh = await rateLimit(env.SESSION, `fn:${ip}`, 240, 3600);
         if (!fresh) return { ok: true };
         const day = new Date().toISOString().slice(0, 10);
-        await env.DB.prepare(
+        const counter = env.DB.prepare(
           'INSERT INTO funnel (day, event, meta, count) VALUES (?,?,?,1) ON CONFLICT(day, event, meta) DO UPDATE SET count = count + 1',
-        )
-          .bind(day, event, meta || '')
-          .run();
+        ).bind(day, event, meta || '');
+        if (event === 'build_fail' && failure) {
+          await env.DB.batch([counter, env.DB.prepare(
+            'INSERT INTO build_failures (kind, source, message) VALUES (?, ?, ?)',
+          ).bind(failure.kind, source, buildFailureMessage(failure.message))]);
+        } else {
+          await counter.run();
+        }
         if (['make_view', 'build_ok', 'build_fail', 'download'].includes(event)) {
           const session = await createAuth(env).api.getSession({ headers: ctx.request.headers });
           // Keep the owner's testing out of member adoption and retention counts.

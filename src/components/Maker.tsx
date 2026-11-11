@@ -41,6 +41,7 @@ import {
   type Glyph,
 } from '../lib/maker';
 import { mappingProblems, shortRowCharset } from '../lib/maker-checks';
+import { buildFailureMessage } from '../lib/build-failure';
 import BugReport from './BugReport';
 import ReviewPrompt from './ReviewPrompt';
 import { EXTENDED_LATIN_ROWS } from '../lib/charsets';
@@ -103,8 +104,9 @@ function track(
   event: 'make_view' | 'sheet_drop' | 'sample_try' | 'grid_print' | 'build_ok' | 'build_fail' | 'download' | 'publish_ok',
   meta?: string,
   source: 'upload' | 'sample' | 'unknown' = 'unknown',
+  failure?: { kind: Kind; message: string },
 ) {
-  actions.trackFunnel({ event, meta, source }).catch(() => {});
+  actions.trackFunnel({ event, meta, source, failure }).catch(() => {});
 }
 
 export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
@@ -340,13 +342,19 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     }
   }
 
+  function recordFailure(message: string, source: 'sample' | 'upload' | 'unknown') {
+    setError(message);
+    setPhase('error');
+    track('build_fail', classifyBuildError(message), source, { kind, message: buildFailureMessage(message) });
+  }
+
   async function run(
     getImage: () => Promise<HTMLImageElement | ImageBitmap>,
     charLinesOverride?: string[],
-    override?: { safeSpacing: boolean },
+    override?: { safeSpacing?: boolean; source?: 'sample' },
   ) {
     buildBusyRef.current = true;
-    const buildSource = buildSourceRef.current;
+    const buildSource = override?.source ?? buildSourceRef.current;
     setPhase('working');
     // on a phone the result column stacks below the whole input column, so the
     // live readout is off-screen exactly when it updates: pull it into view.
@@ -548,9 +556,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       track('build_ok', `${kind}${useSupplement ? '+accents' : fitScript ? '+script' : ''}`, buildSource);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-      setPhase('error');
-      track('build_fail', classifyBuildError(msg), buildSource);
+      recordFailure(msg, buildSource);
     } finally {
       buildBusyRef.current = false;
     }
@@ -760,7 +766,6 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
 
   const onSample = () => {
     if (buildBusyRef.current) return;
-    buildSourceRef.current = 'sample';
     track('sample_try');
     setMappingNotice('');
     variationImgsRef.current = [null, null];
@@ -781,8 +786,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       const img = await fileToImage(file);
       sourceFilesRef.current.set(img, file);
       sampleImagesRef.current.add(img);
+      buildSourceRef.current = 'sample';
       return img;
-    }, SAMPLE_CHAR_LINES);
+    }, SAMPLE_CHAR_LINES, { source: 'sample' });
   };
 
   function rebuild() {
@@ -852,8 +858,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       await run(() => Promise.resolve(img), charLines);
       if (isColor) setDetectedRows(geom.rows.length);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not read that image');
-      setPhase('error');
+      recordFailure(e instanceof Error ? e.message : 'could not read that image', 'upload');
     }
   };
 
@@ -886,8 +891,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       }
       setVariationNames(names);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not read those images');
-      setPhase('error');
+      recordFailure(e instanceof Error ? e.message : 'could not read those images', 'upload');
       buildBusyRef.current = false;
       return;
     }
@@ -921,8 +925,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       if (img) await run(() => Promise.resolve(img));
       else setPhase('idle');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'could not read that image');
-      setPhase('error');
+      recordFailure(e instanceof Error ? e.message : 'could not read that image', 'upload');
     } finally {
       buildBusyRef.current = false;
     }
@@ -946,7 +949,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       if (lastImgRef.current) await run(() => Promise.resolve(lastImgRef.current!));
       else setPhase('idle');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not read the accents sheet.'); setPhase('error');
+      recordFailure(e instanceof Error ? e.message : 'Could not read the accents sheet.', 'upload');
     } finally { buildBusyRef.current = false; }
   };
 
