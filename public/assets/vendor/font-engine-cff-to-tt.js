@@ -254,6 +254,7 @@
     /* Walk every glyph, encode glyf entries. */
     const numGlyphs = font.glyphs.length;
     const glyfEntries = new Array(numGlyphs);
+    const glyphBBoxes = new Array(numGlyphs);
     let totalGlyfBytes = 0;
     let maxPoints = 0, maxContours = 0;
     let totalCubics = 0, totalQuads = 0;
@@ -267,40 +268,64 @@
         totalCubics += cubics;
         totalQuads += quads;
         if (contours.length === 0) {
-          entry = new Uint8Array(0); /* empty glyph (notdef may be empty) */
+          entry = new Uint8Array(0); /* empty glyph (notdef/space may be empty) */
+          glyphBBoxes[i] = null;
         } else {
-          const bb = g.getBoundingBox && g.getBoundingBox();
-          const bbox = bb
-            ? { xMin: Math.round(bb.x1), yMin: Math.round(bb.y1),
-                xMax: Math.round(bb.x2), yMax: Math.round(bb.y2) }
-            : undefined;
-          /* Per-glyph hint generation. Caller passes a callback; we
-             invoke it with this glyph's contours + meta. Null/empty
-             return = no hints for this glyph (passes through unhinted). */
-          let instructions = null;
-          if (typeof opts.hintCallback === 'function') {
-            try {
-              instructions = opts.hintCallback(contours, {
-                index: i,
-                char: g.unicode ? String.fromCodePoint(g.unicode) : null,
-                advanceWidth: g.advanceWidth,
-                name: g.name,
-              });
-            } catch (hintErr) {
-              /* A bad hint shouldn't break the conversion — skip
-                 hints for this glyph and continue. */
-              instructions = null;
+          /* Reverse each contour for TrueType clockwise outer winding while keeping
+             pts[0], rounding coordinates to integer font units first so the glyf
+             bbox matches the encoded TrueType points exactly. */
+          const revContours = contours.map((pts) => {
+            const rounded = pts.map((p) => ({
+              x: Math.round(p.x),
+              y: Math.round(p.y),
+              onCurve: p.onCurve !== false,
+            }));
+            return rounded.length > 1
+              ? [rounded[0]].concat(rounded.slice(1).reverse())
+              : rounded;
+          }).filter((c) => c.length > 0);
+          if (revContours.length === 0) {
+            entry = new Uint8Array(0);
+            glyphBBoxes[i] = null;
+          } else {
+            let gxMin = Infinity, gyMin = Infinity, gxMax = -Infinity, gyMax = -Infinity;
+            for (const c of revContours) {
+              for (const p of c) {
+                if (p.x < gxMin) gxMin = p.x;
+                if (p.y < gyMin) gyMin = p.y;
+                if (p.x > gxMax) gxMax = p.x;
+                if (p.y > gyMax) gyMax = p.y;
+              }
             }
-            if (instructions && instructions.length > 0) {
-              hintedGlyphCount++;
-              if (instructions.length > maxInstructionLen) maxInstructionLen = instructions.length;
+            glyphBBoxes[i] = { xMin: gxMin, yMin: gyMin, xMax: gxMax, yMax: gyMax };
+            /* Per-glyph hint generation. Caller passes a callback; we
+               invoke it with this glyph's contours + meta. Null/empty
+               return = no hints for this glyph (passes through unhinted). */
+            let instructions = null;
+            if (typeof opts.hintCallback === 'function') {
+              try {
+                instructions = opts.hintCallback(revContours, {
+                  index: i,
+                  char: g.unicode ? String.fromCodePoint(g.unicode) : null,
+                  advanceWidth: g.advanceWidth,
+                  name: g.name,
+                });
+              } catch (hintErr) {
+                /* A bad hint shouldn't break the conversion — skip
+                   hints for this glyph and continue. */
+                instructions = null;
+              }
+              if (instructions && instructions.length > 0) {
+                hintedGlyphCount++;
+                if (instructions.length > maxInstructionLen) maxInstructionLen = instructions.length;
+              }
             }
+            entry = global.encodeGlyfEntry(revContours, undefined, instructions);
+            let pts = 0;
+            for (const c of revContours) pts += c.length;
+            if (pts > maxPoints) maxPoints = pts;
+            if (revContours.length > maxContours) maxContours = revContours.length;
           }
-          entry = global.encodeGlyfEntry(contours, bbox, instructions);
-          let pts = 0;
-          for (const c of contours) pts += c.length;
-          if (pts > maxPoints) maxPoints = pts;
-          if (contours.length > maxContours) maxContours = contours.length;
         }
       } catch (err) {
         return { bytes: otfBytes, status: 'failed',
@@ -361,18 +386,71 @@
     if (cffOffset < 0) {
       return { bytes: otfBytes, status: 'failed', reason: 'no CFF table to replace' };
     }
-    /* head: clone and patch indexToLocFormat (offset 50, int16:
-       0 = short loca, 1 = long loca). We patch the bytes IN our
-       per-table body, not in the original. */
-    for (const t of tables) {
-      if (t.tag === 'head') {
-        const copy = new Uint8Array(t.body);
-        const dv = new DataView(copy.buffer);
-        dv.setInt16(50, useShortLoca ? 0 : 1, false);
-        /* Zero checkSumAdjustment (offset 8) — recomputed below. */
-        dv.setUint32(8, 0, false);
-        t.body = copy;
+    /* Rebuild hmtx (advanceWidth preserved, lsb = glyf xMin or 0 for empty),
+       and compute updated head bbox + hhea extrema across non-empty glyphs. */
+    const headTable = tables.find((t) => t.tag === 'head');
+    const hheaTable = tables.find((t) => t.tag === 'hhea');
+    const hmtxTable = tables.find((t) => t.tag === 'hmtx');
+
+    let unionXMin = Infinity, unionYMin = Infinity, unionXMax = -Infinity, unionYMax = -Infinity;
+    let minLSB = Infinity, minRSB = Infinity, xMaxExtent = -Infinity;
+    let hasNonEmpty = false;
+
+    if (hheaTable && hmtxTable) {
+      const hheaCopy = new Uint8Array(hheaTable.body);
+      const hheaDv = new DataView(hheaCopy.buffer);
+      const origHmtxDv = new DataView(hmtxTable.body.buffer, hmtxTable.body.byteOffset, hmtxTable.body.byteLength);
+      const numberOfHMetrics = Math.max(1, Math.min(numGlyphs, hheaDv.getUint16(34, false)));
+      const newHmtx = new Uint8Array(numberOfHMetrics * 4 + (numGlyphs - numberOfHMetrics) * 2);
+      const newHmtxDv = new DataView(newHmtx.buffer);
+
+      for (let i = 0; i < numGlyphs; i++) {
+        const adv = i < numberOfHMetrics
+          ? origHmtxDv.getUint16(i * 4, false)
+          : origHmtxDv.getUint16((numberOfHMetrics - 1) * 4, false);
+        const bb = glyphBBoxes[i];
+        const lsb = bb ? bb.xMin : 0;
+        if (i < numberOfHMetrics) {
+          newHmtxDv.setUint16(i * 4, adv, false);
+          newHmtxDv.setInt16(i * 4 + 2, lsb, false);
+        } else {
+          newHmtxDv.setInt16(numberOfHMetrics * 4 + (i - numberOfHMetrics) * 2, lsb, false);
+        }
+        if (bb) {
+          hasNonEmpty = true;
+          if (bb.xMin < unionXMin) unionXMin = bb.xMin;
+          if (bb.yMin < unionYMin) unionYMin = bb.yMin;
+          if (bb.xMax > unionXMax) unionXMax = bb.xMax;
+          if (bb.yMax > unionYMax) unionYMax = bb.yMax;
+          const rsb = adv - lsb - (bb.xMax - bb.xMin);
+          const extent = lsb + (bb.xMax - bb.xMin);
+          if (lsb < minLSB) minLSB = lsb;
+          if (rsb < minRSB) minRSB = rsb;
+          if (extent > xMaxExtent) xMaxExtent = extent;
+        }
       }
+      hmtxTable.body = newHmtx;
+
+      hheaDv.setInt16(12, hasNonEmpty ? minLSB : 0, false);
+      hheaDv.setInt16(14, hasNonEmpty ? minRSB : 0, false);
+      hheaDv.setInt16(16, hasNonEmpty ? xMaxExtent : 0, false);
+      hheaTable.body = hheaCopy;
+    }
+
+    /* head: clone and patch bbox (36..42), indexToLocFormat (offset 50, int16:
+       0 = short loca, 1 = long loca). We patch the bytes IN our per-table body,
+       not in the original. */
+    if (headTable) {
+      const copy = new Uint8Array(headTable.body);
+      const dv = new DataView(copy.buffer);
+      dv.setInt16(36, hasNonEmpty ? unionXMin : 0, false);
+      dv.setInt16(38, hasNonEmpty ? unionYMin : 0, false);
+      dv.setInt16(40, hasNonEmpty ? unionXMax : 0, false);
+      dv.setInt16(42, hasNonEmpty ? unionYMax : 0, false);
+      dv.setInt16(50, useShortLoca ? 0 : 1, false);
+      /* Zero checkSumAdjustment (offset 8) — recomputed below. */
+      dv.setUint32(8, 0, false);
+      headTable.body = copy;
     }
 
     /* Add glyf + loca. */
