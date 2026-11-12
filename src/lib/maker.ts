@@ -4222,7 +4222,6 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
   let glyphsIn = glyphs;
   let spaceAdvance: number | undefined;
   let uprightSpacing = false;
-  let exactSpacing = false;
   let protectSpacingBounds = false;
   let styleOut = opts.style ?? 'Regular';
   // Set when connectGlyphs fires the entry-reach normalization: the placement
@@ -4335,6 +4334,8 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
           family: opts.family,
           style: 'Regular',
           upm: opts.upm ?? 1000,
+          quantizeY: true,
+          quantizeX: true,
           ...flags,
           spaceAdvance: 0.3,
           formats: ['otf'],
@@ -4410,7 +4411,6 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
       glyphsIn = fitCompleteOutlines(glyphs, bodyPadPx(glyphs, spacingPct));
       flags.useCellWidth = true;
       flags.tightAdvance = false;
-      exactSpacing = true;
       protectSpacingBounds = true;
     }
   } else if (opts.trimFlourishes) {
@@ -4435,7 +4435,6 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     glyphsIn = fitCompleteOutlines(glyphs, bodyPadPx(glyphs, spacingPct));
     flags.useCellWidth = true;
     flags.tightAdvance = false;
-    exactSpacing = true;
     protectSpacingBounds = true;
   }
   const payload = {
@@ -4452,8 +4451,8 @@ export async function buildFont(glyphs: Glyph[], opts: BuildOpts, onProgress?: P
     family: opts.family,
     style: styleOut,
     upm: opts.upm ?? 1000,
-    quantizeY: !opts.connect && opts.autoBaseline !== false,
-    quantizeX: uprightSpacing || exactSpacing,
+    quantizeY: true,
+    quantizeX: true,
     ...flags,
     spaceAdvance,
     formats: opts.formats ?? ['otf', 'ttf', 'woff2'],

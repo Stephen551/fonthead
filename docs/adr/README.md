@@ -79,7 +79,7 @@ left out — they live in CLAUDE.md, not here.
 | [0066](0066-published-specimen-contextual-alternates.md) | Preserve natural variation in published font samples | Accepted |
 | [0067](0067-first-download-maker-reviews.md) | Ask once for a maker review with separate public-display permission | Accepted |
 | [0068](0068-admin-usage-and-member-adoption.md) | Show usage trends and member adoption without uploading unpublished work | Accepted |
-| [0069](0069-complete-descenders-and-serif-spacing.md) | Recover crossing descenders and preserve complete serif spacing through export | Accepted |
+| [0069](0069-complete-descenders-and-serif-spacing.md) | Recover crossing descenders and preserve complete serif spacing through export | Accepted (quantization scoping superseded by 0079) |
 | [0070](0070-measured-spacing-and-swashed-k-baseline.md) | Measure automatic spacing and anchor swashed lowercase k on its stem | Accepted |
 | [0071](0071-accented-latin-extraction-and-baselines.md) | Preserve Latin accents, canonical Unicode mapping and body baselines | Accepted |
 | [0072](0072-accents-never-set-the-font-scale.md) | Accented glyphs never set the font scale; the ascender grows to fit them | Accepted |
@@ -89,6 +89,7 @@ left out — they live in CLAUDE.md, not here.
 | [0076](0076-height-aware-decorative-kerning.md) | Compare decorative kerning clearance at shared heights while preserving flourishes | Accepted |
 | [0077](0077-detached-descender-terminals.md) | Retain detached ornamental terminals alongside their descenders | Accepted |
 | [0078](0078-repair-clipped-supplement-descenders.md) | Restore clipped supplement descenders from matching intact base letters | Accepted |
+| [0079](0079-quantize-coordinates-all-builds.md) | Quantize coordinates before CFF export on all builds | Accepted (supersedes 0069 scoping) |
 
 ## Format
 
