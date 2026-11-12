@@ -20,7 +20,7 @@ test('ornamental supplement repairs clipped y descenders through exports and re-
     const bytes = readFileSync(file);
     if (format !== 'woff2') expect(verifySfntChecksums(bytes).ok).toBe(true);
     const font: any = fontkit.create(bytes);
-    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(214);
+    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(217);
     for (const [char, count] of [['ý', 3], ['ÿ', 4]] as const) {
       const glyph = font.glyphForCodePoint(char.codePointAt(0)!);
       expect(await bodyComponents(page, font, char, 'y'), `${format} ${char} has a connected tail`).toBe(1);

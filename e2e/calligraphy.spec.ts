@@ -33,7 +33,7 @@ test('calligraphy auto slicing keeps overlapping swashes and detached strokes in
     const bytes = Buffer.from(data);
     if (format !== 'woff2') expect(verifySfntChecksums(bytes).ok).toBe(true);
     const font = fontkit.create(bytes);
-    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(92);
+    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(98);
     for (const c of 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789') {
       expect(font.glyphForCodePoint(c.codePointAt(0)!).path.commands.length, format + ' ' + c).toBeGreaterThan(0);
     }

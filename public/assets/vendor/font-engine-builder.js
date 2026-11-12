@@ -321,11 +321,28 @@
        glyphs don't crowd their neighbors. */
     const italicSlantSpan = isItalic ? Math.ceil((ascender - descender) * italicTan) : 0;
 
+    const notdefAdv = Math.round(upm * 0.5);
+    const notdefPath = new opentype.Path();
+    const nx0 = Math.round(upm * 0.05);
+    const nx1 = notdefAdv - nx0;
+    const ny0 = 0;
+    const ny1 = Math.round(upm * 0.70);
+    const nt = Math.max(1, Math.round(upm * 0.05));
+    notdefPath.moveTo(nx0, ny0);
+    notdefPath.lineTo(nx1, ny0);
+    notdefPath.lineTo(nx1, ny1);
+    notdefPath.lineTo(nx0, ny1);
+    notdefPath.close();
+    notdefPath.moveTo(nx0 + nt, ny0 + nt);
+    notdefPath.lineTo(nx0 + nt, ny1 - nt);
+    notdefPath.lineTo(nx1 - nt, ny1 - nt);
+    notdefPath.lineTo(nx1 - nt, ny0 + nt);
+    notdefPath.close();
     const notdef = new opentype.Glyph({
       name: '.notdef',
       unicode: 0,
-      advanceWidth: Math.round(upm * 0.5),
-      path: new opentype.Path(),
+      advanceWidth: notdefAdv,
+      path: notdefPath,
     });
 
     const byCodepoint = new Map();
@@ -443,6 +460,30 @@
       const baseName = rawName.replace(/[^a-zA-Z0-9_.]/g, '_') || 'glyph';
       const og = makeOtGlyph(g, baseName + g.variantSuffix, undefined);
       if (og) otGlyphs.push(og);
+    }
+
+    const glyphByCp = new Map();
+    for (const og of otGlyphs) {
+      if (Array.isArray(og.unicodes)) {
+        for (const u of og.unicodes) glyphByCp.set(u, og);
+      } else if (typeof og.unicode === 'number') {
+        glyphByCp.set(og.unicode, og);
+      }
+    }
+    const cmapAliases = [
+      [0x0027, [0x2019, 0x2018]],
+      [0x0020, [0x00A0]],
+      [0x002D, [0x2010, 0x2011, 0x2013]],
+    ];
+    for (const [srcCp, dstCps] of cmapAliases) {
+      const srcGlyph = glyphByCp.get(srcCp);
+      if (!srcGlyph) continue;
+      for (const dstCp of dstCps) {
+        if (!glyphByCp.has(dstCp)) {
+          srcGlyph.addUnicode(dstCp);
+          glyphByCp.set(dstCp, srcGlyph);
+        }
+      }
     }
 
     const subfamily = style;

@@ -41,7 +41,7 @@ test('tight supplement keeps row-two marks and overlapping side carons through e
     if (format !== 'woff2') expect(verifySfntChecksums(bytes).ok).toBe(true);
     const font: any = fontkit.create(bytes);
     verifyMarks(font, format);
-    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(214);
+    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(217);
   };
   for (const format of ['otf', 'ttf', 'woff2']) await exported(format);
   const sheet = page.getByRole('group', { name: 'Sheet 2 · accents', exact: true });

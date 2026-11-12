@@ -19,7 +19,7 @@ test('ornate serif tucks l-p while keeping flourishes clear in every export', as
     const bytes = readFileSync(file);
     if (format !== 'woff2') expect(verifySfntChecksums(new Uint8Array(bytes)).ok).toBe(true);
     const font: any = fontkit.create(bytes);
-    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(92);
+    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(98);
     const run = font.layout('lp', ['kern']);
     // The old whole-outline guard limited this pair to -57 despite the
     // bottom curl and descending tail occupying different heights.

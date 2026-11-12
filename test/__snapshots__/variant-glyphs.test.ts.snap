@@ -4,7 +4,7 @@ exports[`builder variant glyphs > a build with no variants is byte-identical to 
 [
   {
     "advanceWidth": 500,
-    "cmds": "",
+    "cmds": "M:50,0 L:450,0 L:450,700 L:50,700 Z: M:100,50 L:100,650 L:400,650 L:400,50 Z:",
     "index": 0,
     "name": ".notdef",
     "unicode": undefined,

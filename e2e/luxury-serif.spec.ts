@@ -33,7 +33,7 @@ test('luxury serif keeps the y hook, complete hairline bearings and working kern
     expect((y.maxY - y.minY) / (x.maxY - x.minY)).toBeGreaterThan(1.48);
     expect((y.maxY - y.minY) / (x.maxY - x.minY)).toBeLessThan(1.56);
     expect(y.minY).toBeLessThan(-210);
-    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(92);
+    expect(font.characterSet.filter((cp: number) => ![0, 32, 65535].includes(cp))).toHaveLength(98);
     for (const c of 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789') {
       const g = font.glyphForCodePoint(c.codePointAt(0)!);
       const left = g.bbox.minX, right = g.advanceWidth - g.bbox.maxX;
