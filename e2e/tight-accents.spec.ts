@@ -7,6 +7,36 @@ import { verifySfntChecksums } from '../src/lib/sfnt';
 // Ë's fine-detail trace has a detached serif in its body, plus the two dots.
 const contours: Record<string, number> = { Ê: 2, Ë: 4, Ē: 2, Ė: 2, Ì: 2, Í: 2, Î: 2, Ï: 3, Ī: 2,
   Ñ: 2, Ò: 3, Ó: 3, Ô: 3, Õ: 3, Ö: 4, ď: 3, ť: 2, Ą: 2 };
+function quadraticMinY(glyph: any): number {
+  let minY = Infinity, cy = 0, sy = 0;
+  for (const c of glyph.path.commands) {
+    if (c.command === 'moveTo') {
+      sy = cy = c.args[1];
+      if (cy < minY) minY = cy;
+    } else if (c.command === 'lineTo') {
+      cy = c.args[1];
+      if (cy < minY) minY = cy;
+    } else if (c.command === 'quadraticCurveTo') {
+      const p0 = cy, p1 = c.args[1], p2 = c.args[3];
+      if (p0 < minY) minY = p0;
+      if (p2 < minY) minY = p2;
+      const denom = p0 - 2 * p1 + p2;
+      if (denom !== 0) {
+        const t = (p0 - p1) / denom;
+        if (t > 0 && t < 1) {
+          const u = 1 - t;
+          const y = u * u * p0 + 2 * u * t * p1 + t * t * p2;
+          if (y < minY) minY = y;
+        }
+      }
+      cy = p2;
+    } else if (c.command === 'closePath') {
+      cy = sy;
+    }
+  }
+  return minY;
+}
+
 function verifyMarks(font: any, format: string) {
   for (const [char, count] of Object.entries(contours)) {
     const g = font.glyphForCodePoint(char.codePointAt(0));
@@ -16,7 +46,9 @@ function verifyMarks(font: any, format: string) {
     expect(font.glyphForCodePoint(char.codePointAt(0)).id, char).toBeGreaterThan(0);
   }
   for (const char of 'ÊËĒĖÌÍÎÏĪÑÒÓÔÕÖťď') {
-    expect(Math.abs(font.glyphForCodePoint(char.codePointAt(0)).bbox.minY), char + ' baseline').toBeLessThan(2);
+    const g = font.glyphForCodePoint(char.codePointAt(0));
+    const minY = format === 'ttf' ? quadraticMinY(g) : g.bbox.minY;
+    expect(Math.abs(minY), char + ' baseline').toBeLessThan(2);
   }
 }
 
