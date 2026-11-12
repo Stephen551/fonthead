@@ -24,8 +24,52 @@
 (function (global) {
   'use strict';
 
+  const MAX_SUBTABLE_BYTES = 60000;
+
   function writeTag(view, off, tag) {
     for (let i = 0; i < 4; i++) view.setUint8(off + i, tag.charCodeAt(i));
+  }
+
+  function checkU16(val, label) {
+    if (!(val >= 0 && val <= 0xffff)) {
+      throw new Error('GPOS uint16 offset overflow (' + label + '=' + val + ')');
+    }
+    return val;
+  }
+
+  function encodePairPosSubtable(subFirsts, subPairSets) {
+    const n = subFirsts.length;
+    const headerLen = 10 + 2 * n; /* fixed header + pairSetOffsets */
+    const covOffset = headerLen;
+    const covLen = 4 + 2 * n; /* coverage format 1 */
+    let cursor = covOffset + covLen;
+    const pairSetOffsets = subPairSets.map((recs, i) => {
+      const o = checkU16(cursor, 'pairSetOffset[' + i + ']');
+      cursor += 2 + 4 * recs.length; /* count + (glyph u16 + xAdvance s16) each */
+      return o;
+    });
+    const subLen = cursor;
+    const sub = new DataView(new ArrayBuffer(subLen));
+    sub.setUint16(0, 1); /* posFormat 1 */
+    sub.setUint16(2, checkU16(covOffset, 'covOffset'));
+    sub.setUint16(4, 0x0004); /* valueFormat1: XAdvance only */
+    sub.setUint16(6, 0x0000); /* valueFormat2: none */
+    sub.setUint16(8, checkU16(n, 'pairSetCount'));
+    subFirsts.forEach((_, i) => sub.setUint16(10 + 2 * i, pairSetOffsets[i]));
+    sub.setUint16(covOffset, 1); /* coverage format 1 */
+    sub.setUint16(covOffset + 2, n);
+    subFirsts.forEach((g, i) => sub.setUint16(covOffset + 4 + 2 * i, checkU16(g, 'coverageGid')));
+    subPairSets.forEach((recs, i) => {
+      let o = pairSetOffsets[i];
+      sub.setUint16(o, checkU16(recs.length, 'pairValueCount'));
+      o += 2;
+      for (const rec of recs) {
+        sub.setUint16(o, checkU16(rec[0], 'secondGlyph'));
+        sub.setInt16(o + 2, rec[1]);
+        o += 4;
+      }
+    });
+    return new Uint8Array(sub.buffer);
   }
 
   /* GID-pair core: write a GPOS kern table directly from resolved glyph-id pairs
@@ -53,42 +97,34 @@
       Array.from(byFirst.get(f).entries()).sort((a, b) => a[0] - b[0]),
     );
 
-    /* ---- PairPos format 1 subtable ---- */
-    const n = firsts.length;
-    const headerLen = 10 + 2 * n; /* fixed header + pairSetOffsets */
-    const covOffset = headerLen;
-    const covLen = 4 + 2 * n; /* coverage format 1 */
-    let cursor = covOffset + covLen;
-    const pairSetOffsets = pairSets.map((recs) => {
-      const o = cursor;
-      cursor += 2 + 4 * recs.length; /* count + (glyph u16 + xAdvance s16) each */
-      return o;
-    });
-    const subLen = cursor;
-    const sub = new DataView(new ArrayBuffer(subLen));
-    sub.setUint16(0, 1); /* posFormat 1 */
-    sub.setUint16(2, covOffset);
-    sub.setUint16(4, 0x0004); /* valueFormat1: XAdvance only */
-    sub.setUint16(6, 0x0000); /* valueFormat2: none */
-    sub.setUint16(8, n);
-    firsts.forEach((_, i) => sub.setUint16(10 + 2 * i, pairSetOffsets[i]));
-    sub.setUint16(covOffset, 1); /* coverage format 1 */
-    sub.setUint16(covOffset + 2, n);
-    firsts.forEach((g, i) => sub.setUint16(covOffset + 4 + 2 * i, g));
-    pairSets.forEach((recs, i) => {
-      let o = pairSetOffsets[i];
-      sub.setUint16(o, recs.length);
-      o += 2;
-      for (const rec of recs) {
-        sub.setUint16(o, rec[0]);
-        sub.setInt16(o + 2, rec[1]);
-        o += 4;
+    /* ---- Split into PairPos format 1 subtables <= MAX_SUBTABLE_BYTES ----
+       A first glyph's PairSet is never split across two subtables. */
+    const chunks = [];
+    let curFirsts = [];
+    let curPairSets = [];
+    let curBytes = 14; /* 10 PairPos header + 4 Coverage format 1 header */
+    for (let i = 0; i < firsts.length; i++) {
+      const f = firsts[i];
+      const recs = pairSets[i];
+      const addBytes = 6 + 4 * recs.length; /* 2 pairSetOffset + 2 covGid + 2 count + 4*recs */
+      if (curFirsts.length > 0 && curBytes + addBytes > MAX_SUBTABLE_BYTES) {
+        chunks.push([curFirsts, curPairSets]);
+        curFirsts = [];
+        curPairSets = [];
+        curBytes = 14;
       }
-    });
+      curFirsts.push(f);
+      curPairSets.push(recs);
+      curBytes += addBytes;
+    }
+    if (curFirsts.length > 0) chunks.push([curFirsts, curPairSets]);
+
+    const subTables = chunks.map(([cf, cp]) => encodePairPosSubtable(cf, cp));
+    const subCount = checkU16(subTables.length, 'subTableCount');
 
     /* ---- GPOS envelope ----
        header(10) ScriptList ScriptTable LangSys FeatureList Feature
-       LookupList Lookup subtable. All Offset16s are relative to the
+       LookupList Lookup subtables. All Offset16s are relative to the
        start of their parent table, per spec. */
     const gposHeaderLen = 10;
     const scriptListLen = 2 + 6 * 2; /* DFLT + latn, sorted by tag */
@@ -97,7 +133,7 @@
     const featureListLen = 2 + 6;
     const featureLen = 6;
     const lookupListLen = 2 + 2;
-    const lookupLen = 8;
+    const lookupLen = 6 + 2 * subCount;
 
     const scriptListOff = gposHeaderLen;
     const scriptTableOff = scriptListOff + scriptListLen;
@@ -106,25 +142,32 @@
     const featureOff = featureListOff + featureListLen;
     const lookupListOff = featureOff + featureLen;
     const lookupOff = lookupListOff + lookupListLen;
-    const subOff = lookupOff + lookupLen;
-    const total = subOff + subLen;
+    let subCursor = lookupOff + lookupLen;
+    const subAbsOffsets = [];
+    const subRelOffsets = [];
+    for (let s = 0; s < subCount; s++) {
+      subRelOffsets.push(checkU16(subCursor - lookupOff, 'subtableOffset[' + s + ']'));
+      subAbsOffsets.push(subCursor);
+      subCursor += subTables[s].byteLength;
+    }
+    const total = subCursor;
 
     const buf = new DataView(new ArrayBuffer(total));
     buf.setUint16(0, 1); /* majorVersion */
     buf.setUint16(2, 0); /* minorVersion */
-    buf.setUint16(4, scriptListOff);
-    buf.setUint16(6, featureListOff);
-    buf.setUint16(8, lookupListOff);
+    buf.setUint16(4, checkU16(scriptListOff, 'scriptListOffset'));
+    buf.setUint16(6, checkU16(featureListOff, 'featureListOffset'));
+    buf.setUint16(8, checkU16(lookupListOff, 'lookupListOffset'));
 
     /* ScriptList: both scripts share one Script table. */
     buf.setUint16(scriptListOff, 2);
     writeTag(buf, scriptListOff + 2, 'DFLT');
-    buf.setUint16(scriptListOff + 6, scriptTableOff - scriptListOff);
+    buf.setUint16(scriptListOff + 6, checkU16(scriptTableOff - scriptListOff, 'scriptOffset'));
     writeTag(buf, scriptListOff + 8, 'latn');
-    buf.setUint16(scriptListOff + 12, scriptTableOff - scriptListOff);
+    buf.setUint16(scriptListOff + 12, checkU16(scriptTableOff - scriptListOff, 'scriptOffset'));
 
     /* Script table -> default LangSys, no language-specific ones. */
-    buf.setUint16(scriptTableOff, langSysOff - scriptTableOff);
+    buf.setUint16(scriptTableOff, checkU16(langSysOff - scriptTableOff, 'defaultLangSysOffset'));
     buf.setUint16(scriptTableOff + 2, 0);
 
     /* LangSys: no reorder table, no required feature, feature 0. */
@@ -136,7 +179,7 @@
     /* FeatureList: one 'kern' feature. */
     buf.setUint16(featureListOff, 1);
     writeTag(buf, featureListOff + 2, 'kern');
-    buf.setUint16(featureListOff + 6, featureOff - featureListOff);
+    buf.setUint16(featureListOff + 6, checkU16(featureOff - featureListOff, 'featureOffset'));
 
     /* Feature: lookup 0. */
     buf.setUint16(featureOff, 0);
@@ -145,14 +188,18 @@
 
     /* LookupList + Lookup: one type-2 (PairPos) lookup. */
     buf.setUint16(lookupListOff, 1);
-    buf.setUint16(lookupListOff + 2, lookupOff - lookupListOff);
+    buf.setUint16(lookupListOff + 2, checkU16(lookupOff - lookupListOff, 'lookupOffset'));
     buf.setUint16(lookupOff, 2);
     buf.setUint16(lookupOff + 2, 0);
-    buf.setUint16(lookupOff + 4, 1);
-    buf.setUint16(lookupOff + 6, subOff - lookupOff);
+    buf.setUint16(lookupOff + 4, subCount);
+    for (let s = 0; s < subCount; s++) {
+      buf.setUint16(lookupOff + 6 + 2 * s, subRelOffsets[s]);
+    }
 
     const out = new Uint8Array(buf.buffer);
-    out.set(new Uint8Array(sub.buffer), subOff);
+    for (let s = 0; s < subCount; s++) {
+      out.set(subTables[s], subAbsOffsets[s]);
+    }
     return out;
   }
 
