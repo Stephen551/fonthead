@@ -93,6 +93,7 @@ left out — they live in CLAUDE.md, not here.
 | [0080](0080-mapping-check-folds-accent-bands.md) | Fold detached accent bands in preview row checks and normalize armed charsets | Accepted |
 | [0081](0081-mismatched-variation-sheets-build-without-them.md) | Build without a variation sheet whose row layout differs from the base, with a plain warning | Accepted |
 | [0082](0082-new-main-sheet-clears-variation-slots.md) | A single new main sheet clears the variation slots loaded for the old one | Accepted |
+| [0083](0083-row-shape-charset-match.md) | Offer a known charset in one tap when the sheet's row shape does not fit the charset in the box | Accepted |
 
 ## Format
 

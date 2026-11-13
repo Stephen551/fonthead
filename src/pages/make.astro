@@ -172,7 +172,7 @@ const faceCss = "@font-face{font-family:'Anton';src:url('/cdn/fonts/anton.woff2'
   </div>
 
   <script>
-    import { EXTENDED_LATIN_ROWS } from '../lib/charsets';
+    import { EXTENDED_LATIN_ROWS, MARK_PRESET_ROWS, SYMBOL_PRESET_ROWS } from '../lib/charsets';
     // Generate-a-sheet: four presets, each mapping to a maker build path
     // (standard -> mono, monoline -> single-line, flat/gradient -> color). Each
     // is a full prompt with one fill slot: standard takes a style, flat a palette,
@@ -411,16 +411,15 @@ Other requirements:
     // line, in the same order as the rows in the prompt above. Stashed when a
     // preset is used so the tracer can map a generated sheet against the
     // characters it actually contains instead of re-guessing them from shapes.
-    const ALPHA = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789'];
     const PRESET_CHARSETS: Record<Preset, string[]> = {
-      standard: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
+      standard: SYMBOL_PRESET_ROWS,
       'latin-ext': EXTENDED_LATIN_ROWS,
       // script's row 6 is the eval-calibrated 12-mark row (ADR 0053), not the
       // two exotic symbol rows: image models garble those on every sheet.
-      script: [...ALPHA, '.,!?:;\'"-&@#'],
-      monoline: [...ALPHA, '!?@#$%^&*()-_+=[]', '{};:\'",.<>/\\|'],
-      flat: [...ALPHA, '.,!?:;\'"-&@#'],
-      gradient: [...ALPHA, '.,!?:;\'"-&@#'],
+      script: MARK_PRESET_ROWS,
+      monoline: SYMBOL_PRESET_ROWS,
+      flat: MARK_PRESET_ROWS,
+      gradient: MARK_PRESET_ROWS,
     };
     const armCharset = (p: Preset) => {
       try {

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { LEGACY_ACCENT_ROWS } from './extended-latin-fixture';
 
 // Skip the maker onboarding modal so it does not block the maker.
 test.beforeEach(async ({ page }) => {
@@ -157,4 +158,41 @@ test('a shadow-bridged color sheet guesses every row with no charset armed', asy
   await expect(charsetBox(page)).toHaveValue(
     /^ABCDEFGHIJKLM\nNOPQRSTUVWXYZ\nabcdefghijklm\nnopqrstuvwxyz\n0123456789\n.+$/,
   );
+});
+
+// Row-shape charset match (ADR 0083). Before Oct 27 the latin-ext preset armed
+// the MAIN charset key with 7 accented rows, and the maker uses any non-ASCII
+// armed charset whatever the row count. A plain 3-row sheet then built against
+// 7 accented lines. Now the build waits and the maker is offered the layout the
+// rows actually fit.
+const THREE = ['ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz', '0123456789'];
+
+test('a sheet that does not fit the armed charset offers the layout its rows fit', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.goto('/make');
+  await page.locator('#sheet-file').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.evaluate((cs) => localStorage.setItem('fh-gen-charset', JSON.stringify(cs)), LEGACY_ACCENT_ROWS);
+  await feedSheet(page, THREE);
+  const prompt = page.getByRole('group', { name: 'Charset suggestion' });
+  await expect(prompt).toContainText('Looks like A to Z, a to z and 0 to 9. Use this charset?', { timeout: 60_000 });
+  // nothing changed and nothing built until the maker says so
+  await expect(charsetBox(page)).toHaveValue(LEGACY_ACCENT_ROWS.join('\n'));
+  await expect(page.getByRole('button', { name: 'download woff2', exact: true })).toHaveCount(0);
+  await prompt.getByRole('button', { name: 'use this charset' }).click();
+  await expect(charsetBox(page)).toHaveValue(THREE.join('\n'));
+  await expect(page.getByRole('button', { name: 'download woff2', exact: true })).toBeVisible({ timeout: 150_000 });
+  await expect(prompt).toHaveCount(0);
+  expect(await page.getByRole('alert').allTextContents()).toEqual([]);
+});
+
+test('keep mine dismisses the charset suggestion and leaves the box alone', async ({ page }) => {
+  await page.goto('/make');
+  await page.locator('#sheet-file').waitFor({ state: 'attached', timeout: 30_000 });
+  await page.evaluate((cs) => localStorage.setItem('fh-gen-charset', JSON.stringify(cs)), LEGACY_ACCENT_ROWS);
+  await feedSheet(page, THREE);
+  const prompt = page.getByRole('group', { name: 'Charset suggestion' });
+  await expect(prompt).toBeVisible({ timeout: 60_000 });
+  await prompt.getByRole('button', { name: 'keep mine' }).click();
+  await expect(prompt).toHaveCount(0);
+  await expect(charsetBox(page)).toHaveValue(LEGACY_ACCENT_ROWS.join('\n'));
 });
