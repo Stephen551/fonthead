@@ -43,7 +43,7 @@ import {
   type SlicerKind,
   type Glyph,
 } from '../lib/maker';
-import { mappingProblems, shortRowCharset } from '../lib/maker-checks';
+import { mappingProblems, parseArmedCharset, sheetRowCount, shortRowCharset } from '../lib/maker-checks';
 import { buildFailureMessage } from '../lib/build-failure';
 import BugReport from './BugReport';
 import ReviewPrompt from './ReviewPrompt';
@@ -224,7 +224,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [rowErr, setRowErr] = useState('');
   const [rowSlicerSel, setRowSlicerSel] = useState<Record<string, SlicerKind>>({});
   const traceOpts = { ...TRACE_PRESETS[preset], fineDetail };
-  const mappingErrors = mappingProblems(parseCharset(charsetText), sheet?.geom.rows.length);
+  const mappingErrors = mappingProblems(parseCharset(charsetText), sheet ? sheetRowCount(sheet.geom.rows.map(r => [r.y0, r.y1]), parseCharset(charsetText)) : undefined);
   const mappingChanged = kind !== builtKindRef.current || JSON.stringify(parseCharset(charsetText)) !== JSON.stringify(builtRowsRef.current);
   const publishBlocked = phase !== 'done' || editBusy || rowBusy !== null || !mappingConfirmed || mappingChanged ||
     mappingErrors.length > 0 || !fontChecks || fontChecks.missing.length > 0 || fontChecks.spacing.length > 0;
@@ -854,10 +854,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // was used: the exact characters that preset told the AI to draw.
   function readArmedCharset(key = 'fh-gen-charset'): string[] | null {
     try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return null;
-      const arr = JSON.parse(raw);
-      return Array.isArray(arr) && arr.length > 0 && arr.every((r) => typeof r === 'string') ? arr : null;
+      return parseArmedCharset(localStorage.getItem(key));
     } catch {
       return null;
     }
@@ -904,7 +901,7 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       lastImgRef.current = img;
       captureSheet(img);
       if (mappingProblems(charLines).length) {
-        setDetectedRows(geom.rows.length);
+        setDetectedRows(sheetRowCount(geom.rows.map(r => [r.y0, r.y1]), charLines));
         setPhase('idle');
         return;
       }

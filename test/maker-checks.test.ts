@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { mappingProblems, spacingProblems } from '../src/lib/maker-checks';
+import { mappingProblems, parseArmedCharset, sheetRowCount, spacingProblems } from '../src/lib/maker-checks';
+import { LEGACY_ACCENT_ROWS } from '../e2e/extended-latin-fixture';
 import { inspectBuiltFont } from '../src/lib/maker';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,6 +21,38 @@ describe('mapping checks', () => {
   it('accepts a correctly mapped compact alphabet and punctuation', () => {
     expect(mappingProblems(['ABCD', 'EFGH', 'IJKL', 'MNOP', 'QRST', 'UVWX', 'YZ!'], 7)).toEqual([]);
     expect(mappingProblems(['ABC', 'abc', '012'])).toEqual([]);
+  });
+});
+
+// Bands detectGeometry reads on e2e/fixtures/extended-latin-sheet.png:
+// row 1's floating accents come back as their own 31px band.
+const EXTENDED_LATIN_GEOM = [[55, 86], [87, 211], [262, 415], [469, 598], [706, 832], [913, 1036], [1121, 1251], [1329, 1458]];
+
+describe('sheet row count', () => {
+  it('folds a detached accent band into its row when the charset has accents', () => {
+    const rows = LEGACY_ACCENT_ROWS.map(r => r.normalize('NFD')); // the e2e arms NFD rows
+    expect(sheetRowCount(EXTENDED_LATIN_GEOM, rows)).toBe(7);
+    expect(mappingProblems(rows.map(r => r.normalize('NFC')), sheetRowCount(EXTENDED_LATIN_GEOM, rows))).toEqual([]);
+  });
+  it('still reports a real mismatch on a plain charset', () => {
+    const ascii = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', 'abcdefghijklm', 'nopqrstuvwxyz', '0123456789', '!?@#$%^&*()', '-_+=[];:,.'];
+    expect(sheetRowCount(EXTENDED_LATIN_GEOM, ascii)).toBe(8);
+    expect(mappingProblems(ascii, sheetRowCount(EXTENDED_LATIN_GEOM, ascii)).join()).toMatch(/8 detected rows/);
+  });
+});
+
+describe('armed charset', () => {
+  it('normalizes a decomposed (NFD) armed charset so the mapping check passes', () => {
+    const raw = JSON.stringify(LEGACY_ACCENT_ROWS.map(r => r.normalize('NFD')));
+    const rows = parseArmedCharset(raw)!;
+    expect(mappingProblems(rows)).toEqual([]);
+    expect(rows).toEqual(LEGACY_ACCENT_ROWS.map(r => r.normalize('NFC')));
+  });
+  it('rejects empty, malformed and non-string storage', () => {
+    expect(parseArmedCharset(null)).toBeNull();
+    expect(parseArmedCharset('not json')).toBeNull();
+    expect(parseArmedCharset('[]')).toBeNull();
+    expect(parseArmedCharset('[1,2]')).toBeNull();
   });
 });
 

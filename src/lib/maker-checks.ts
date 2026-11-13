@@ -1,3 +1,5 @@
+import { mergeAccentBands } from './accents';
+
 export const UNASSIGNED_CHAR = '□';
 
 /** A narrow grid is not evidence for an A-M/N-Z layout. Suggest consecutive
@@ -35,6 +37,27 @@ export function mappingProblems(lines: string[], detectedRows?: number): string[
   repeated.delete(UNASSIGNED_CHAR);
   if (repeated.size) problems.push(`Each character needs its own key. Repeated: ${[...repeated].join(' ')}`);
   return problems;
+}
+
+/** Rows the mapping check should count: detected bands with detached accent
+ *  bands folded into their letters, exactly as traceSheet does (ADR 0074). */
+export function sheetRowCount(bands: number[][], lines: string[]): number {
+  return mergeAccentBands(bands, lines.map(l => l.normalize('NFC'))).length;
+}
+
+/** The generator's armed charset from localStorage, NFC-normalized like every
+ *  other charset path (parseCharset, validateCharset), so a decomposed é never
+ *  reads as e plus a repeated combining mark. */
+export function parseArmedCharset(raw: string | null): string[] | null {
+  if (!raw) return null;
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) && arr.length > 0 && arr.every((r) => typeof r === 'string')
+      ? arr.map((r: string) => r.normalize('NFC'))
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface GlyphSpacing {

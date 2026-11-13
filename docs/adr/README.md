@@ -90,6 +90,7 @@ left out — they live in CLAUDE.md, not here.
 | [0077](0077-detached-descender-terminals.md) | Retain detached ornamental terminals alongside their descenders | Accepted |
 | [0078](0078-repair-clipped-supplement-descenders.md) | Restore clipped supplement descenders from matching intact base letters | Accepted |
 | [0079](0079-quantize-coordinates-all-builds.md) | Quantize coordinates before CFF export on non-connect builds | Accepted (supersedes 0069 scoping) |
+| [0080](0080-mapping-check-folds-accent-bands.md) | Fold detached accent bands in preview row checks and normalize armed charsets | Accepted |
 
 ## Format
 
