@@ -142,17 +142,17 @@ export interface AdviceInput {
 export function uploadAdvice({ signals, cellsPerRow, charLines, layoutSuggested }: AdviceInput): string[] {
   const out: string[] = [];
   if (signals && looksLikeScreenshot(signals)) {
-    out.push('This looks like a screenshot. The gray bars from the app get read as part of your sheet. Crop down to just the letters, or use a photo or scan of the page.');
+    out.push('This looks like a screenshot. The gray bars from the app get read as part of your sheet. Crop down to just the letters, or type them on a plain white page and export that.');
   }
   if (signals && isSmallSheet(signals)) {
-    out.push(`This image is only ${signals.width} × ${signals.height} pixels, so the letters can blur into each other. A bigger photo or scan will trace cleaner.`);
+    out.push(`This image is only ${signals.width} × ${signals.height} pixels, so the letters can blur into each other. Export it at a larger size, or zoom in before you take the screenshot.`);
   }
   const crowded = layoutSuggested ? [] : crowdedRows(cellsPerRow, charLines);
   if (crowded.length === 1) {
     const { row, chars, shapes } = crowded[0];
-    out.push(`Row ${row} has ${plural(chars, 'character', 'characters')} in the charset, but the maker only found ${plural(shapes, 'shape', 'shapes')} there. Letters that touch get read as one shape, so leave a little space between each one.`);
+    out.push(`Row ${row} has ${plural(chars, 'character', 'characters')} in the charset, but the maker only found ${plural(shapes, 'shape', 'shapes')} there. Letters that touch get read as one shape, so add some space between them. Turning up the letter spacing in your editor does it.`);
   } else if (crowded.length > 1) {
-    out.push(`${joinRows(crowded.map(c => c.row))} have far fewer shapes than characters in the charset. Letters that touch get read as one shape, so leave a little space between each one.`);
+    out.push(`${joinRows(crowded.map(c => c.row))} have far fewer shapes than characters in the charset. Letters that touch get read as one shape, so add some space between them. Turning up the letter spacing in your editor does it.`);
   }
   return out;
 }

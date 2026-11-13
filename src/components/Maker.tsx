@@ -1156,24 +1156,24 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         </div>
 
         {/* what works: shown before the first upload so visitors start with a
-            sheet the tracer is built for, not a screenshot (ADR 0084) */}
+            sheet the tracer is built for, typed or handwritten (ADR 0084) */}
         <div role="note" aria-label="What kind of sheet works" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
           {sampleThumb && (
             <img
               src={sampleThumb}
               width={120}
               alt={isColor
-                ? 'Sample sheet: color letters on white in three rows, A to Z, a to z and 0 to 9, with space around every letter'
-                : 'Sample sheet: dark letters on white in three rows, A to Z, a to z and 0 to 9, with space around every letter'}
+                ? 'Sample sheet: typed color letters on white in three rows, A to Z, a to z and 0 to 9, with space between every letter'
+                : 'Sample sheet: typed black letters on white in three rows, A to Z, a to z and 0 to 9, with space between every letter'}
               style={{ display: 'block', width: 120, height: 'auto', border: '1px solid var(--line)', borderRadius: 2, background: '#fff' }}
             />
           )}
           <p style={{ flex: '1 1 200px', fontSize: 12.5, lineHeight: 1.55, color: 'var(--ink-soft)', margin: 0 }}>
             <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink)', marginRight: 6 }}>what works</span>
             {isColor
-              ? 'Use color letters on a plain white background and give every letter a little room. '
-              : 'Write in dark ink on plain white paper and give every letter a little room. '}
-            Each row on the page should match a line in the charset below. Good light or a scanner helps, and app screenshots or tiny images usually trace badly.
+              ? 'Type each line of the charset below as its own row, in color on a plain white background, with a little space between letters. '
+              : 'Type each line of the charset below as its own row, in black on a plain white page, with a little space between letters. '}
+            Export or crop to just the letters at a good size, 1000 pixels wide or more. Handwriting works too: dark ink on white paper, in good light or scanned.
           </p>
         </div>
 

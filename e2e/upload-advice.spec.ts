@@ -66,7 +66,8 @@ async function feedSheet(page: Page, rows: string[], opts: { width?: number; chr
 test('the maker shows what kind of sheet works before any upload', async ({ page }) => {
   await page.goto('/make');
   const hint = page.getByRole('note', { name: 'What kind of sheet works' });
-  await expect(hint).toContainText('dark ink on plain white paper');
+  await expect(hint).toContainText('Type each line of the charset below as its own row');
+  await expect(hint).toContainText('Handwriting works too');
   await expect(hint.getByRole('img', { name: /^Sample sheet:/ })).toBeVisible({ timeout: 30_000 });
   await expect(advice(page)).toHaveCount(0);
 });

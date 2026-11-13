@@ -100,11 +100,14 @@ describe('upload advice', () => {
     expect(lines).toHaveLength(2);
     expect(lines[0]).toMatch(/^This looks like a screenshot\./);
     expect(lines[1]).toContain('296 × 571 pixels');
+    // the people filing reports type their letters, so the fixes are crop and export, not paper
+    expect(lines[0]).toContain('type them on a plain white page and export that');
+    expect(lines[1]).toContain('Export it at a larger size');
   });
 
   it('names the crowded row and says to leave space', () => {
     const [line] = uploadAdvice({ signals: clean, cellsPerRow: [1], charLines: ['ABC'], layoutSuggested: false });
-    expect(line).toBe('Row 1 has 3 characters in the charset, but the maker only found 1 shape there. Letters that touch get read as one shape, so leave a little space between each one.');
+    expect(line).toBe('Row 1 has 3 characters in the charset, but the maker only found 1 shape there. Letters that touch get read as one shape, so add some space between them. Turning up the letter spacing in your editor does it.');
   });
 
   it('groups several crowded rows into one line', () => {
