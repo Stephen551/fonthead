@@ -94,6 +94,7 @@ left out — they live in CLAUDE.md, not here.
 | [0081](0081-mismatched-variation-sheets-build-without-them.md) | Build without a variation sheet whose row layout differs from the base, with a plain warning | Accepted |
 | [0082](0082-new-main-sheet-clears-variation-slots.md) | A single new main sheet clears the variation slots loaded for the old one | Accepted |
 | [0083](0083-row-shape-charset-match.md) | Offer a known charset in one tap when the sheet's row shape does not fit the charset in the box | Accepted |
+| [0084](0084-upload-guidance-and-sheet-advice.md) | Show what kind of sheet works above the drop area, and give plain advice when an upload looks like a screenshot, is tiny, or has touching letters | Accepted |
 
 ## Format
 

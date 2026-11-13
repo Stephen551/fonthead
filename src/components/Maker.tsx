@@ -49,6 +49,7 @@ import BugReport from './BugReport';
 import ReviewPrompt from './ReviewPrompt';
 import { EXTENDED_LATIN_ROWS } from '../lib/charsets';
 import { suggestCharsetLayout } from '../lib/charset-layouts';
+import { flatBandShare, rgbaToGray, uploadAdvice, type SheetSignals } from '../lib/upload-advice';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
 type StageState = 'queued' | 'active' | 'done';
@@ -219,7 +220,9 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // the live preview face + its blob URL, so each new build/edit tears down the last
   const previewRef = useRef<{ face: FontFace; url: string } | null>(null);
   // the source sheet + detected geometry, drawn back so the user can confirm the cut
-  const [sheet, setSheet] = useState<{ url: string; w: number; h: number; rawW: number; rawH: number; geom: SheetGeometry } | null>(null);
+  const [sheet, setSheet] = useState<{ url: string; w: number; h: number; rawW: number; rawH: number; geom: SheetGeometry; signals: SheetSignals | null } | null>(null);
+  // small render of the built-in sample sheet, shown in the "what works" hint
+  const [sampleThumb, setSampleThumb] = useState('');
   const sheetImgRef = useRef<HTMLImageElement | ImageBitmap | null>(null);
   // mono per-row slicing: diagnostics + which row (if any) is being re-sliced
   const [monoSheets, setMonoSheets] = useState<{ label: string; rows: MonoRowInfo[] }[]>([]);
@@ -240,6 +243,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   // count and drop shadows skew its cell counts.
   const layoutSuggestion = !isColor && sheet ? suggestCharsetLayout(sheet.geom.rows.map((r) => r.cells.length), parseCharset(charsetText)) : null;
   const showLayoutPrompt = !!layoutSuggestion && !(keptCharset?.sheet === sheet && keptCharset.lines === layoutSuggestion.lines.join('\n'));
+  // Plain advice when the loaded sheet looks like a screenshot, is very small,
+  // or has rows with far fewer shapes than characters (ADR 0084). Shown beside
+  // the sheet; it never holds a build.
+  const sheetAdvice = sheet
+    ? uploadAdvice({ signals: sheet.signals, cellsPerRow: sheet.geom.rows.map((r) => r.cells.length), charLines: parseCharset(charsetText), layoutSuggested: showLayoutPrompt })
+    : [];
   const flaggedCount = report.filter((g) => g.status !== 'ok' || g.flags.length > 0).length;
 
   // Once the island hydrates, hide the server-rendered skeleton so the real
@@ -249,6 +258,34 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     if (sk) sk.hidden = true;
     track('make_view');
   }, []);
+
+  // Render the built-in sample sheet small for the "what works" hint, in the
+  // same face the sample build uses. A failure just leaves the hint text-only.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        await (document as any).fonts.load('700 130px "Anton"');
+      } catch {
+        /* fall back to system font */
+      }
+      try {
+        const full = isColor ? makeColorSampleSheet() : makeSampleSheet();
+        const c = document.createElement('canvas');
+        c.width = 360;
+        c.height = Math.round((full.height / full.width) * 360);
+        const cx = c.getContext('2d');
+        if (!cx) return;
+        cx.drawImage(full, 0, 0, c.width, c.height);
+        if (live) setSampleThumb(c.toDataURL('image/png'));
+      } catch {
+        /* the hint text still stands on its own */
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [isColor]);
 
   useEffect(() => {
     const sync = () => {
@@ -351,9 +388,16 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
       if (!cx) return;
       cx.drawImage(img as CanvasImageSource, 0, 0, cw, ch);
       const url = c.toDataURL('image/jpeg', 0.82);
+      let signals: SheetSignals | null = null;
+      try {
+        const px = cx.getImageData(0, 0, cw, ch).data;
+        signals = { width: iw, height: ih, flatBandShare: flatBandShare(rgbaToGray(px, cw, ch), cw, ch) };
+      } catch {
+        /* advice is optional */
+      }
       const armed = readArmedCharset();
       const geom = detectGeometry(img, isColor, isColor && armed ? armed.length : 0);
-      setSheet({ url, w: geom.w, h: geom.h, rawW: iw, rawH: ih, geom });
+      setSheet({ url, w: geom.w, h: geom.h, rawW: iw, rawH: ih, geom, signals });
     } catch {
       /* overlay is a nicety, not a gate */
     }
@@ -1111,6 +1155,28 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
           </span>
         </div>
 
+        {/* what works: shown before the first upload so visitors start with a
+            sheet the tracer is built for, not a screenshot (ADR 0084) */}
+        <div role="note" aria-label="What kind of sheet works" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          {sampleThumb && (
+            <img
+              src={sampleThumb}
+              width={120}
+              alt={isColor
+                ? 'Sample sheet: color letters on white in three rows, A to Z, a to z and 0 to 9, with space around every letter'
+                : 'Sample sheet: dark letters on white in three rows, A to Z, a to z and 0 to 9, with space around every letter'}
+              style={{ display: 'block', width: 120, height: 'auto', border: '1px solid var(--line)', borderRadius: 2, background: '#fff' }}
+            />
+          )}
+          <p style={{ flex: '1 1 200px', fontSize: 12.5, lineHeight: 1.55, color: 'var(--ink-soft)', margin: 0 }}>
+            <span className="fh-mono" style={{ fontSize: 11, color: 'var(--ink)', marginRight: 6 }}>what works</span>
+            {isColor
+              ? 'Use color letters on a plain white background and give every letter a little room. '
+              : 'Write in dark ink on plain white paper and give every letter a little room. '}
+            Each row on the page should match a line in the charset below. Good light or a scanner helps, and app screenshots or tiny images usually trace badly.
+          </p>
+        </div>
+
         <div
           ref={dropRef}
           onDragOver={(e) => {
@@ -1169,6 +1235,32 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             </label>
           </div>
         </div>
+
+        {sheetAdvice.length > 0 && (
+          <div
+            role="status"
+            aria-label="Sheet advice"
+            className="fh-mono"
+            style={{
+              marginTop: 12,
+              padding: '11px 13px',
+              borderRadius: 2,
+              background: 'var(--warn-bg)',
+              border: '1px solid var(--warn-line)',
+              color: 'var(--warn-ink)',
+              fontSize: 11.5,
+              lineHeight: 1.5,
+            }}
+          >
+            <div style={{ display: 'flex', gap: 9 }}>
+              <span aria-hidden="true">▲</span>
+              <span>This sheet might not trace well. The maker will still try.</span>
+            </div>
+            {sheetAdvice.map((line) => (
+              <p key={line} style={{ margin: '6px 0 0 20px' }}>{line}</p>
+            ))}
+          </div>
+        )}
 
         {!isColor && (
           <div role="group" aria-label="Accents sheet" style={{ marginTop: 18, border: '1px dashed var(--line-2)', borderRadius: 3, padding: 14, minWidth: 0 }}
