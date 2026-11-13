@@ -67,6 +67,15 @@ export function variationRowPlan(slot: number, detectedRows: number, baseLines: 
   };
 }
 
+/** Whether a drop on the main sheet input empties the natural-variation slots.
+ *  A single sheet (or any color drop) that replaces an existing base starts a
+ *  new font, so the variation sheets loaded for the old base go with it
+ *  (ADR 0082). Slots filled before any base exists were loaded for the sheet
+ *  being dropped now and stay; a multi-file drop refills the slots itself. */
+export function dropClearsVariationSlots(fileCount: number, isColor: boolean, hasBase: boolean): boolean {
+  return hasBase && (fileCount <= 1 || isColor);
+}
+
 /** The generator's armed charset from localStorage, NFC-normalized like every
  *  other charset path (parseCharset, validateCharset), so a decomposed é never
  *  reads as e plus a repeated combining mark. */

@@ -237,3 +237,23 @@ test('decorated seven-row sheets build a complete three-drawing variation font',
   await page.getByRole('textbox', { name: 'Type to preview your font' }).fill('BALLOON graffiti 0123456789');
   await page.screenshot({ path: 'test-results/graffiti-export/maker.png', fullPage: true });
 });
+
+// ADR 0082: a single new main sheet starts a new font, so the variation sheets
+// loaded for the old one are dropped instead of being traced against it (the
+// 2026-11-13 bug report's "A variation sheet has 2 rows" came from such a sheet).
+test('a new main sheet clears the old variation sheets', async ({ page }) => {
+  await page.goto('/make');
+  await page.locator('#sheet-file').setInputFiles([1, 2].map(n => `e2e/fixtures/graffiti-variation-${n}.png`));
+  const download = page.getByRole('button', { name: 'download woff2', exact: true });
+  await expect(download).toBeVisible({ timeout: 180_000 });
+  expect(await page.evaluate(() => (window as any).__lastBuild.variants)).toBe(1);
+
+  await page.locator('#sheet-file').setInputFiles('e2e/fixtures/graffiti-variation-1.png');
+  await expect(download).not.toBeVisible();
+  await expect(download).toBeVisible({ timeout: 120_000 });
+  expect(await page.evaluate(() => (window as any).__lastBuild.variants)).toBe(0);
+  await page.getByRole('button', { name: 'advanced' }).click();
+  for (const slot of [0, 1]) {
+    await expect(page.locator(`#variation-file-${slot}`).locator('..')).toContainText('choose a sheet');
+  }
+});

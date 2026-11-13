@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import { variationRowPlan } from '../src/lib/maker-checks';
+import { dropClearsVariationSlots, variationRowPlan } from '../src/lib/maker-checks';
 import { guessCharsetFromRows, mergeSliverBands } from '../src/lib/maker';
 
 function loadTracerCore(): any {
@@ -88,5 +88,18 @@ describe('variation sheet row mismatch (bug report 2026-11-13)', () => {
     expect(variationRowPlan(0, 5, base, base)).toEqual({ kind: 'match' });
     const guessed = ['ABCDEFGHIJKLM', 'NOPQRSTUVWXYZ', '0123456789'];
     expect(variationRowPlan(1, 3, base, guessed)).toEqual({ kind: 'shared', lines: guessed, sharedLines: guessed.slice(0, 2) });
+  });
+});
+
+describe('a new main sheet clears old variation slots (ADR 0082)', () => {
+  it('a single sheet replacing an existing base empties the slots', () => {
+    expect(dropClearsVariationSlots(1, false, true)).toBe(true);
+    expect(dropClearsVariationSlots(1, true, true)).toBe(true);
+    expect(dropClearsVariationSlots(3, true, true)).toBe(true); // color drops take only the first file
+  });
+
+  it('keeps slots loaded before the first base, and lets a multi-file drop refill them', () => {
+    expect(dropClearsVariationSlots(1, false, false)).toBe(false);
+    expect(dropClearsVariationSlots(3, false, true)).toBe(false);
   });
 });

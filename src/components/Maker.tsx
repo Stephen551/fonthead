@@ -43,7 +43,7 @@ import {
   type SlicerKind,
   type Glyph,
 } from '../lib/maker';
-import { mappingProblems, parseArmedCharset, sheetRowCount, shortRowCharset, variationRowPlan } from '../lib/maker-checks';
+import { dropClearsVariationSlots, mappingProblems, parseArmedCharset, sheetRowCount, shortRowCharset, variationRowPlan } from '../lib/maker-checks';
 import { buildFailureMessage } from '../lib/build-failure';
 import BugReport from './BugReport';
 import ReviewPrompt from './ReviewPrompt';
@@ -927,6 +927,16 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     buildBusyRef.current = true;
     setPhase('working');
     setResult(null);
+    if (dropClearsVariationSlots(list.length, isColor, !!lastImgRef.current)) {
+      // a new main sheet starts a new font: the variation sheets loaded for the
+      // old one go with it, while the natural variation toggle stays as set
+      variationImgsRef.current = [null, null];
+      setVariationNames([null, null]);
+      for (const slot of [0, 1]) {
+        const input = typeof document !== 'undefined' ? (document.getElementById(`variation-file-${slot}`) as HTMLInputElement | null) : null;
+        if (input) input.value = '';
+      }
+    }
     if (list.length <= 1 || isColor) {
       await onFile(list[0], source);
       buildBusyRef.current = false;
