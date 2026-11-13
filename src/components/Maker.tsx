@@ -48,6 +48,7 @@ import { buildFailureMessage } from '../lib/build-failure';
 import BugReport from './BugReport';
 import ReviewPrompt from './ReviewPrompt';
 import { EXTENDED_LATIN_ROWS } from '../lib/charsets';
+import { suggestCharsetLayout } from '../lib/charset-layouts';
 
 type Phase = 'idle' | 'working' | 'done' | 'error';
 type StageState = 'queued' | 'active' | 'done';
@@ -139,6 +140,8 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
   const [charsetText, setCharsetText] = useState(DEFAULT_CHAR_LINES.join('\n'));
   const [mappingConfirmed, setMappingConfirmed] = useState(false);
   const [mappingNotice, setMappingNotice] = useState('');
+  // a row-shape charset suggestion the maker chose to ignore for this sheet (ADR 0083)
+  const [keptCharset, setKeptCharset] = useState<{ sheet: unknown; lines: string } | null>(null);
   const [knownSample, setKnownSample] = useState(false);
   const [fontChecks, setFontChecks] = useState<BuiltFontChecks | null>(null);
   const builtRowsRef = useRef<string[]>([]);
@@ -231,6 +234,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
 
   const isColor = kind !== 'mono';
   const stages = isColor ? COLOR_STAGES : MONO_STAGES;
+  // Row-shape charset match (ADR 0083): when the sheet's rows and shapes per
+  // row do not fit the charset in the box but do fit a layout fonthead knows,
+  // offer that layout. Mono only: color geometry is forced to the armed row
+  // count and drop shadows skew its cell counts.
+  const layoutSuggestion = !isColor && sheet ? suggestCharsetLayout(sheet.geom.rows.map((r) => r.cells.length), parseCharset(charsetText)) : null;
+  const showLayoutPrompt = !!layoutSuggestion && !(keptCharset?.sheet === sheet && keptCharset.lines === layoutSuggestion.lines.join('\n'));
   const flaggedCount = report.filter((g) => g.status !== 'ok' || g.flags.length > 0).length;
 
   // Once the island hydrates, hide the server-rendered skeleton so the real
@@ -853,6 +862,18 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
     if (img) run(() => Promise.resolve(img));
   }
 
+  // The maker accepted the row-shape suggestion: swap the charset and rebuild
+  // the loaded sheet with it. This is the only path that applies a suggestion.
+  function applySuggestedCharset(lines: string[], label: string) {
+    if (buildBusyRef.current) return;
+    setCharsetText(lines.join('\n'));
+    setMappingNotice(`Charset set to ${label}. Check the letters against the sheet before publishing.`);
+    setMappingConfirmed(false);
+    setKnownSample(false);
+    const img = lastImgRef.current;
+    if (img) run(() => Promise.resolve(img), lines);
+  }
+
   // The charset stashed by the generate block (make.astro) when a preset prompt
   // was used: the exact characters that preset told the AI to draw.
   function readArmedCharset(key = 'fh-gen-charset'): string[] | null {
@@ -903,7 +924,12 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
         : 'The maker assigns keys by position. Check the original shapes against the suggested keys before publishing.');
       lastImgRef.current = img;
       captureSheet(img);
-      if (mappingProblems(charLines).length) {
+      // Hold the build when the charset is unusable, or when an armed charset
+      // does not fit the sheet's row shape and a known layout does: the maker
+      // picks in the prompt above the charset box instead of getting a
+      // misaligned font. A position guess still builds as before; the prompt
+      // shows beside its result (ADR 0083).
+      if (mappingProblems(charLines).length || (!isColor && charLines === armed && suggestCharsetLayout(cellsPerRow, charLines))) {
         setDetectedRows(sheetRowCount(geom.rows.map(r => [r.y0, r.y1]), charLines));
         setPhase('idle');
         return;
@@ -1236,6 +1262,21 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
               {parseCharset(charsetText).length} rows{detectedRows != null ? ` · ${detectedRows} detected` : ''}
             </span>
           </label>
+          {showLayoutPrompt && layoutSuggestion && (
+            <div role="group" aria-label="Charset suggestion" style={{ border: '1px solid var(--line-2)', padding: '10px 12px', marginBottom: 10 }}>
+              <p role="status" className="fh-mono" style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ink)', margin: 0 }}>
+                Looks like {layoutSuggestion.label}. Use this charset?
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                <button className="fh-btn" disabled={phase === 'working'} onClick={() => applySuggestedCharset(layoutSuggestion.lines, layoutSuggestion.label)}>
+                  use this charset
+                </button>
+                <button className="fh-btn fh-btn--ghost" onClick={() => setKeptCharset({ sheet, lines: layoutSuggestion.lines.join('\n') })}>
+                  keep mine
+                </button>
+              </div>
+            </div>
+          )}
           <textarea
             id="maker-charset"
             className="fh-input"
