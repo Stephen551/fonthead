@@ -45,6 +45,28 @@ export function sheetRowCount(bands: number[][], lines: string[]): number {
   return mergeAccentBands(bands, lines.map(l => l.normalize('NFC'))).length;
 }
 
+export type VariationRowPlan =
+  | { kind: 'match' }
+  | { kind: 'shared'; lines: string[]; sharedLines: string[] }
+  | { kind: 'skip'; warning: string };
+
+/** What to do with a natural-variation sheet whose traced row count differs
+ *  from the base mapping. A sheet whose geometry guess shares at least two rows
+ *  with the base mapping is traced against that guess and contributes those
+ *  rows. Anything else is a different layout (often a sheet left in a variation
+ *  slot from an earlier font), so it is left out of the build with a plain
+ *  warning rather than failing the base font (ADR 0081). */
+export function variationRowPlan(slot: number, detectedRows: number, baseLines: string[], guessedLines: string[]): VariationRowPlan {
+  if (detectedRows === baseLines.length) return { kind: 'match' };
+  const sharedLines = guessedLines.filter((line, idx) => line === baseLines[idx]);
+  if (guessedLines.length === detectedRows && sharedLines.length >= 2) return { kind: 'shared', lines: guessedLines, sharedLines };
+  const rowsWord = (n: number) => `${n} ${n === 1 ? 'row' : 'rows'}`;
+  return {
+    kind: 'skip',
+    warning: `Variation sheet ${slot + 2} has ${rowsWord(detectedRows)} but your sheet has ${baseLines.length}, so it was left out of this font. Remove it under natural variation, or use a variation sheet with the same rows.`,
+  };
+}
+
 /** The generator's armed charset from localStorage, NFC-normalized like every
  *  other charset path (parseCharset, validateCharset), so a decomposed é never
  *  reads as e plus a repeated combining mark. */

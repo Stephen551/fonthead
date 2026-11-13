@@ -43,7 +43,7 @@ import {
   type SlicerKind,
   type Glyph,
 } from '../lib/maker';
-import { mappingProblems, parseArmedCharset, sheetRowCount, shortRowCharset } from '../lib/maker-checks';
+import { mappingProblems, parseArmedCharset, sheetRowCount, shortRowCharset, variationRowPlan } from '../lib/maker-checks';
 import { buildFailureMessage } from '../lib/build-failure';
 import BugReport from './BugReport';
 import ReviewPrompt from './ReviewPrompt';
@@ -506,19 +506,22 @@ export default function Maker({ signedIn = false }: { signedIn?: boolean }) {
             if (vtrace.detectedRows !== rows.length) {
               if (vtrace.glyphs.length) popLastVariantSheet();
               const vgeom = detectGeometry(vimg, false);
-              const vGuessed = guessCharsetFromRows(vgeom.rows.map((r) => r.cells.length));
-              const sharedLines = vGuessed.filter((line, idx) => line === rows[idx]);
-              if (vGuessed.length === vtrace.detectedRows && sharedLines.length >= 2) {
-                vtrace = await traceSheet(vimg, vGuessed, effTraceOpts, (_step, message) =>
+              const plan = variationRowPlan(slot, vtrace.detectedRows, rows, guessCharsetFromRows(vgeom.rows.map((r) => r.cells.length)));
+              if (plan.kind === 'skip') {
+                // a different layout (often a sheet left in a slot from an earlier
+                // font): build without it and say so, instead of failing the base
+                warn = [warn, plan.warning].filter(Boolean).join(' ');
+                continue;
+              }
+              if (plan.kind === 'shared') {
+                vtrace = await traceSheet(vimg, plan.lines, effTraceOpts, (_step, message) =>
                   setStage(2, `sheet ${tracingSheet}/${sheetCount} · ${message}`), 'variation');
-                const allowedChars = new Set(sharedLines.flatMap((line) => Array.from(line)));
+                const allowedChars = new Set(plan.sharedLines.flatMap((line) => Array.from(line)));
                 usedGlyphs = vtrace.glyphs.filter((g) => allowedChars.has(g.char));
                 warn = [
                   warn,
-                  `Variation sheet ${slot + 2} has ${vtrace.detectedRows} rows (${rows.length} on base); used its ${sharedLines.length} matching rows.`,
+                  `Variation sheet ${slot + 2} has ${vtrace.detectedRows} rows (${rows.length} on base); used its ${plan.sharedLines.length} matching rows.`,
                 ].filter(Boolean).join(' ');
-              } else {
-                throw new Error(`A variation sheet has ${vtrace.detectedRows} rows, but the mapping has ${rows.length}. Use sheets with the same row layout.`);
               }
             }
             tracedRows += vtrace.rows.length;
