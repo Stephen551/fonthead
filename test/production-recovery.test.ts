@@ -141,7 +141,8 @@ describe('Cluster A: stack-safe OpenType serialization on extreme contour counts
     expect(eng.validateFont(ttf).ok).toBe(true);
     const parsedTtf = eng.opentype.parse(ttf.buffer.slice(ttf.byteOffset, ttf.byteOffset + ttf.byteLength));
     expect(parsedTtf.charToGlyph('A').path.commands.length).toBeGreaterThan(12_000);
-  }, 30_000);
+  // CI runners took about 40 s for this 15,000-segment OTF + TTF compilation.
+  }, 120_000);
 });
 
 describe('Cluster A: camera illumination normalization and tabletop border stripping', () => {
