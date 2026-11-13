@@ -65,7 +65,7 @@ function coordsOf(commands: Array<{ type: string; x?: number; y?: number; x1?: n
   return pts;
 }
 
-describe('CFF coordinate quantization across all build modes', () => {
+describe('CFF coordinate quantization across build modes', () => {
   const origWorker = globalThis.Worker;
   const w = window as any;
   const origOt = w.opentype;
@@ -146,7 +146,7 @@ describe('CFF coordinate quantization across all build modes', () => {
     }
   }
 
-  it('rounds both X and Y before CFF export for connected cursive builds', async () => {
+  it('keeps X and Y unrounded before CFF export for connected cursive builds', async () => {
     const glyphs: Glyph[] = [
       makeWaveGlyph('a'),
       makeWaveGlyph('n'),
@@ -155,17 +155,24 @@ describe('CFF coordinate quantization across all build modes', () => {
     ];
 
     const res = await buildFont(glyphs, {
-      family: 'ConnectedQuant',
+      family: 'ConnectedUnquant',
       connect: true,
       formats: ['otf'],
     });
 
     expect(res.otf).toBeDefined();
     expect(captured.length).toBeGreaterThanOrEqual(1);
-    const { payload, preFont } = captured[captured.length - 1];
-    verifyQuantized(res.otf!, preFont, ['a', 'n', 'o', 'x']);
-    expect(payload.quantizeX).toBe(true);
-    expect(payload.quantizeY).toBe(true);
+    for (const entry of captured) {
+      expect(entry.payload.quantizeX).toBe(false);
+      expect(entry.payload.quantizeY).toBe(false);
+    }
+    const { preFont } = captured[captured.length - 1];
+    for (const ch of ['a', 'n', 'o', 'x']) {
+      const sentPts = coordsOf(preFont.charToGlyph(ch).path.commands);
+      expect(sentPts.length).toBeGreaterThan(100);
+      expect(sentPts.some(([x]) => !Number.isInteger(x))).toBe(true);
+      expect(sentPts.some(([, y]) => !Number.isInteger(y))).toBe(true);
+    }
   });
 
   it('rounds both X and Y before CFF export for flourish-trimmed upright builds', async () => {

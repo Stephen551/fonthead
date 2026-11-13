@@ -89,7 +89,7 @@ left out — they live in CLAUDE.md, not here.
 | [0076](0076-height-aware-decorative-kerning.md) | Compare decorative kerning clearance at shared heights while preserving flourishes | Accepted |
 | [0077](0077-detached-descender-terminals.md) | Retain detached ornamental terminals alongside their descenders | Accepted |
 | [0078](0078-repair-clipped-supplement-descenders.md) | Restore clipped supplement descenders from matching intact base letters | Accepted |
-| [0079](0079-quantize-coordinates-all-builds.md) | Quantize coordinates before CFF export on all builds | Accepted (supersedes 0069 scoping) |
+| [0079](0079-quantize-coordinates-all-builds.md) | Quantize coordinates before CFF export on non-connect builds | Accepted (supersedes 0069 scoping) |
 
 ## Format
 
