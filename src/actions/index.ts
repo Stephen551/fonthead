@@ -5,6 +5,7 @@ import { ensureHandle, uniqueFontId, isAdminEmail, normalizeHandle, isValidHandl
 import { verifySfntChecksums } from '../lib/sfnt';
 import { isOtf, isTtf, isWoff2 } from '../lib/fontsig';
 import { imageExt, isPng, isJpeg, MIN_AVATAR_BYTES, MAX_AVATAR_BYTES, AVATAR_CONTENT_TYPE } from '../lib/imagesig';
+import { stripImageMetadata, ImageMetadataError } from '../lib/image-metadata';
 import { rateLimit } from '../lib/ratelimit';
 import { editedFontMeta } from '../lib/fonts';
 import { containsBannedWord } from '../lib/banned-words';
@@ -760,8 +761,9 @@ export const server = {
   }),
 
   // Edit the profile: display name, bio, and an optional avatar. The avatar is
-  // validated by magic bytes (no SVG) and size, written to R2 under avatars/<id>,
-  // then recorded on the user row. A failed row update drops the just-written
+  // validated by magic bytes (no SVG) and size, stripped of EXIF/XMP/text
+  // metadata (ADR 0085), written to R2 under avatars/<id>, then recorded on the
+  // user row. A failed row update drops the just-written
   // object, and a format change cleans up the previous key so nothing orphans.
   updateProfile: defineAction({
     accept: 'form',
@@ -796,8 +798,20 @@ export const server = {
         if (!ext) {
           throw new ActionError({ code: 'BAD_REQUEST', message: 'Avatar must be a PNG, JPEG, or WebP image.' });
         }
+        // Avatars are public, so never store the bytes as uploaded: a phone photo's
+        // EXIF can carry GPS coordinates. A file the stripper cannot walk is rejected.
+        let clean: Uint8Array;
+        try {
+          clean = stripImageMetadata(bytes, ext).bytes;
+        } catch (e) {
+          if (!(e instanceof ImageMetadataError)) throw e;
+          throw new ActionError({
+            code: 'BAD_REQUEST',
+            message: 'That image could not be read. Try saving it again as a PNG or JPEG.',
+          });
+        }
         newKey = `avatars/${userId}.${ext}`;
-        await env.FONTS.put(newKey, bytes, { httpMetadata: { contentType: AVATAR_CONTENT_TYPE[ext] } });
+        await env.FONTS.put(newKey, clean, { httpMetadata: { contentType: AVATAR_CONTENT_TYPE[ext] } });
       }
 
       const prev = await env.DB.prepare('SELECT image FROM "user" WHERE id = ?')
