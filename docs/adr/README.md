@@ -95,6 +95,7 @@ left out — they live in CLAUDE.md, not here.
 | [0082](0082-new-main-sheet-clears-variation-slots.md) | A single new main sheet clears the variation slots loaded for the old one | Accepted |
 | [0083](0083-row-shape-charset-match.md) | Offer a known charset in one tap when the sheet's row shape does not fit the charset in the box | Accepted |
 | [0084](0084-upload-guidance-and-sheet-advice.md) | Show what kind of sheet works above the drop area, and give plain advice when an upload looks like a screenshot, is tiny, or has touching letters | Accepted |
+| [0085](0085-strip-avatar-metadata.md) | Strip location and other metadata from avatars on the server, redraw them in the browser before upload, and a dry-run backfill script for stored avatars | Accepted |
 
 ## Format
 

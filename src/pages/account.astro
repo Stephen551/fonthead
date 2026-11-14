@@ -176,6 +176,7 @@ const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;'
 <script>
   import { authClient } from '../lib/auth-client';
   import { actions } from 'astro:actions';
+  import { MIN_AVATAR_BYTES } from '../lib/imagesig';
 
   const byId = (id: string) => document.getElementById(id);
   const msg = byId('msg') as HTMLElement;
@@ -193,6 +194,31 @@ const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;'
     const wrap = byId('avatarwrap') as HTMLElement;
     wrap.innerHTML = `<img src="${url}" alt="" style="width:100%;height:100%;object-fit:cover;" />`;
   });
+
+  // Redraw the chosen avatar through a canvas before upload (ADR 0085): this
+  // drops EXIF (including GPS), bakes in the photo's rotation, and caps the long
+  // edge at 512 px so phone photos upload small. The server strips metadata too;
+  // if the browser cannot decode the file, the original goes up and the server
+  // decides.
+  async function redrawAvatar(file: File): Promise<Blob> {
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 512 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bmp.width * scale));
+      c.height = Math.max(1, Math.round(bmp.height * scale));
+      const cx = c.getContext('2d');
+      if (!cx) return file;
+      cx.drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close();
+      const blob = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/webp', 0.9));
+      // A 1-pixel image can encode below the server's minimum size; send the
+      // original then (the server still strips it).
+      return blob && blob.size >= MIN_AVATAR_BYTES ? blob : file;
+    } catch {
+      return file;
+    }
+  }
 
   // live handle availability (only present when the handle is still editable)
   const handleInput = byId('handle') as HTMLInputElement | null;
@@ -233,7 +259,7 @@ const fieldLabel = 'font-size:11px;color:var(--ink-faint);letter-spacing:.06em;'
     fd.set('name', (byId('name') as HTMLInputElement).value.trim());
     fd.set('bio', (byId('bio') as HTMLTextAreaElement).value.trim());
     const file = avatarInput?.files?.[0];
-    if (file) fd.set('avatar', file);
+    if (file) fd.set('avatar', await redrawAvatar(file), 'avatar');
     const { error } = await actions.updateProfile(fd);
     if (error) return setMsg(error.message || 'could not save', 'var(--signal)');
     window.location.reload();
