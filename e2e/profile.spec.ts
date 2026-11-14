@@ -1,8 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// A tiny but real 1x1 PNG (~70 bytes), enough to pass the magic-byte + size gates.
+// A tiny but real 1x1 PNG (70 bytes), enough to pass the magic-byte + size gates.
+// Its IDAT length must match its data (13 bytes): the avatar metadata stripper
+// (ADR 0085) walks the chunks and rejects a PNG whose lengths don't add up.
 const PNG_1x1 = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
   'base64',
 );
 
